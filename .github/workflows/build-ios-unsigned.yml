@@ -2,12 +2,12 @@ name: Build unsigned iOS IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'ClipHarbor/**'
-      - 'ClipHarbor.xcodeproj/**'
-      - '.github/workflows/build-ios-unsigned.yml'
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'ClipHarbor/**'
+  #     - 'ClipHarbor.xcodeproj/**'
+  #     - '.github/workflows/build-ios-unsigned.yml'
 
 permissions:
   contents: read
