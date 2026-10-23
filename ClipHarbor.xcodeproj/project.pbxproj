@@ -1,0 +1,188 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0898AF3A44F159BF103401D4 /* build ClipHarborApp.swift */ = {isa = PBXBuildFile; fileRef = 6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */; };
+		92C38201D75C5FE43FCD1599 /* build BrowserScreen.swift */ = {isa = PBXBuildFile; fileRef = 0D047473E568AC548C5292BF /* file BrowserScreen.swift */; };
+		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
+		3509B4FBFD67A8DAAA7C9653 /* build MediaCandidate.swift */ = {isa = PBXBuildFile; fileRef = 0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */; };
+		8BDC5AED0CBC0E8B39D94BEF /* build DownloadCenter.swift */ = {isa = PBXBuildFile; fileRef = 0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipHarborApp.swift; sourceTree = "<group>"; };
+		0D047473E568AC548C5292BF /* file BrowserScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserScreen.swift; sourceTree = "<group>"; };
+		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
+		0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCandidate.swift; sourceTree = "<group>"; };
+		0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadCenter.swift; sourceTree = "<group>"; };
+		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		7FEFA489E25E19BEF8A8A2A9 /* main group */ = {
+			isa = PBXGroup;
+			children = (500A096B8A0044C96F4B0E55 /* source group */, 828132AE302825007DC2C140 /* product group */, );
+			sourceTree = "<group>";
+		};
+		500A096B8A0044C96F4B0E55 /* source group */ = {
+			isa = PBXGroup;
+			children = (
+				6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */,
+				0D047473E568AC548C5292BF /* file BrowserScreen.swift */,
+				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
+				0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */,
+				0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */,
+			);
+			path = ClipHarbor;
+			sourceTree = "<group>";
+		};
+		828132AE302825007DC2C140 /* product group */ = {
+			isa = PBXGroup;
+			children = (83A5DD8EBAFB93BC34E3AB4F /* product app */, );
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0E8A3AD980EC179856012B7E /* target */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 20BA35986C8D108192A74E6F /* target configs */;
+			buildPhases = (1CE6DC2571680BAD24FA2D71 /* sources phase */, );
+			buildRules = ();
+			dependencies = ();
+			name = ClipHarbor;
+			productReference = 83A5DD8EBAFB93BC34E3AB4F /* product app */;
+			productName = ClipHarbor;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		98F54143AB4E86B28C3AFEE0 /* project */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {0E8A3AD980EC179856012B7E /* target */ = {CreatedOnToolsVersion = 16.0; }; };
+			};
+			buildConfigurationList = FA52021448A4AC7DE6CD200E /* project configs */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ja;
+			hasScannedForEncodings = 0;
+			knownRegions = (ja, en, Base, );
+			mainGroup = 7FEFA489E25E19BEF8A8A2A9 /* main group */;
+			productRefGroup = 828132AE302825007DC2C140 /* product group */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (0E8A3AD980EC179856012B7E /* target */, );
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1CE6DC2571680BAD24FA2D71 /* sources phase */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0898AF3A44F159BF103401D4 /* build ClipHarborApp.swift */,
+				92C38201D75C5FE43FCD1599 /* build BrowserScreen.swift */,
+				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
+				3509B4FBFD67A8DAAA7C9653 /* build MediaCandidate.swift */,
+				8BDC5AED0CBC0E8B39D94BEF /* build DownloadCenter.swift */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		CACD8F8D7E01D03300A42FA5 /* project Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_VERSION = 5.0;
+				SDKROOT = iphoneos;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				ENABLE_TESTABILITY = YES;
+			};
+			name = Debug;
+		};
+		B2C3C6A624C4C8479FDD1FBF /* project Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				SWIFT_VERSION = 5.0;
+				SDKROOT = iphoneos;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				ENABLE_TESTABILITY = NO;
+			};
+			name = Release;
+		};
+		1BA2A0D92BE8C4CB7BC99606 /* target Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 1.0;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClipHarbor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Debug;
+		};
+		60BA48D99B3C23F8993C3458 /* target Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				MARKETING_VERSION = 1.0;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClipHarbor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		FA52021448A4AC7DE6CD200E /* project configs */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (CACD8F8D7E01D03300A42FA5 /* project Debug */, B2C3C6A624C4C8479FDD1FBF /* project Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		20BA35986C8D108192A74E6F /* target configs */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (1BA2A0D92BE8C4CB7BC99606 /* target Debug */, 60BA48D99B3C23F8993C3458 /* target Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 98F54143AB4E86B28C3AFEE0 /* project */;
+}

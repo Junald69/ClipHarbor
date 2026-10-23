@@ -1,0 +1,65 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'ClipHarbor/**'
+      - 'ClipHarbor.xcodeproj/**'
+      - '.github/workflows/build-ios-unsigned.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version and SDKs
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcodebuild -list -project ClipHarbor.xcodeproj
+
+      - name: Build for generic iOS device without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ClipHarbor.xcodeproj \
+            -scheme ClipHarbor \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/ClipHarbor.app"
+          test -d "$APP"
+          STAGE="$RUNNER_TEMP/ClipHarborIPA"
+          mkdir -p "$STAGE/Payload"
+          ditto "$APP" "$STAGE/Payload/ClipHarbor.app"
+          cd "$STAGE"
+          zip -qry "$GITHUB_WORKSPACE/ClipHarbor-unsigned.ipa" Payload
+          unzip -l "$GITHUB_WORKSPACE/ClipHarbor-unsigned.ipa" | head -n 30
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipHarbor-unsigned-ipa
+          path: ClipHarbor-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
