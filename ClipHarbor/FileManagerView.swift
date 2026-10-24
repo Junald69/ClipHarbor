@@ -6,6 +6,7 @@ import AVKit
 struct FileManagerView: View {
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var folderManager: VideoFolderManager
+    var onOpenSourcePage: ((URL) -> Void)? = nil
     @ObservedObject private var exports = VideoExportManager.shared
     @Environment(\.dismiss) private var dismiss
 
@@ -23,6 +24,7 @@ struct FileManagerView: View {
     @State private var renameVideoInput = ""
     @State private var movingVideo: SavedVideo?
     @State private var errorMessage: String?
+    @State private var copyNotice: String?
 
     private var currentVideos: [SavedVideo] {
         folderManager.videos(in: selectedFilter)
@@ -30,36 +32,56 @@ struct FileManagerView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if !downloads.jobs.isEmpty {
-                    Section("ダウンロード状況") {
-                        ForEach(downloads.jobs) { job in
-                            SimpleDownloadJobRow(
-                                job: job,
-                                onCancel: { downloads.cancel(job.id) },
-                                onRetry: { downloads.retry(job.id) },
-                                onDismiss: { downloads.dismissJob(job.id) }
-                            )
+            ZStack(alignment: .top) {
+                List {
+                    if !downloads.jobs.isEmpty {
+                        Section("ダウンロード状況") {
+                            ForEach(downloads.jobs) { job in
+                                SimpleDownloadJobRow(
+                                    job: job,
+                                    onCancel: { downloads.cancel(job.id) },
+                                    onRetry: { downloads.retry(job.id) },
+                                    onDismiss: { downloads.dismissJob(job.id) }
+                                )
+                            }
                         }
                     }
-                }
 
-                if !exports.exportJobs.isEmpty {
-                    Section("MP4変換状況") {
-                        ForEach(exports.exportJobs) { job in
-                            FMP4ExportJobRow(
-                                job: job,
-                                onCancel: { exports.cancelExport(job.id) },
-                                onDismiss: { exports.dismissExportJob(job.id) }
-                            )
+                    if !exports.exportJobs.isEmpty {
+                        Section("MP4変換状況") {
+                            ForEach(exports.exportJobs) { job in
+                                FMP4ExportJobRow(
+                                    job: job,
+                                    onCancel: { exports.cancelExport(job.id) },
+                                    onDismiss: { exports.dismissExportJob(job.id) }
+                                )
+                            }
                         }
                     }
+
+                    foldersSection
+                    videosSection
+                    pocVerificationSection
                 }
 
-                foldersSection
-                videosSection
-                pocVerificationSection
+                if let notice = copyNotice {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(notice)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+                }
             }
+            .animation(.easeInOut(duration: 0.25), value: copyNotice)
             .navigationTitle("フォルダ・動画管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -279,7 +301,24 @@ struct FileManagerView: View {
                             renameVideoInput = video.title
                             renamingVideo = video
                         },
-                        onDelete: { folderManager.deleteVideo(video) }
+                        onDelete: { folderManager.deleteVideo(video) },
+                        onOpenSourcePage: { url in
+                            onOpenSourcePage?(url)
+                            dismiss()
+                        },
+                        onCopySourcePageURL: { urlString in
+                            UIPasteboard.general.string = urlString
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                copyNotice = "元ページのURLをコピーしました"
+                            }
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    copyNotice = nil
+                                }
+                            }
+                        }
                     )
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
@@ -504,6 +543,18 @@ private struct FolderVideoRow: View {
     let onMove: () -> Void
     let onRename: () -> Void
     let onDelete: () -> Void
+    let onOpenSourcePage: (URL) -> Void
+    let onCopySourcePageURL: (String) -> Void
+
+    private var validatedSourcePageURL: URL? {
+        guard let raw = video.sourcePageURL,
+              let rawURL = URL(string: raw),
+              let sanitized = SourceURLPolicy.sanitize(rawURL),
+              let url = URL(string: sanitized) else {
+            return nil
+        }
+        return url
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -564,6 +615,18 @@ private struct FolderVideoRow: View {
                 Menu {
                     Button(action: onPlay) {
                         Label("再生", systemImage: "play.fill")
+                    }
+                    if let validURL = validatedSourcePageURL {
+                        Button {
+                            onOpenSourcePage(validURL)
+                        } label: {
+                            Label("元のWebページを開く", systemImage: "arrow.up.right.square")
+                        }
+                        Button {
+                            onCopySourcePageURL(validURL.absoluteString)
+                        } label: {
+                            Label("元ページのURLをコピー", systemImage: "doc.on.doc")
+                        }
                     }
                     Button(action: onMove) {
                         Label("フォルダへ移動", systemImage: "folder")

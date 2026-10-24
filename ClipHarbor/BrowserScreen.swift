@@ -28,6 +28,7 @@ private struct ActiveBrowserContainer: View {
     @State private var savingCandidate: MediaCandidate?
     @State private var showCandidateList = false
     @State private var showDownloads = false
+    @State private var pendingSourceURL: URL?
     @State private var showMenu = false
     @State private var showTabSwitcher = false
     @State private var unsupportedMessage: String?
@@ -79,8 +80,19 @@ private struct ActiveBrowserContainer: View {
                 savingCandidate = candidate
             }
         }
-        .sheet(isPresented: $showDownloads) {
-            FileManagerView(downloads: downloads, folderManager: folderManager)
+        .sheet(isPresented: $showDownloads, onDismiss: {
+            if let url = pendingSourceURL {
+                pendingSourceURL = nil
+                handleOpenURLInNewTab(url)
+            }
+        }) {
+            FileManagerView(
+                downloads: downloads,
+                folderManager: folderManager,
+                onOpenSourcePage: { url in
+                    pendingSourceURL = url
+                }
+            )
         }
         .sheet(isPresented: $showMenu) {
             BrowserMenuSheet(
@@ -295,6 +307,19 @@ private struct ActiveBrowserContainer: View {
             savingCandidate = only
         } else {
             showCandidateList = true
+        }
+    }
+
+    private func handleOpenURLInNewTab(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else {
+            return
+        }
+        if tabManager.canCreateNewTab {
+            tabManager.createNewTab(url: url)
+        } else {
+            browser.showNotice("タブ上限（\(TabManager.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
         }
     }
 
