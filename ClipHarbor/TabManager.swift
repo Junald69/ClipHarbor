@@ -197,12 +197,18 @@ final class TabManager: ObservableObject {
         setupTab(newTab)
         tabs.append(newTab)
         activeTabID = newTab.id // didSet により scheduleSave() が発火
+        if isPrivateMode {
+            isPrivateMode = false
+        }
         return newTab
     }
 
     /// 指定IDのタブをアクティブにする（WebViewの再生成や再読み込みは行わない）
     func selectTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
+        if isPrivateMode {
+            isPrivateMode = false
+        }
         guard activeTabID != id else { return }
         activeTab.captureSnapshot()
         activeTabID = id // didSet により scheduleSave() が発火
@@ -254,12 +260,18 @@ final class TabManager: ObservableObject {
         setupTab(newTab)
         privateTabs.append(newTab)
         activePrivateTabID = newTab.id
+        if !isPrivateMode {
+            isPrivateMode = true
+        }
         return newTab
     }
 
     /// 指定IDのプライベートタブをアクティブにする
     func selectPrivateTab(id: UUID) {
         guard privateTabs.contains(where: { $0.id == id }) else { return }
+        if !isPrivateMode {
+            isPrivateMode = true
+        }
         guard activePrivateTabID != id else { return }
         activeTab.captureSnapshot()
         activePrivateTabID = id
@@ -340,8 +352,8 @@ final class TabManager: ObservableObject {
     // MARK: - 内部処理と永続化
 
     private func setupTab(_ tab: BrowserModel) {
-        tab.onNavigationFinished = { [weak self] in
-            guard let self = self else { return }
+        tab.onNavigationFinished = { [weak self, weak tab] in
+            guard let self = self, let tab = tab else { return }
             if !tab.isPrivate {
                 self.scheduleSave()
             }

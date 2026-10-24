@@ -131,6 +131,7 @@ private struct ActiveBrowserContainer: View {
         }) {
             BrowserMenuSheet(
                 browser: browser,
+                tabManager: tabManager,
                 downloads: downloads,
                 exports: exports,
                 onOpenCandidateList: {
@@ -147,6 +148,12 @@ private struct ActiveBrowserContainer: View {
                 },
                 onOpenBookmarks: {
                     pendingMenuAction = { showBookmarks = true }
+                    showMenu = false
+                },
+                onOpenPrivateTab: {
+                    pendingMenuAction = {
+                        handleOpenPrivateTab()
+                    }
                     showMenu = false
                 }
             )
@@ -243,6 +250,12 @@ private struct ActiveBrowserContainer: View {
     private var addressBarUpperTier: some View {
         if browser.isEditingAddress {
             HStack(spacing: 6) {
+                if browser.isPrivate {
+                    Image(systemName: "eyeglasses")
+                        .font(.caption)
+                        .foregroundStyle(.purple)
+                }
+
                 Image(systemName: "magnifyingglass")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -285,6 +298,12 @@ private struct ActiveBrowserContainer: View {
             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         } else {
             HStack(spacing: 8) {
+                if browser.isPrivate {
+                    Image(systemName: "eyeglasses")
+                        .font(.caption)
+                        .foregroundStyle(.purple)
+                }
+
                 Image(systemName: browser.isSecurePage ? "lock.fill" : "globe")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -487,14 +506,35 @@ private struct ActiveBrowserContainer: View {
               let host = url.host, !host.isEmpty else {
             return
         }
-        if tabManager.canCreateNewTab {
-            tabManager.createNewTab(url: url)
+        if browser.isPrivate {
+            if tabManager.canCreateNewPrivateTab {
+                tabManager.createPrivateTab(url: url)
+            } else {
+                browser.showNotice("プライベートタブ上限（\(TabManager.maxPrivateTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            }
         } else {
-            browser.showNotice("タブ上限（\(TabManager.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            if tabManager.canCreateNewTab {
+                tabManager.createNewTab(url: url)
+            } else {
+                browser.showNotice("タブ上限（\(TabManager.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            }
+        }
+    }
+
+    private func handleOpenPrivateTab() {
+        if tabManager.canCreateNewPrivateTab {
+            if let newTab = tabManager.createPrivateTab() {
+                tabManager.selectPrivateTab(id: newTab.id)
+            }
+        } else {
+            browser.showNotice("プライベートタブ上限（\(TabManager.maxPrivateTabs)件）に達しているため、新しいプライベートタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
         }
     }
 
     private func startDownload(candidate: MediaCandidate, displayName: String, folderName: String) {
+        if browser.isPrivate {
+            browser.showNotice("💡 保存動画および保存元URLは端末ストレージに保存されます。")
+        }
         browser.makeRequestContext { context in
             let jobID = downloads.start(candidate, displayName: displayName, context: context)
             folderManager.registerPendingFolder(folderName, forJobID: jobID)
@@ -519,6 +559,9 @@ private struct ActiveBrowserContainer: View {
     /// 「MP4として保存」：VideoExportManagerで変換・品質検証し、合格時のみDocuments/Downloads（または選択フォルダ）へ保存・一覧登録する。
     /// 保存先フォルダはファイルの配置場所で決まるため、DownloadCenterのonVideoSaved（フォルダ移動）は経由しない。
     private func startMP4Export(candidate: MediaCandidate, displayName: String, folderName: String) {
+        if browser.isPrivate {
+            browser.showNotice("💡 保存動画および保存元URLは端末ストレージに保存されます。")
+        }
         browser.makeRequestContext { context in
             _ = exports.startFMP4Export(
                 candidate: candidate,
@@ -647,16 +690,17 @@ private struct ActiveBrowserContainer: View {
                     Image(systemName: "square.on.square")
                         .frame(minWidth: 44, minHeight: 44)
 
-                    Text("\(tabManager.count)")
+                    let currentCount = browser.isPrivate ? tabManager.privateCount : tabManager.count
+                    Text("\(currentCount)")
                         .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
-                        .background(Color.blue, in: Capsule())
+                        .background(browser.isPrivate ? Color.indigo : Color.blue, in: Capsule())
                         .foregroundStyle(.white)
                         .offset(x: 10, y: 4)
                 }
             }
-            .accessibilityLabel("タブ (\(tabManager.count)件)")
+            .accessibilityLabel(browser.isPrivate ? "プライベートタブ (\(tabManager.privateCount)件)" : "タブ (\(tabManager.count)件)")
         }
         .font(.title3)
         .buttonStyle(.plain)
@@ -668,6 +712,7 @@ private struct ActiveBrowserContainer: View {
 
 struct BrowserMenuSheet: View {
     @ObservedObject var browser: BrowserModel
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var exports: VideoExportManager
     @ObservedObject private var historyManager = HistoryManager.shared
@@ -676,6 +721,7 @@ struct BrowserMenuSheet: View {
     let onOpenDownloads: () -> Void
     let onOpenHistory: () -> Void
     let onOpenBookmarks: () -> Void
+    let onOpenPrivateTab: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -749,8 +795,13 @@ struct BrowserMenuSheet: View {
                     }
                 }
 
-                Section("ブックマーク") {
+                Section {
                     Button {
+                        if browser.isPrivate {
+                            dismiss()
+                            browser.showNotice("プライベートブラウジング中は、プライバシー保護のためブックマークの登録・解除は無効化されています。")
+                            return
+                        }
                         let targetURL = browser.currentURL
                         let targetTitle = browser.pageTitle
                         dismiss()
@@ -761,7 +812,7 @@ struct BrowserMenuSheet: View {
                             systemImage: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark"
                         )
                     }
-                    .disabled(!isCurrentPageValidURL)
+                    .disabled(browser.isPrivate || !isCurrentPageValidURL)
 
                     Button(action: onOpenBookmarks) {
                         HStack {
@@ -774,9 +825,15 @@ struct BrowserMenuSheet: View {
                             }
                         }
                     }
+                } header: {
+                    Text("ブックマーク")
+                } footer: {
+                    if browser.isPrivate {
+                        Text("※プライベートブラウジング中はブックマーク登録が無効化されます。")
+                    }
                 }
 
-                Section("履歴") {
+                Section {
                     Button(action: onOpenHistory) {
                         HStack {
                             Label("履歴", systemImage: "clock")
@@ -788,17 +845,29 @@ struct BrowserMenuSheet: View {
                             }
                         }
                     }
+                } header: {
+                    Text("履歴")
+                } footer: {
+                    if browser.isPrivate {
+                        Text("※プライベートタブでの閲覧履歴は一切保存されません。")
+                    }
                 }
 
                 Section {
-                    HStack {
-                        Label("プライベートタブ", systemImage: "eye.slash")
-                        Spacer()
-                        Text("Step 7で実装予定")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    Button(action: onOpenPrivateTab) {
+                        HStack {
+                            Label(
+                                browser.isPrivate ? "新しいプライベートタブを開く" : "プライベートタブを開く",
+                                systemImage: "eyeglasses"
+                            )
+                            Spacer()
+                            if tabManager.privateCount > 0 {
+                                Text("\(tabManager.privateCount)件")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .foregroundStyle(.secondary)
 
                     HStack {
                         Label("設定", systemImage: "gearshape")
@@ -809,9 +878,9 @@ struct BrowserMenuSheet: View {
                     }
                     .foregroundStyle(.secondary)
                 } header: {
-                    Text("準備中の機能（将来のアップデート）")
+                    Text("ブラウズ機能")
                 } footer: {
-                    Text("プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
+                    Text("プライベートモードでは閲覧履歴を残さず、Cookieやキャッシュもタブ終了時に消去されます。")
                 }
             }
             .navigationTitle("メニュー")
