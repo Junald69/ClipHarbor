@@ -4,10 +4,13 @@ import WebKit
 /// WKWebViewのブラウズと、ページ内のHTML5動画の状態管理を担当する。
 /// 暗号化/DRMの解除、通信内容の強制傍受、保護されたAPIへのアクセスは行わない。
 @MainActor
-final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     static let homeURL = URL(string: "https://www.google.com/")!
 
-    @Published var address = BrowserModel.homeURL.absoluteString
+    let id: UUID
+    let initialURL: URL
+
+    @Published var address: String
     @Published var pageTitle = "ClipHarbor"
     @Published var canGoBack = false
     @Published var canGoForward = false
@@ -21,12 +24,22 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     @Published var notice: String?
 
     var isEditingAddress = false
+    private(set) var isWebViewCreated = false
+    private(set) var isTornDown = false
     private var noticeTask: Task<Void, Never>?
     private var progressObservation: NSKeyValueObservation?
     private static let maxVideos = 50
     private static let maxResources = 50
 
+    init(id: UUID = UUID(), initialURL: URL = BrowserModel.homeURL) {
+        self.id = id
+        self.initialURL = initialURL
+        self.address = initialURL.absoluteString
+        super.init()
+    }
+
     lazy var webView: WKWebView = {
+        isWebViewCreated = true
         let controller = WKUserContentController()
         // ページのJavaScriptから隔離されたワールドで監視する（ページ側が偽のメッセージを送れない）
         controller.add(self, contentWorld: .defaultClient, name: MediaScannerScript.handlerName)
@@ -49,7 +62,7 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             let value = webView.estimatedProgress
             Task { @MainActor in self?.loadingProgress = value }
         }
-        view.load(URLRequest(url: Self.homeURL))
+        view.load(URLRequest(url: initialURL))
         return view
     }()
 
@@ -149,6 +162,34 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
             guard !Task.isCancelled else { return }
             self?.notice = nil
         }
+    }
+
+    // MARK: - 複数タブ管理用ライフサイクル（明示的なタブ破棄）
+
+    /// TabManager等から明示的にタブを閉じる際に呼び出される破棄処理。
+    /// - 複数回呼ばれても安全な冪等処理（guard !isTornDown）。
+    /// - 未生成のlazy var webViewを誤って初期化・生成しない（guard isWebViewCreated）。
+    /// - WKUserContentControllerのScriptMessageHandlerおよびKVO・delegateを確実に解除し、強参照循環とメモリリークを防ぐ。
+    func teardown() {
+        guard !isTornDown else { return }
+        isTornDown = true
+
+        noticeTask?.cancel()
+        noticeTask = nil
+
+        progressObservation?.invalidate()
+        progressObservation = nil
+
+        guard isWebViewCreated else { return }
+
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+
+        let controller = webView.configuration.userContentController
+        controller.removeScriptMessageHandler(forName: MediaScannerScript.handlerName, contentWorld: .defaultClient)
+
+        resetPageState()
     }
 
     private func resetPageState() {
