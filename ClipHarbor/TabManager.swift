@@ -2,11 +2,71 @@ import Foundation
 import SwiftUI
 import WebKit
 
-/// 複数タブのライフサイクル（生成・切り替え・削除・上限管理）を担当するマネージャー。
+/// タブ復元用の最小限の永続化レコード
+struct SavedTabItem: Codable, Equatable, Sendable {
+    let id: UUID
+    let urlString: String
+    let title: String
+}
+
+/// セッション全体の永続化レコード
+struct TabSessionRecord: Codable, Sendable {
+    let activeTabID: UUID
+    let tabs: [SavedTabItem]
+}
+
+/// タブ永続化用のURL安全性ポリシー。
+/// - http/https スキームのみ許可。
+/// - 認証情報（username/password）を完全除去。
+/// - token, signature, session 等の一時的な認証・署名クエリパラメータを平文保存しないよう除外。
+/// - 検索クエリ（q）や動画ID（v, id）等の通常ページへの再訪問に必要なパラメータ・パスは完全に保持。
+/// - ログイン・OAuth専用URLは除外。
+enum TabURLPolicy {
+    private static let sensitiveQueryKeys: Set<String> = [
+        "token", "access_token", "auth_token", "auth", "signature", "sig",
+        "session", "session_id", "jsessionid", "phpsessid", "aspsessionid",
+        "bearer", "api_key", "apikey", "secret", "jwt", "code"
+    ]
+
+    static func sanitizeForTabRestore(_ url: URL) -> URL? {
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        // 1. 認証情報（username / password）の除去
+        components.user = nil
+        components.password = nil
+
+        // 2. ログイン・OAuth認証専用パスの除外
+        let lowerPath = components.path.lowercased()
+        if lowerPath.contains("/oauth") || lowerPath.contains("/signin") || lowerPath.contains("/login") {
+            return nil
+        }
+
+        // 3. トークン・署名・セッションクエリの除去（検索クエリや動画IDパラメータ等は維持）
+        if let queryItems = components.queryItems, !queryItems.isEmpty {
+            let filtered = queryItems.filter { item in
+                !sensitiveQueryKeys.contains(item.name.lowercased())
+            }
+            components.queryItems = filtered.isEmpty ? nil : filtered
+        }
+
+        guard let cleanURL = components.url else { return nil }
+        guard cleanURL.absoluteString.count <= 2048 else { return nil }
+        return cleanURL
+    }
+}
+
+/// 複数タブのライフサイクル（生成・切り替え・削除・上限管理・自動永続化・復元）を担当するマネージャー。
 /// - 各タブは独立した BrowserModel インスタンスとして保持される。
 /// - 通常タブ間では既存の WKWebsiteDataStore.default() を共有し、同一セッション・ログイン状態を維持する。
 /// - タブ切り替え時は既存の BrowserModel および WKWebView を再利用し、破棄や再読み込みを行わない。
-/// - タブ削除時のみ BrowserModel.teardown() を呼び出し、强参照循環やメモリリークを防止する。
+/// - タブ削除時のみ BrowserModel.teardown() を呼び出し、強参照循環やメモリリークを防止する。
+/// - アプリ終了・再起動後もタブ数・順序・URL・タイトル・アクティブタブを `Library/Application Support/ClipHarbor/tabs.json` から自動復元。
+/// - 非アクティブタブは lazy var webView により遅延ロードされ、起動時の過剰なメモリ・通信消費を防ぐ。
 @MainActor
 final class TabManager: ObservableObject {
     /// 安全のためのタブ上限数（過剰なメモリ消費を防止）
@@ -20,6 +80,7 @@ final class TabManager: ObservableObject {
         didSet {
             if oldValue != activeTabID {
                 handleActiveTabChanged(from: oldValue, to: activeTabID)
+                scheduleSave()
             }
         }
     }
@@ -34,6 +95,7 @@ final class TabManager: ObservableObject {
         }
         // 万が一空の場合は新しいホームタブを生成して復旧
         let fallback = BrowserModel()
+        setupTab(fallback)
         tabs = [fallback]
         activeTabID = fallback.id
         return fallback
@@ -49,10 +111,42 @@ final class TabManager: ObservableObject {
         tabs.count
     }
 
+    /// 非同期保存用直列キュー（FIFO実行により順序を保証）
+    private let saveQueue = DispatchQueue(label: "com.clipharbor.tabmanager.save", qos: .utility)
+
+    /// 保存先ディレクトリ（Library/Application Support/ClipHarbor）
+    private static var storageDirectoryURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("ClipHarbor", isDirectory: true)
+    }
+
+    /// 保存先JSONファイルURL
+    private static var sessionFileURL: URL {
+        storageDirectoryURL.appendingPathComponent("tabs.json", isDirectory: false)
+    }
+
     init() {
-        let initialTab = BrowserModel()
-        self.tabs = [initialTab]
-        self.activeTabID = initialTab.id
+        let restored = Self.loadSessionFromDisk()
+        if let (restoredTabs, restoredActiveID) = restored, !restoredTabs.isEmpty {
+            self.tabs = restoredTabs
+            self.activeTabID = restoredActiveID
+        } else {
+            let initialTab = BrowserModel()
+            self.tabs = [initialTab]
+            self.activeTabID = initialTab.id
+        }
+
+        for tab in self.tabs {
+            setupTab(tab)
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.saveImmediately()
+        }
     }
 
     // MARK: - タブ操作API
@@ -63,8 +157,9 @@ final class TabManager: ObservableObject {
         guard canCreateNewTab else { return nil }
         activeTab.captureSnapshot()
         let newTab = BrowserModel(initialURL: url)
+        setupTab(newTab)
         tabs.append(newTab)
-        activeTabID = newTab.id
+        activeTabID = newTab.id // didSet により scheduleSave() が発火
         return newTab
     }
 
@@ -73,7 +168,7 @@ final class TabManager: ObservableObject {
         guard tabs.contains(where: { $0.id == id }) else { return }
         guard activeTabID != id else { return }
         activeTab.captureSnapshot()
-        activeTabID = id
+        activeTabID = id // didSet により scheduleSave() が発火
     }
 
     /// 指定IDのタブを明示的に閉じる
@@ -99,14 +194,127 @@ final class TabManager: ObservableObject {
         // 最後のタブを閉じた場合は空画面にせず、新しいホームタブを作成
         if tabs.isEmpty {
             let freshTab = BrowserModel()
+            setupTab(freshTab)
             tabs = [freshTab]
             activeTabID = freshTab.id
         }
+
+        scheduleSave()
     }
 
-    // MARK: - 内部処理
+    // MARK: - 内部処理と永続化
+
+    private func setupTab(_ tab: BrowserModel) {
+        tab.onNavigationFinished = { [weak self] in
+            self?.scheduleSave()
+        }
+    }
 
     private func handleActiveTabChanged(from oldID: UUID, to newID: UUID) {
         // 将来のステップでタブ非アクティブ化時のサムネイル記録や音声制御を安全にフック可能
+    }
+
+    /// 非同期保存をスケジュール（直列キューでFIFO実行）
+    func scheduleSave() {
+        guard let record = createSessionRecord() else { return }
+        let dirURL = Self.storageDirectoryURL
+        let fileURL = Self.sessionFileURL
+
+        saveQueue.async {
+            Self.writeRecord(record, dirURL: dirURL, fileURL: fileURL)
+        }
+    }
+
+    /// アプリバックグラウンド移行時の即時保存（UIBackgroundTaskIdentifierにより非同期完了を保証し、メインスレッドのブロッキングやデッドロックを防止）
+    func saveImmediately() {
+        guard let record = createSessionRecord() else { return }
+        let dirURL = Self.storageDirectoryURL
+        let fileURL = Self.sessionFileURL
+
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "com.clipharbor.tabmanager.save") {
+            UIApplication.shared.endBackgroundTask(bgTask)
+            bgTask = .invalid
+        }
+
+        saveQueue.async {
+            Self.writeRecord(record, dirURL: dirURL, fileURL: fileURL)
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+        }
+    }
+
+    private func createSessionRecord() -> TabSessionRecord? {
+        // 将来のプライベートタブは永続化対象外
+        let regularTabs = tabs.filter { !$0.isPrivate }
+        guard !regularTabs.isEmpty else { return nil }
+
+        let snapshotTabs: [SavedTabItem] = regularTabs.map { tab in
+            let validURL = TabURLPolicy.sanitizeForTabRestore(tab.currentURL) ?? BrowserModel.homeURL
+            return SavedTabItem(
+                id: tab.id,
+                urlString: validURL.absoluteString,
+                title: tab.pageTitle
+            )
+        }
+
+        let safeActiveID = regularTabs.contains(where: { $0.id == activeTabID }) ? activeTabID : regularTabs.first!.id
+        return TabSessionRecord(activeTabID: safeActiveID, tabs: snapshotTabs)
+    }
+
+    private static func writeRecord(_ record: TabSessionRecord, dirURL: URL, fileURL: URL) {
+        do {
+            if !FileManager.default.fileExists(atPath: dirURL.path) {
+                try FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+            }
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            let data = try encoder.encode(record)
+            // .atomic により書き込み途中の破損を防止
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            // ログ出力・クラッシュを回避
+        }
+    }
+
+    private static func loadSessionFromDisk() -> (tabs: [BrowserModel], activeID: UUID)? {
+        let fileURL = sessionFileURL
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let record = try JSONDecoder().decode(TabSessionRecord.self, from: data)
+            let safeItems = Array(record.tabs.prefix(maxTabs))
+            guard !safeItems.isEmpty else { return nil }
+
+            var restoredModels: [BrowserModel] = []
+            for item in safeItems {
+                let targetURL: URL
+                if let url = URL(string: item.urlString),
+                   let clean = TabURLPolicy.sanitizeForTabRestore(url) {
+                    targetURL = clean
+                } else {
+                    targetURL = BrowserModel.homeURL
+                }
+                let model = BrowserModel(id: item.id, initialURL: targetURL, initialTitle: item.title)
+                restoredModels.append(model)
+            }
+
+            let activeID: UUID
+            if restoredModels.contains(where: { $0.id == record.activeTabID }) {
+                activeID = record.activeTabID
+            } else {
+                activeID = restoredModels.first!.id
+            }
+
+            return (restoredModels, activeID)
+        } catch {
+            // 破損JSON読み込み失敗時は既存ファイルを空JSONで上書きせず安全に無視
+            return nil
+        }
     }
 }

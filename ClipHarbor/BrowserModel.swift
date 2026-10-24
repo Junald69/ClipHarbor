@@ -28,6 +28,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     var isEditingAddress = false
     /// プライベートブラウズモード（将来のプライベートタブ用。trueの場合、閲覧履歴は一切記録されない）
     var isPrivate: Bool = false
+    /// ナビゲーション完了時（通常遷移およびSPA遷移）の通知コールバック（TabManager等のセッション同期用）
+    var onNavigationFinished: (() -> Void)? = nil
     private(set) var isWebViewCreated = false
     private(set) var isTornDown = false
     private var noticeTask: Task<Void, Never>?
@@ -35,10 +37,19 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     private static let maxVideos = 50
     private static let maxResources = 50
 
-    init(id: UUID = UUID(), initialURL: URL = BrowserModel.homeURL) {
+    /// 現在のタブのURL（WebView未生成時は初期URL）
+    var currentURL: URL {
+        if isWebViewCreated, let url = webView.url, url.scheme?.lowercased() != "about" {
+            return url
+        }
+        return initialURL
+    }
+
+    init(id: UUID = UUID(), initialURL: URL = BrowserModel.homeURL, initialTitle: String = "") {
         self.id = id
         self.initialURL = initialURL
         self.address = initialURL.absoluteString
+        self.pageTitle = initialTitle
         super.init()
     }
 
@@ -199,6 +210,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         guard !isTornDown else { return }
         isTornDown = true
 
+        onNavigationFinished = nil
         snapshot = nil
 
         noticeTask?.cancel()
@@ -262,6 +274,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         isLoading = false
         updateNavigation(webView)
         recordHistoryIfEligible()
+        onNavigationFinished?()
         // 読み込み完了後にサムネイルを非同期更新
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.captureSnapshot()
@@ -304,6 +317,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
                 resetPageState()
                 updateNavigation(webView)
                 recordHistoryIfEligible()
+                onNavigationFinished?()
             }
         default:
             break
