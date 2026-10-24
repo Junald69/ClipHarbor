@@ -10,6 +10,8 @@ struct BrowserScreen: View {
     @State private var savingCandidate: MediaCandidate?
     @State private var showCandidateList = false
     @State private var showDownloads = false
+    @State private var showMenu = false
+    @State private var showTabInfo = false
     @State private var unsupportedMessage: String?
     @FocusState private var addressFocused: Bool
 
@@ -60,6 +62,28 @@ struct BrowserScreen: View {
         }
         .sheet(isPresented: $showDownloads) {
             FileManagerView(downloads: downloads, folderManager: folderManager)
+        }
+        .sheet(isPresented: $showMenu) {
+            BrowserMenuSheet(
+                browser: browser,
+                downloads: downloads,
+                exports: exports,
+                onOpenCandidateList: {
+                    showMenu = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showCandidateList = true
+                    }
+                },
+                onOpenDownloads: {
+                    showMenu = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        showDownloads = true
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showTabInfo) {
+            SimpleTabInfoSheet(browser: browser)
         }
         .alert(
             "この動画は保存できません",
@@ -331,7 +355,10 @@ struct BrowserScreen: View {
 
     private var bottomToolbar: some View {
         HStack {
-            Button { browser.goBack() } label: {
+            // 1. 戻る（chevron.left）
+            Button {
+                browser.goBack()
+            } label: {
                 Image(systemName: "chevron.left")
                     .frame(minWidth: 44, minHeight: 44)
             }
@@ -340,16 +367,10 @@ struct BrowserScreen: View {
 
             Spacer()
 
-            Button { browser.goForward() } label: {
-                Image(systemName: "chevron.right")
-                    .frame(minWidth: 44, minHeight: 44)
-            }
-            .disabled(!browser.canGoForward)
-            .accessibilityLabel("進む")
-
-            Spacer()
-
-            Button { browser.goHome() } label: {
+            // 2. ホーム（house）
+            Button {
+                browser.goHome()
+            } label: {
                 Image(systemName: "house")
                     .frame(minWidth: 44, minHeight: 44)
             }
@@ -357,42 +378,244 @@ struct BrowserScreen: View {
 
             Spacer()
 
-            Button { showCandidateList = true } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.down.circle")
-                    if !browser.candidateRows.isEmpty {
-                        Text("\(browser.candidateRows.count)")
-                            .font(.caption2.weight(.bold))
-                    }
-                }
-                .frame(minWidth: 44, minHeight: 44)
+            // 3. メニュー（line.3.horizontal）
+            Button {
+                showMenu = true
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .frame(minWidth: 44, minHeight: 44)
             }
-            .disabled(!browser.hasAnyMedia)
-            .accessibilityLabel("動画の候補一覧")
+            .accessibilityLabel("メニュー")
 
             Spacer()
 
-            Button { showDownloads = true } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "folder")
-                    if downloads.activeCount + exports.activeCount > 0 {
-                        Text("\(downloads.activeCount + exports.activeCount)")
-                            .font(.caption2.weight(.bold))
+            // 4. ダウンロード（arrow.down.to.line）
+            Button {
+                showDownloads = true
+            } label: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "arrow.down.to.line")
+                        .frame(minWidth: 44, minHeight: 44)
+
+                    let totalActive = downloads.activeCount + exports.activeCount
+                    if totalActive > 0 {
+                        Text("\(totalActive)")
+                            .font(.system(size: 11, weight: .bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(.blue, in: Capsule())
                             .foregroundStyle(.white)
+                            .offset(x: 10, y: 4)
                     }
                 }
-                .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("ダウンロード一覧")
+            .accessibilityLabel("ダウンロード・保存動画")
+
+            Spacer()
+
+            // 5. タブ（square.on.square）
+            Button {
+                showTabInfo = true
+            } label: {
+                ZStack {
+                    Image(systemName: "square.on.square")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+            }
+            .accessibilityLabel("タブ")
         }
         .font(.title3)
         .buttonStyle(.plain)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
         .padding(.vertical, 4)
         .background(.bar)
+    }
+}
+
+// MARK: - メニューシート（進む・再読み込み・動画候補一覧・将来機能の明示）
+
+struct BrowserMenuSheet: View {
+    @ObservedObject var browser: BrowserModel
+    @ObservedObject var downloads: DownloadCenter
+    @ObservedObject var exports: VideoExportManager
+    let onOpenCandidateList: () -> Void
+    let onOpenDownloads: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("ページ操作") {
+                    Button {
+                        dismiss()
+                        browser.goForward()
+                    } label: {
+                        Label("進む", systemImage: "chevron.right")
+                    }
+                    .disabled(!browser.canGoForward)
+
+                    Button {
+                        dismiss()
+                        browser.reload()
+                    } label: {
+                        Label("再読み込み", systemImage: "arrow.clockwise")
+                    }
+
+                    Button {
+                        dismiss()
+                        browser.goHome()
+                    } label: {
+                        Label("ホームへ移動", systemImage: "house")
+                    }
+                }
+
+                Section("動画とダウンロード") {
+                    Button(action: onOpenCandidateList) {
+                        HStack {
+                            Label("動画の候補一覧", systemImage: "film.stack")
+                            Spacer()
+                            if !browser.candidateRows.isEmpty {
+                                Text("\(browser.candidateRows.count)件")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(!browser.hasAnyMedia)
+
+                    Button(action: onOpenDownloads) {
+                        HStack {
+                            Label("保存動画・フォルダ管理", systemImage: "arrow.down.to.line")
+                            Spacer()
+                            let activeCount = downloads.activeCount + exports.activeCount
+                            if activeCount > 0 {
+                                Text("\(activeCount)件処理中")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Label("履歴", systemImage: "clock")
+                        Spacer()
+                        Text("Step 5で実装予定")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        Label("ブックマーク", systemImage: "bookmark")
+                        Spacer()
+                        Text("Step 6で実装予定")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        Label("プライベートタブ", systemImage: "eye.slash")
+                        Spacer()
+                        Text("Step 7で実装予定")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.secondary)
+
+                    HStack {
+                        Label("設定", systemImage: "gearshape")
+                        Spacer()
+                        Text("Step 8で実装予定")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .foregroundStyle(.secondary)
+                } header: {
+                    Text("準備中の機能（将来のアップデート）")
+                } footer: {
+                    Text("閲覧履歴・ブックマーク・プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
+                }
+            }
+            .navigationTitle("メニュー")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - 簡易タブ情報シート（単一タブ現在状態表示・複数タブ準備中案内）
+
+struct SimpleTabInfoSheet: View {
+    @ObservedObject var browser: BrowserModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("現在のタブ（1 / 1）") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(browser.pageTitle.isEmpty ? "名称未設定" : browser.pageTitle)
+                            .font(.headline)
+                            .lineLimit(2)
+
+                        Text(browser.address)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+
+                        HStack(spacing: 8) {
+                            if browser.isLoading {
+                                Label("読み込み中…", systemImage: "arrow.triangle.2.circlepath")
+                                    .font(.caption2)
+                                    .foregroundStyle(.blue)
+                            } else {
+                                Label("読み込み完了", systemImage: "checkmark.circle")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            if browser.hasAnyMedia {
+                                Text("· 動画候補: \(browser.candidateRows.count)件")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.top, 2)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("現在は単一タブで動作しています。")
+                            .font(.subheadline.weight(.medium))
+                        Text("複数タブの作成・切り替え・グリッド表示・復元機能は、次のステップ（Step 2 / Step 3）で実装されます。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("複数タブ機能について")
+                }
+            }
+            .navigationTitle("タブ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 
