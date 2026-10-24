@@ -22,6 +22,7 @@ files = [
     'RequestSecurity.swift',
     'HistoryManager.swift',
     'HistoryView.swift',
+    'BookmarkManager.swift',
     'FileNaming.swift',
 ]
 
