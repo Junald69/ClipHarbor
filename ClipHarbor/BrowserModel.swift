@@ -1,26 +1,6 @@
 import SwiftUI
 import WebKit
 
-/// WKWebViewのサブクラス。ウィンドウへの追加やSafe Area変更、レイアウト変化を検知して通知する。
-final class InsetObservingWebView: WKWebView {
-    var onInsetsChange: (() -> Void)?
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        onInsetsChange?()
-    }
-
-    override func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-        onInsetsChange?()
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        onInsetsChange?()
-    }
-}
-
 /// WKWebViewのブラウズと、ページ内のHTML5動画の状態管理を担当する。
 /// 暗号化/DRMの解除、通信内容の強制傍受、保護されたAPIへのアクセスは行わない。
 @MainActor
@@ -110,10 +90,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true
 
-        let view = InsetObservingWebView(frame: .zero, configuration: configuration)
-        view.onInsetsChange = { [weak self] in
-            self?.updateObscuredInsets()
-        }
+        let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -216,48 +193,6 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
         accumulatedDownwardScroll = 0
         accumulatedUpwardScroll = 0
-    }
-
-    /// iOS 26+ の WebKit obscuredContentInsets を更新（ステータスバー等の遮蔽領域を反映し、fixed/stickyヘッダーの配置を最適化）
-    func updateObscuredInsets(top: CGFloat? = nil) {
-        if #available(iOS 26.0, *) {
-            guard let window = webView.window ?? currentKeyWindow else { return }
-            let windowTopInset = window.safeAreaInsets.top
-            let baseTop = (top != nil && top! > 0) ? top! : windowTopInset
-            guard baseTop > 0 else {
-                if webView.obscuredContentInsets.top != 0 {
-                    webView.obscuredContentInsets = .zero
-                }
-                return
-            }
-
-            let frameMinY: CGFloat
-            if let viewWindow = webView.window, viewWindow === window {
-                frameMinY = webView.convert(webView.bounds, to: window).minY
-            } else {
-                frameMinY = 0
-            }
-
-            let effectiveTop = max(0, baseTop - max(0, frameMinY))
-            guard effectiveTop > 0 else {
-                if webView.obscuredContentInsets.top != 0 {
-                    webView.obscuredContentInsets = .zero
-                }
-                return
-            }
-
-            let current = webView.obscuredContentInsets
-            if abs(current.top - effectiveTop) > 0.5 {
-                webView.obscuredContentInsets = UIEdgeInsets(top: effectiveTop, left: 0, bottom: 0, right: 0)
-            }
-        }
-    }
-
-    private var currentKeyWindow: UIWindow? {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-        let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
-        return activeScene?.windows.first(where: { $0.isKeyWindow }) ?? activeScene?.windows.first
     }
 
     private func handleScroll(currentY: CGFloat, oldY: CGFloat, in scrollView: UIScrollView) {

@@ -39,64 +39,49 @@ private struct ActiveBrowserContainer: View {
     @State private var unsupportedMessage: String?
     @FocusState private var addressFocused: Bool
 
-    private var windowSafeAreaTop: CGFloat {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-        let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
-        let keyWindow = activeScene?.windows.first(where: { $0.isKeyWindow }) ?? activeScene?.windows.first
-        return keyWindow?.safeAreaInsets.top ?? 0
-    }
-
     var body: some View {
-        GeometryReader { windowGeo in
-            let safeAreaTop = max(windowGeo.safeAreaInsets.top, windowSafeAreaTop)
-            ZStack(alignment: .bottom) {
-                // 1. Webビュー（iOS 26+ は Edge-to-Edge + obscuredContentInsets、iOS 17-25 は上部Safe Area下配置）
-                if #available(iOS 26.0, *) {
-                    BrowserWebView(browser: browser, topInset: safeAreaTop)
-                        .id(browser.id)
-                        .ignoresSafeArea()
-                } else {
-                    BrowserWebView(browser: browser, topInset: 0)
-                        .id(browser.id)
-                        .ignoresSafeArea(.container, edges: .bottom)
-                }
+        ZStack(alignment: .bottom) {
+            // 1. Webビュー（上部Safe Area内配置でステータスバー重なりを防止、下部はEdge-to-Edgeでフローティングツールバーと自然に連携）
+            BrowserWebView(browser: browser)
+                .id(browser.id)
+                .ignoresSafeArea(.container, edges: .bottom)
 
-                // 2. 動画検出オーバーレイ（全画面座標）
-                videoDownloadOverlay(in: windowGeo.size)
-                    .ignoresSafeArea()
-
-                // 3. ページ読み込み進捗バー（ステータスバー直下に配置）
-                if browser.isLoading {
-                    VStack(spacing: 0) {
-                        ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
-                            .progressViewStyle(.linear)
-                            .tint(.blue)
-                        Spacer()
-                    }
-                }
-
-                // 4. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
-                if browser.isEditingAddress {
-                    Color.black.opacity(0.001)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            addressFocused = false
-                            browser.isEditingAddress = false
-                            browser.address = browser.currentURL.absoluteString
-                        }
-                }
-
-                // 5. 下部フローティング通知 & ツールバー（ホームインジケータ上に配置）
-                VStack(spacing: 6) {
-                    statusBanner
-                    floatingToolbar
-                }
+            // 2. 動画検出オーバーレイ（全画面座標、ボタン部分のみタップ判定）
+            GeometryReader { geo in
+                videoDownloadOverlay(in: geo.size)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemBackground).ignoresSafeArea())
+            .ignoresSafeArea(.container, edges: .bottom)
+
+            // 3. ページ読み込み進捗バー（ステータスバー直下に配置、タップ判定は背後に透過）
+            if browser.isLoading {
+                VStack(spacing: 0) {
+                    ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+
+            // 4. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
+            if browser.isEditingAddress {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        addressFocused = false
+                        browser.isEditingAddress = false
+                        browser.address = browser.currentURL.absoluteString
+                    }
+            }
+
+            // 5. 下部フローティング通知 & ツールバー（ホームインジケータ上に配置）
+            VStack(spacing: 6) {
+                statusBanner
+                floatingToolbar
+            }
         }
-        .ignoresSafeArea()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground).ignoresSafeArea())
         .onChange(of: addressFocused) { _, focused in
             browser.isEditingAddress = focused
             if focused {
@@ -343,28 +328,29 @@ private struct ActiveBrowserContainer: View {
 
     @ViewBuilder
     private func videoDownloadOverlay(in size: CGSize) -> some View {
-        let currentSelection = browser.selection
-        if let activeVideo = currentSelection.video, !activeVideo.isFullscreen {
-            if let anchor = overlayPosition(for: activeVideo, in: size) {
-                alohaDownloadButton(for: activeVideo, compact: true)
-                    .position(anchor)
-                    .transition(.scale.combined(with: .opacity))
-            } else {
-                // クロスオリジンiframe等で座標が取れない場合は右下に配置
-                alohaDownloadButton(for: activeVideo, compact: false)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        ZStack(alignment: .bottomTrailing) {
+            let currentSelection = browser.selection
+            if let activeVideo = currentSelection.video, !activeVideo.isFullscreen {
+                if let anchor = overlayPosition(for: activeVideo, in: size) {
+                    alohaDownloadButton(for: activeVideo, compact: true)
+                        .position(anchor)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    // クロスオリジンiframe等で座標が取れない場合は右下に配置
+                    alohaDownloadButton(for: activeVideo, compact: false)
+                        .padding(16)
+                        .padding(.bottom, browser.isToolbarHidden ? 34 : 110)
+                        .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
+                }
+            } else if currentSelection.isAmbiguous || browser.hasAnyMedia {
+                // 複数動画が同時再生されている場合、またはリソース候補のみ検出されている場合
+                fallbackOverlayButton
                     .padding(16)
                     .padding(.bottom, browser.isToolbarHidden ? 34 : 110)
                     .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
             }
-        } else if currentSelection.isAmbiguous || browser.hasAnyMedia {
-            // 複数動画が同時再生されている場合、またはリソース候補のみ検出されている場合
-            fallbackOverlayButton
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(16)
-                .padding(.bottom, browser.isToolbarHidden ? 34 : 110)
-                .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
         }
+        .frame(width: size.width, height: size.height, alignment: .bottomTrailing)
     }
 
     /// 動画の右上（シークバーや中央の再生ボタンを妨げない位置）の座標を計算する。
@@ -861,15 +847,11 @@ struct BrowserMenuSheet: View {
 
 private struct BrowserWebView: UIViewRepresentable {
     let browser: BrowserModel
-    var topInset: CGFloat = 0
 
     func makeUIView(context: Context) -> WKWebView {
-        let view = browser.webView
-        browser.updateObscuredInsets(top: topInset)
-        return view
+        browser.webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        browser.updateObscuredInsets(top: topInset)
     }
 }
