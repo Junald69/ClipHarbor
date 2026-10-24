@@ -26,6 +26,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     @Published private(set) var snapshot: UIImage?
 
     var isEditingAddress = false
+    /// プライベートブラウズモード（将来のプライベートタブ用。trueの場合、閲覧履歴は一切記録されない）
+    var isPrivate: Bool = false
     private(set) var isWebViewCreated = false
     private(set) var isTornDown = false
     private var noticeTask: Task<Void, Never>?
@@ -230,6 +232,12 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         if let title = webView.title, !title.isEmpty { pageTitle = title }
     }
 
+    private func recordHistoryIfEligible() {
+        guard !isPrivate, !isTornDown else { return }
+        guard let url = webView.url else { return }
+        HistoryManager.shared.recordVisit(url: url, title: pageTitle)
+    }
+
     // MARK: - WKNavigationDelegate
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -253,6 +261,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoading = false
         updateNavigation(webView)
+        recordHistoryIfEligible()
         // 読み込み完了後にサムネイルを非同期更新
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.captureSnapshot()
@@ -294,6 +303,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
             if isMainFrame {
                 resetPageState()
                 updateNavigation(webView)
+                recordHistoryIfEligible()
             }
         default:
             break

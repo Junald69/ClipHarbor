@@ -21,6 +21,7 @@
 		E8F2C3E6C77E698BFC62FC1A /* build DownloadModels.swift */ = {isa = PBXBuildFile; fileRef = A10968695F7FA3CCDAB8F7F9 /* file DownloadModels.swift */; };
 		8BDC5AED0CBC0E8B39D94BEF /* build DownloadCenter.swift */ = {isa = PBXBuildFile; fileRef = 0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */; };
 		08D2B76401FF47CE532E2317 /* build RequestSecurity.swift */ = {isa = PBXBuildFile; fileRef = 2C05202F371CBA1C35B9EBE7 /* file RequestSecurity.swift */; };
+		BBF7D21979299F6209C72B32 /* build HistoryManager.swift */ = {isa = PBXBuildFile; fileRef = F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */; };
 		19A2652C67790D1428C1F2A2 /* build FileNaming.swift */ = {isa = PBXBuildFile; fileRef = 1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */; };
 /* End PBXBuildFile section */
 
@@ -41,6 +42,7 @@
 		A10968695F7FA3CCDAB8F7F9 /* file DownloadModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadModels.swift; sourceTree = "<group>"; };
 		0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadCenter.swift; sourceTree = "<group>"; };
 		2C05202F371CBA1C35B9EBE7 /* file RequestSecurity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestSecurity.swift; sourceTree = "<group>"; };
+		F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryManager.swift; sourceTree = "<group>"; };
 		1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNaming.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -70,6 +72,7 @@
 				A10968695F7FA3CCDAB8F7F9 /* file DownloadModels.swift */,
 				0F6BA1C19EA2CED4DA6F610D /* file DownloadCenter.swift */,
 				2C05202F371CBA1C35B9EBE7 /* file RequestSecurity.swift */,
+				F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */,
 				1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */,
 			);
 			path = ClipHarbor;
@@ -138,6 +141,7 @@
 				E8F2C3E6C77E698BFC62FC1A /* build DownloadModels.swift */,
 				8BDC5AED0CBC0E8B39D94BEF /* build DownloadCenter.swift */,
 				08D2B76401FF47CE532E2317 /* build RequestSecurity.swift */,
+				BBF7D21979299F6209C72B32 /* build HistoryManager.swift */,
 				19A2652C67790D1428C1F2A2 /* build FileNaming.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

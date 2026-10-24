@@ -20,6 +20,7 @@ files = [
     'DownloadModels.swift',
     'DownloadCenter.swift',
     'RequestSecurity.swift',
+    'HistoryManager.swift',
     'FileNaming.swift',
 ]
 
