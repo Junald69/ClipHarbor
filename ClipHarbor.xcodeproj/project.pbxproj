@@ -14,6 +14,7 @@
 		6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */ = {isa = PBXBuildFile; fileRef = 30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */; };
 		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
 		5A1A16F97A4E7729AE14F6EB /* build TabManager.swift */ = {isa = PBXBuildFile; fileRef = 06D30A0E94FB41598A6FECAA /* file TabManager.swift */; };
+		10B13E966390F8F8E9EC25FD /* build TabSwitcherView.swift */ = {isa = PBXBuildFile; fileRef = 34E4713B641A56E8D0A8C686 /* file TabSwitcherView.swift */; };
 		04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */ = {isa = PBXBuildFile; fileRef = 8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */; };
 		8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */ = {isa = PBXBuildFile; fileRef = 202D892A5D03441EAD0128EC /* file TrackedVideo.swift */; };
 		3509B4FBFD67A8DAAA7C9653 /* build MediaCandidate.swift */ = {isa = PBXBuildFile; fileRef = 0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */; };
@@ -33,6 +34,7 @@
 		30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExportManager.swift; sourceTree = "<group>"; };
 		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
 		06D30A0E94FB41598A6FECAA /* file TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
+		34E4713B641A56E8D0A8C686 /* file TabSwitcherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabSwitcherView.swift; sourceTree = "<group>"; };
 		8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaScannerScript.swift; sourceTree = "<group>"; };
 		202D892A5D03441EAD0128EC /* file TrackedVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedVideo.swift; sourceTree = "<group>"; };
 		0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaCandidate.swift; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 				30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */,
 				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
 				06D30A0E94FB41598A6FECAA /* file TabManager.swift */,
+				34E4713B641A56E8D0A8C686 /* file TabSwitcherView.swift */,
 				8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */,
 				202D892A5D03441EAD0128EC /* file TrackedVideo.swift */,
 				0B47B0BA094820C1A0FF94D2 /* file MediaCandidate.swift */,
@@ -128,6 +131,7 @@
 				6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */,
 				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
 				5A1A16F97A4E7729AE14F6EB /* build TabManager.swift */,
+				10B13E966390F8F8E9EC25FD /* build TabSwitcherView.swift */,
 				04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */,
 				8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */,
 				3509B4FBFD67A8DAAA7C9653 /* build MediaCandidate.swift */,

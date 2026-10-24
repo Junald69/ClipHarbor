@@ -22,6 +22,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     @Published private(set) var resourceCandidates: [MediaCandidate] = []
     /// 画面下部に一時的に表示する案内
     @Published var notice: String?
+    /// メモリ内にのみ保持する最新ページのサムネイル（ディスク永続化なし）
+    @Published private(set) var snapshot: UIImage?
 
     var isEditingAddress = false
     private(set) var isWebViewCreated = false
@@ -164,6 +166,27 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
     }
 
+    // MARK: - メモリ内ページスナップショット（タブプレビュー用）
+
+    /// 現在のWebViewの描画内容をメモリ内に非同期取得する
+    func captureSnapshot() {
+        guard isWebViewCreated, !isTornDown else { return }
+        guard webView.bounds.width > 0, webView.bounds.height > 0 else { return }
+
+        let capturedURL = webView.url
+        let config = WKSnapshotConfiguration()
+        config.snapshotWidth = NSNumber(value: 320)
+
+        webView.takeSnapshot(with: config) { [weak self] image, _ in
+            guard let self = self, !self.isTornDown, let image = image else { return }
+            // 撮影中に別URLへ遷移していた場合、旧ページのスナップショットで上書きしない
+            if let captured = capturedURL, let current = self.webView.url, captured != current {
+                return
+            }
+            self.snapshot = image
+        }
+    }
+
     // MARK: - 複数タブ管理用ライフサイクル（明示的なタブ破棄）
 
     /// TabManager等から明示的にタブを閉じる際に呼び出される破棄処理。
@@ -173,6 +196,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
+
+        snapshot = nil
 
         noticeTask?.cancel()
         noticeTask = nil
@@ -195,6 +220,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     private func resetPageState() {
         videos.removeAll()
         resourceCandidates.removeAll()
+        snapshot = nil
     }
 
     private func updateNavigation(_ webView: WKWebView) {
@@ -227,6 +253,10 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoading = false
         updateNavigation(webView)
+        // 読み込み完了後にサムネイルを非同期更新
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.captureSnapshot()
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

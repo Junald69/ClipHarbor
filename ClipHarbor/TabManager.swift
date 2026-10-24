@@ -61,6 +61,7 @@ final class TabManager: ObservableObject {
     @discardableResult
     func createNewTab(url: URL = BrowserModel.homeURL) -> BrowserModel? {
         guard canCreateNewTab else { return nil }
+        activeTab.captureSnapshot()
         let newTab = BrowserModel(initialURL: url)
         tabs.append(newTab)
         activeTabID = newTab.id
@@ -71,6 +72,7 @@ final class TabManager: ObservableObject {
     func selectTab(id: UUID) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         guard activeTabID != id else { return }
+        activeTab.captureSnapshot()
         activeTabID = id
     }
 

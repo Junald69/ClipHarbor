@@ -29,7 +29,7 @@ private struct ActiveBrowserContainer: View {
     @State private var showCandidateList = false
     @State private var showDownloads = false
     @State private var showMenu = false
-    @State private var showTabList = false
+    @State private var showTabSwitcher = false
     @State private var unsupportedMessage: String?
     @FocusState private var addressFocused: Bool
 
@@ -101,8 +101,8 @@ private struct ActiveBrowserContainer: View {
                 }
             )
         }
-        .sheet(isPresented: $showTabList) {
-            TabListSheet(tabManager: tabManager)
+        .sheet(isPresented: $showTabSwitcher) {
+            TabSwitcherView(tabManager: tabManager)
         }
         .alert(
             "この動画は保存できません",
@@ -434,7 +434,8 @@ private struct ActiveBrowserContainer: View {
 
             // 5. タブ（square.on.square）
             Button {
-                showTabList = true
+                tabManager.activeTab.captureSnapshot()
+                showTabSwitcher = true
             } label: {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "square.on.square")
@@ -576,98 +577,6 @@ struct BrowserMenuSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-// MARK: - 複数タブ一覧シート（Step 2-B 検証用タブ管理UI）
-
-struct TabListSheet: View {
-    @ObservedObject var tabManager: TabManager
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(tabManager.tabs) { tab in
-                        tabRow(for: tab)
-                    }
-                    .onDelete { indexSet in
-                        for index in indexSet {
-                            guard index < tabManager.tabs.count else { continue }
-                            let tab = tabManager.tabs[index]
-                            tabManager.closeTab(id: tab.id)
-                        }
-                    }
-                } header: {
-                    Text("開いているタブ (\(tabManager.count) / \(TabManager.maxTabs))")
-                } footer: {
-                    Text("タップしてタブを切り替え、または右上の「＋」で新しいタブを追加できます。Step 2-Cでカード型グリッド表示に進化予定です。")
-                }
-            }
-            .navigationTitle("タブ一覧")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        if tabManager.canCreateNewTab {
-                            _ = tabManager.createNewTab()
-                            dismiss()
-                        }
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .disabled(!tabManager.canCreateNewTab)
-                    .accessibilityLabel("新しいタブを開く")
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private func tabRow(for tab: BrowserModel) -> some View {
-        let isActive = (tab.id == tabManager.activeTabID)
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(tab.pageTitle.isEmpty ? "名称未設定" : tab.pageTitle)
-                    .font(.body.weight(isActive ? .semibold : .regular))
-                    .foregroundStyle(isActive ? .primary : .secondary)
-                    .lineLimit(1)
-
-                Text(tab.address.isEmpty ? "about:blank" : tab.address)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isActive {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.blue)
-            }
-
-            Button {
-                tabManager.closeTab(id: tab.id)
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel("タブを閉じる")
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            tabManager.selectTab(id: tab.id)
-            dismiss()
-        }
     }
 }
 

@@ -13,6 +13,7 @@ files = [
     'VideoExportManager.swift',
     'BrowserModel.swift',
     'TabManager.swift',
+    'TabSwitcherView.swift',
     'MediaScannerScript.swift',
     'TrackedVideo.swift',
     'MediaCandidate.swift',
