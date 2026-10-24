@@ -16,7 +16,7 @@ struct SavedVideo: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String
     /// ホームディレクトリからの相対パス。アプリ更新・再インストールでコンテナの絶対パスが変わっても参照できる。
-    let relativePath: String
+    var relativePath: String
     let format: Format
     /// 表示用の配信元ドメインのみ（パス・クエリは保存しない）
     let sourceHost: String?

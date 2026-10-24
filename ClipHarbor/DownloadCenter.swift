@@ -16,6 +16,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     var activeCount: Int { jobs.filter { $0.state.isActive }.count }
     /// AppDelegateから渡される、バックグラウンドURLSession完了時のハンドラー
     var backgroundCompletionHandler: (() -> Void)?
+    /// 動画の保存完了後にフォルダ管理層（VideoFolderManager）へ通知するコールバック
+    var onVideoSaved: ((UUID, SavedVideo) -> Void)?
 
     private final class Transfer {
         let jobID: UUID
@@ -85,7 +87,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     // MARK: - 公開操作
 
-    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) {
+    @discardableResult
+    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) -> UUID {
         var name = FileNaming.sanitizedBaseName(displayName)
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
@@ -95,6 +98,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name)
         transfers[job.id] = transfer
         launch(transfer)
+        return job.id
     }
 
     func cancel(_ jobID: UUID) {
@@ -127,6 +131,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             }
         }
         saved.removeAll { $0.id == item.id }
+        persistSaved()
+    }
+
+    /// フォルダ管理層（VideoFolderManager）による名前変更・MP4フォルダ移動後にメタデータを更新する
+    func updateSavedVideo(id: UUID, title: String? = nil, relativePath: String? = nil) {
+        guard let idx = saved.firstIndex(where: { $0.id == id }) else { return }
+        if let title = title { saved[idx].title = title }
+        if let relativePath = relativePath { saved[idx].relativePath = relativePath }
         persistSaved()
     }
 
@@ -272,6 +284,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             case .saved(let video):
                 addSaved(video)
                 finish(id, state: .completed, name: video.title)
+                onVideoSaved?(id, video)
             case .failed(let message):
                 finish(id, state: .failed(message), name: transfer.baseName)
             }
@@ -330,9 +343,11 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             finish(id, state: .failed("この配信方式のオフライン保存には対応していません"), name: name)
             return
         }
-        addSaved(SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
-                            sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location)))
+        let video = SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
+                               sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location))
+        addSaved(video)
         finish(id, state: .completed, name: name)
+        onVideoSaved?(id, video)
     }
 
     private static func hlsMessage(for error: Error) -> String {

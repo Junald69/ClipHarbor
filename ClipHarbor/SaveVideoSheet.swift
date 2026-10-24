@@ -1,17 +1,26 @@
 import SwiftUI
 import AVKit
 
-/// ダウンロードボタンを押したときに表示する、ネイティブのファイル名入力・保存確認シート。
+/// ダウンロードボタンを押したときに表示する、ネイティブのファイル名入力・保存先フォルダ選択・保存確認シート。
 struct SaveVideoSheet: View {
     let candidate: MediaCandidate
-    let onConfirm: (String) -> Void
+    let existingFolders: [String]
+    let onConfirm: (String, String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var videoName: String
+    @State private var selectedFolder: String = ""
+    @State private var isCreatingNewFolder = false
+    @State private var newFolderName: String = ""
     @FocusState private var nameFocused: Bool
 
-    init(candidate: MediaCandidate, onConfirm: @escaping (String) -> Void) {
+    init(
+        candidate: MediaCandidate,
+        existingFolders: [String] = [],
+        onConfirm: @escaping (String, String) -> Void
+    ) {
         self.candidate = candidate
+        self.existingFolders = existingFolders
         self.onConfirm = onConfirm
         _videoName = State(initialValue: candidate.suggestedName)
     }
@@ -19,6 +28,13 @@ struct SaveVideoSheet: View {
     private var sanitizedName: String {
         let s = FileNaming.sanitizedBaseName(videoName)
         return s.isEmpty ? "Video" : s
+    }
+
+    private var resolvedFolderName: String {
+        if isCreatingNewFolder {
+            return VideoFolderManager.sanitizedFolderName(newFolderName)
+        }
+        return VideoFolderManager.sanitizedFolderName(selectedFolder)
     }
 
     private var previewFilename: String {
@@ -52,6 +68,34 @@ struct SaveVideoSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("保存先フォルダ") {
+                    if !isCreatingNewFolder {
+                        Picker("フォルダ", selection: $selectedFolder) {
+                            Text("Downloads（標準）").tag("")
+                            ForEach(existingFolders, id: \.self) { folder in
+                                Text(folder).tag(folder)
+                            }
+                        }
+                        Button {
+                            isCreatingNewFolder = true
+                        } label: {
+                            Label("新規フォルダを作成して保存", systemImage: "folder.badge.plus")
+                                .font(.subheadline)
+                        }
+                    } else {
+                        HStack {
+                            Image(systemName: "folder.badge.plus")
+                                .foregroundStyle(.blue)
+                            TextField("新しいフォルダ名", text: $newFolderName)
+                            Button("一覧から選ぶ") {
+                                isCreatingNewFolder = false
+                                newFolderName = ""
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+
                 Section("保存情報") {
                     LabeledContent("保存形式", value: candidate.formatLabel)
                     LabeledContent("配信元", value: candidate.host)
@@ -59,7 +103,9 @@ struct SaveVideoSheet: View {
                         "保存先",
                         value: candidate.isHLS
                             ? "ClipHarbor内（オフラインHLS）"
-                            : "ClipHarbor / Documents / Downloads"
+                            : (resolvedFolderName.isEmpty
+                                ? "ClipHarbor / Documents / Downloads"
+                                : "ClipHarbor / Documents / Downloads / \(resolvedFolderName)")
                     )
                     if let note = candidate.formatNote {
                         Text(note)
@@ -71,8 +117,9 @@ struct SaveVideoSheet: View {
                 Section {
                     Button {
                         let finalName = sanitizedName
+                        let finalFolder = resolvedFolderName
                         dismiss()
-                        onConfirm(finalName)
+                        onConfirm(finalName, finalFolder)
                     } label: {
                         HStack {
                             Spacer()
@@ -94,8 +141,9 @@ struct SaveVideoSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("ダウンロード") {
                         let finalName = sanitizedName
+                        let finalFolder = resolvedFolderName
                         dismiss()
-                        onConfirm(finalName)
+                        onConfirm(finalName, finalFolder)
                     }
                     .fontWeight(.semibold)
                 }
@@ -423,7 +471,7 @@ private struct SavedVideoRow: View {
 }
 
 /// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生用）。
-private struct OfflineVideoPlayerSheet: View {
+struct OfflineVideoPlayerSheet: View {
     let video: SavedVideo
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?

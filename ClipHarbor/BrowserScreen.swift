@@ -4,6 +4,7 @@ import WebKit
 struct BrowserScreen: View {
     @StateObject private var browser = BrowserModel()
     @ObservedObject private var downloads = DownloadCenter.shared
+    @ObservedObject private var folderManager = VideoFolderManager.shared
 
     @State private var savingCandidate: MediaCandidate?
     @State private var showCandidateList = false
@@ -41,8 +42,8 @@ struct BrowserScreen: View {
             browser.isEditingAddress = focused
         }
         .sheet(item: $savingCandidate) { candidate in
-            SaveVideoSheet(candidate: candidate) { chosenName in
-                startDownload(candidate: candidate, displayName: chosenName)
+            SaveVideoSheet(candidate: candidate, existingFolders: folderManager.folders) { chosenName, chosenFolder in
+                startDownload(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
             }
         }
         .sheet(isPresented: $showCandidateList) {
@@ -51,7 +52,7 @@ struct BrowserScreen: View {
             }
         }
         .sheet(isPresented: $showDownloads) {
-            DownloadLibrarySheet(downloads: downloads)
+            FileManagerView(downloads: downloads, folderManager: folderManager)
         }
         .alert(
             "この動画は保存できません",
@@ -247,9 +248,10 @@ struct BrowserScreen: View {
         }
     }
 
-    private func startDownload(candidate: MediaCandidate, displayName: String) {
+    private func startDownload(candidate: MediaCandidate, displayName: String, folderName: String) {
         browser.makeRequestContext { context in
-            downloads.start(candidate, displayName: displayName, context: context)
+            let jobID = downloads.start(candidate, displayName: displayName, context: context)
+            folderManager.registerPendingFolder(folderName, forJobID: jobID)
         }
     }
 

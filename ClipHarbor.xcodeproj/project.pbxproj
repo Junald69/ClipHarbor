@@ -9,6 +9,8 @@
 		0898AF3A44F159BF103401D4 /* build ClipHarborApp.swift */ = {isa = PBXBuildFile; fileRef = 6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */; };
 		92C38201D75C5FE43FCD1599 /* build BrowserScreen.swift */ = {isa = PBXBuildFile; fileRef = 0D047473E568AC548C5292BF /* file BrowserScreen.swift */; };
 		72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */ = {isa = PBXBuildFile; fileRef = F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */; };
+		EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */ = {isa = PBXBuildFile; fileRef = 384D047BB284EC42219250AB /* file FileManagerView.swift */; };
+		D85FC3D5FB559A95F39F7E3D /* build VideoFolderManager.swift */ = {isa = PBXBuildFile; fileRef = D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */; };
 		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
 		04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */ = {isa = PBXBuildFile; fileRef = 8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */; };
 		8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */ = {isa = PBXBuildFile; fileRef = 202D892A5D03441EAD0128EC /* file TrackedVideo.swift */; };
@@ -20,9 +22,12 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		9CCF2942FF4C46194B9CAAB8 /* file Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipHarborApp.swift; sourceTree = "<group>"; };
 		0D047473E568AC548C5292BF /* file BrowserScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserScreen.swift; sourceTree = "<group>"; };
 		F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveVideoSheet.swift; sourceTree = "<group>"; };
+		384D047BB284EC42219250AB /* file FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
+		D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFolderManager.swift; sourceTree = "<group>"; };
 		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
 		8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaScannerScript.swift; sourceTree = "<group>"; };
 		202D892A5D03441EAD0128EC /* file TrackedVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedVideo.swift; sourceTree = "<group>"; };
@@ -43,9 +48,12 @@
 		500A096B8A0044C96F4B0E55 /* source group */ = {
 			isa = PBXGroup;
 			children = (
+				9CCF2942FF4C46194B9CAAB8 /* file Info.plist */,
 				6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */,
 				0D047473E568AC548C5292BF /* file BrowserScreen.swift */,
 				F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */,
+				384D047BB284EC42219250AB /* file FileManagerView.swift */,
+				D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */,
 				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
 				8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */,
 				202D892A5D03441EAD0128EC /* file TrackedVideo.swift */,
@@ -109,6 +117,8 @@
 				0898AF3A44F159BF103401D4 /* build ClipHarborApp.swift */,
 				92C38201D75C5FE43FCD1599 /* build BrowserScreen.swift */,
 				72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */,
+				EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */,
+				D85FC3D5FB559A95F39F7E3D /* build VideoFolderManager.swift */,
 				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
 				04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */,
 				8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */,
@@ -156,9 +166,8 @@
 				CURRENT_PROJECT_VERSION = 2;
 				MARKETING_VERSION = 2.1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClipHarbor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -181,9 +190,8 @@
 				CURRENT_PROJECT_VERSION = 2;
 				MARKETING_VERSION = 2.1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClipHarbor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
