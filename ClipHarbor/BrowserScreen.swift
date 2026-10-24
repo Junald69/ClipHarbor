@@ -41,32 +41,31 @@ private struct ActiveBrowserContainer: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // 1. 全画面 Webビュー + ローディングバー
-            VStack(spacing: 0) {
-                if browser.isLoading {
+            // 1. Edge-to-Edge Webビュー（画面最上部〜最下部まで全面描画）
+            BrowserWebView(browser: browser)
+                .id(browser.id)
+                .ignoresSafeArea()
+
+            // 2. 動画検出オーバーレイ（全画面座標）
+            GeometryReader { geo in
+                videoDownloadOverlay(in: geo.size)
+            }
+            .ignoresSafeArea()
+
+            // 3. ページ読み込み進捗バー（ステータスバー直下に配置）
+            if browser.isLoading {
+                VStack(spacing: 0) {
                     ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
                         .progressViewStyle(.linear)
                         .tint(.blue)
+                    Spacer()
                 }
-
-                GeometryReader { geo in
-                    ZStack(alignment: .topLeading) {
-                        BrowserWebView(browser: browser)
-                            .id(browser.id)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .ignoresSafeArea(.keyboard, edges: .bottom)
-
-                        videoDownloadOverlay(in: geo.size)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            // 2. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
+            // 4. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
             if browser.isEditingAddress {
                 Color.black.opacity(0.001)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
+                    .ignoresSafeArea()
                     .onTapGesture {
                         addressFocused = false
                         browser.isEditingAddress = false
@@ -74,14 +73,14 @@ private struct ActiveBrowserContainer: View {
                     }
             }
 
-            // 3. 下部フローティング通知 & ツールバー（Safe Area内）
+            // 5. 下部フローティング通知 & ツールバー（ホームインジケータ上に配置）
             VStack(spacing: 6) {
                 statusBanner
                 floatingToolbar
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color(.systemBackground).ignoresSafeArea())
         .onChange(of: addressFocused) { _, focused in
             browser.isEditingAddress = focused
             if focused {
@@ -339,7 +338,7 @@ private struct ActiveBrowserContainer: View {
                 alohaDownloadButton(for: activeVideo, compact: false)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(16)
-                    .padding(.bottom, browser.isToolbarHidden ? 0 : 96)
+                    .padding(.bottom, browser.isToolbarHidden ? 34 : 110)
                     .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
             }
         } else if currentSelection.isAmbiguous || browser.hasAnyMedia {
@@ -347,7 +346,7 @@ private struct ActiveBrowserContainer: View {
             fallbackOverlayButton
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(16)
-                .padding(.bottom, browser.isToolbarHidden ? 0 : 96)
+                .padding(.bottom, browser.isToolbarHidden ? 34 : 110)
                 .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
         }
     }

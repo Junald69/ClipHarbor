@@ -94,11 +94,13 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
-        // SwiftUI側でSafe Area内に配置するため、WebView内で二重に余白を取らない
+        view.backgroundColor = .systemBackground
+        view.scrollView.backgroundColor = .systemBackground
+        // Edge-to-Edge描画のため自動インセット調整を無効化（上下の黒帯や予期しない空白を防止）
         view.scrollView.contentInsetAdjustmentBehavior = .never
-        // 下部フローティングツールバーとWeb最下部コンテンツが重なるのを防ぐインセット
-        view.scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)
-        view.scrollView.scrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)
+        // ホームインジケータ領域（約24pt）を考慮した最小限のコンテンツ余白
+        view.scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 24, right: 0)
+        view.scrollView.scrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 24, right: 0)
         progressObservation = view.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
             let value = webView.estimatedProgress
             Task { @MainActor in self?.loadingProgress = value }
