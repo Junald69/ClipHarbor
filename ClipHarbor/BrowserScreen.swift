@@ -29,8 +29,10 @@ private struct ActiveBrowserContainer: View {
     @State private var showCandidateList = false
     @State private var showDownloads = false
     @State private var showHistory = false
+    @State private var showBookmarks = false
     @State private var pendingSourceURL: URL?
     @State private var pendingHistoryAction: HistoryNavigationAction?
+    @State private var pendingBookmarkAction: HistoryNavigationAction?
     @State private var pendingMenuAction: (() -> Void)?
     @State private var showMenu = false
     @State private var showTabSwitcher = false
@@ -118,6 +120,10 @@ private struct ActiveBrowserContainer: View {
                 onOpenHistory: {
                     pendingMenuAction = { showHistory = true }
                     showMenu = false
+                },
+                onOpenBookmarks: {
+                    pendingMenuAction = { showBookmarks = true }
+                    showMenu = false
                 }
             )
         }
@@ -133,6 +139,22 @@ private struct ActiveBrowserContainer: View {
                         pendingHistoryAction = .openInNewTab(url)
                     } else {
                         pendingHistoryAction = .openInCurrentTab(url)
+                    }
+                }
+            )
+        }
+        .sheet(isPresented: $showBookmarks, onDismiss: {
+            if let action = pendingBookmarkAction {
+                pendingBookmarkAction = nil
+                handleHistoryNavigation(action)
+            }
+        }) {
+            BookmarkView(
+                onSelectURL: { url, openInNewTab in
+                    if openInNewTab {
+                        pendingBookmarkAction = .openInNewTab(url)
+                    } else {
+                        pendingBookmarkAction = .openInCurrentTab(url)
                     }
                 }
             )
@@ -535,11 +557,28 @@ struct BrowserMenuSheet: View {
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var exports: VideoExportManager
     @ObservedObject private var historyManager = HistoryManager.shared
+    @ObservedObject private var bookmarkManager = BookmarkManager.shared
     let onOpenCandidateList: () -> Void
     let onOpenDownloads: () -> Void
     let onOpenHistory: () -> Void
+    let onOpenBookmarks: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+
+    private var isCurrentPageValidURL: Bool {
+        let url = browser.currentURL
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else {
+            return false
+        }
+        return BookmarkURLPolicy.sanitize(url) != nil
+    }
+
+    private var isCurrentPageBookmarked: Bool {
+        guard isCurrentPageValidURL else { return false }
+        return bookmarkManager.isBookmarked(url: browser.currentURL)
+    }
 
     var body: some View {
         NavigationStack {
@@ -596,6 +635,33 @@ struct BrowserMenuSheet: View {
                     }
                 }
 
+                Section("ブックマーク") {
+                    Button {
+                        let targetURL = browser.currentURL
+                        let targetTitle = browser.pageTitle
+                        dismiss()
+                        toggleBookmark(url: targetURL, title: targetTitle)
+                    } label: {
+                        Label(
+                            isCurrentPageBookmarked ? "ブックマークを解除" : "このページをブックマーク",
+                            systemImage: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark"
+                        )
+                    }
+                    .disabled(!isCurrentPageValidURL)
+
+                    Button(action: onOpenBookmarks) {
+                        HStack {
+                            Label("ブックマーク", systemImage: "bookmark")
+                            Spacer()
+                            if !bookmarkManager.items.isEmpty {
+                                Text("\(bookmarkManager.items.count)件")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
                 Section("履歴") {
                     Button(action: onOpenHistory) {
                         HStack {
@@ -611,15 +677,6 @@ struct BrowserMenuSheet: View {
                 }
 
                 Section {
-                    HStack {
-                        Label("ブックマーク", systemImage: "bookmark")
-                        Spacer()
-                        Text("Step 6で実装予定")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .foregroundStyle(.secondary)
-
                     HStack {
                         Label("プライベートタブ", systemImage: "eye.slash")
                         Spacer()
@@ -640,7 +697,7 @@ struct BrowserMenuSheet: View {
                 } header: {
                     Text("準備中の機能（将来のアップデート）")
                 } footer: {
-                    Text("ブックマーク・プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
+                    Text("プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
                 }
             }
             .navigationTitle("メニュー")
@@ -652,6 +709,25 @@ struct BrowserMenuSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func toggleBookmark(url: URL, title: String) {
+        if bookmarkManager.isBookmarked(url: url) {
+            bookmarkManager.removeBookmark(url: url)
+            browser.showNotice("ブックマークを解除しました")
+        } else {
+            guard bookmarkManager.canSave else {
+                browser.showNotice("保存領域が保護されているため、ブックマークを保存できません")
+                return
+            }
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedTitle = trimmed.isEmpty ? (url.host ?? "新規ブックマーク") : trimmed
+            if bookmarkManager.addBookmark(url: url, title: resolvedTitle) != nil {
+                browser.showNotice("ブックマークに追加しました")
+            } else {
+                browser.showNotice("このページはブックマークに登録できません")
+            }
+        }
     }
 }
 

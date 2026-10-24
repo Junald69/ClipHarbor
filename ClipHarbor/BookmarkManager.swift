@@ -94,6 +94,11 @@ final class BookmarkManager: ObservableObject {
     /// 読み込み時に破損が検知され、かつバックアップ退避に失敗した場合にデータ上書きを禁止する安全フラグ
     private(set) var isPersistenceDisabledDueToCorruption = false
 
+    /// 保存機能が利用可能かどうか（破損退避失敗時はfalse）
+    var canSave: Bool {
+        !isPersistenceDisabledDueToCorruption
+    }
+
     /// 保存先ディレクトリ（Library/Application Support/ClipHarbor）
     private static var storageDirectoryURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

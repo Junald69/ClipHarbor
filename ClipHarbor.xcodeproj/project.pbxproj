@@ -24,6 +24,7 @@
 		BBF7D21979299F6209C72B32 /* build HistoryManager.swift */ = {isa = PBXBuildFile; fileRef = F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */; };
 		F1F1939CAE972F1928B4F889 /* build HistoryView.swift */ = {isa = PBXBuildFile; fileRef = D3353B6D6871EF0FB84D55A7 /* file HistoryView.swift */; };
 		0610ABAAD21BA62A5D19DC62 /* build BookmarkManager.swift */ = {isa = PBXBuildFile; fileRef = 7EE21523B860B678928B2B47 /* file BookmarkManager.swift */; };
+		AA14B8DE67398B24CDC49DEF /* build BookmarkView.swift */ = {isa = PBXBuildFile; fileRef = 8ADA52A641C5AAAF2FCFCAD2 /* file BookmarkView.swift */; };
 		19A2652C67790D1428C1F2A2 /* build FileNaming.swift */ = {isa = PBXBuildFile; fileRef = 1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */; };
 /* End PBXBuildFile section */
 
@@ -47,6 +48,7 @@
 		F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryManager.swift; sourceTree = "<group>"; };
 		D3353B6D6871EF0FB84D55A7 /* file HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		7EE21523B860B678928B2B47 /* file BookmarkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkManager.swift; sourceTree = "<group>"; };
+		8ADA52A641C5AAAF2FCFCAD2 /* file BookmarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkView.swift; sourceTree = "<group>"; };
 		1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileNaming.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -79,6 +81,7 @@
 				F5D392B7B9DF54369A3258DD /* file HistoryManager.swift */,
 				D3353B6D6871EF0FB84D55A7 /* file HistoryView.swift */,
 				7EE21523B860B678928B2B47 /* file BookmarkManager.swift */,
+				8ADA52A641C5AAAF2FCFCAD2 /* file BookmarkView.swift */,
 				1A9DD42D0E60FF00D020DF12 /* file FileNaming.swift */,
 			);
 			path = ClipHarbor;
@@ -150,6 +153,7 @@
 				BBF7D21979299F6209C72B32 /* build HistoryManager.swift */,
 				F1F1939CAE972F1928B4F889 /* build HistoryView.swift */,
 				0610ABAAD21BA62A5D19DC62 /* build BookmarkManager.swift */,
+				AA14B8DE67398B24CDC49DEF /* build BookmarkView.swift */,
 				19A2652C67790D1428C1F2A2 /* build FileNaming.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
