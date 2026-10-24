@@ -4,8 +4,9 @@ import CoreMedia
 
 /// 非DRM・非暗号化・保存許諾のある fMP4（Fragmented MP4 / CMAF）形式の VOD HLS から、
 /// 既存の HLS ダウンロードエンジン（AVAssetDownloadURLSession）とは完全に独立して標準 MP4 ファイルを生成・検証する管理クラス。
-/// - 第1段階の対象: 映像と音声が単一ストリームに含まれる非暗号化 fMP4 VOD HLS（#EXT-X-MAP + .m4s/.mp4 セグメント）
-/// - MPEG-TS（.ts）独自リマックスおよび分離音声（#EXT-X-MEDIA:TYPE=AUDIO）結合は現段階では対象外とし、明確な理由を返す。
+/// - Phase 1 対応: 映像と音声が単一ストリームに含まれる非暗号化 fMP4 VOD HLS
+/// - Phase 2 対応: 映像と音声が別プレイリスト（#EXT-X-MEDIA:TYPE=AUDIO）に分離された非暗号化 fMP4 VOD HLS の取得・同期・結合
+/// - MPEG-TS（.ts）独自リマックスおよび暗号化/DRM配信は対象外とし、明確な理由を返す。
 @MainActor
 final class VideoExportManager: ObservableObject {
     static let shared = VideoExportManager()
@@ -13,8 +14,8 @@ final class VideoExportManager: ObservableObject {
     struct ExportJob: Identifiable, Equatable {
         enum State: Equatable {
             case analyzingPlaylist
-            case downloadingSegments(completed: Int, total: Int, progress: Double)
-            case remuxingToMP4
+            case downloadingSegments(stage: String, completed: Int, total: Int, progress: Double)
+            case remuxingToMP4(isSeparateAudio: Bool)
             case verifyingMP4
             case completed(VerificationSummary)
             case failed(String)
@@ -33,14 +34,19 @@ final class VideoExportManager: ObservableObject {
                 switch self {
                 case .analyzingPlaylist:
                     return "HLSプレイリストとfMP4構造を解析中…"
-                case .downloadingSegments(let done, let total, let p):
-                    return "fMP4セグメント取得中 (\(done)/\(total) · \(Int(p * 100))%)"
-                case .remuxingToMP4:
-                    return "AVAssetExportSessionでMP4へ書き出し中…"
+                case .downloadingSegments(let stage, let done, let total, let p):
+                    return "\(stage) (\(done)/\(total) · \(Int(p * 100))%)"
+                case .remuxingToMP4(let isSeparate):
+                    if isSeparate {
+                        return "映像fMP4と分離音声fMP4を同期・結合してMP4へ書き出し中…"
+                    } else {
+                        return "AVAssetExportSessionでMP4へ書き出し中…"
+                    }
                 case .verifyingMP4:
-                    return "生成されたMP4の品質（トラック・再生時間・冒頭/中間/終端フレーム）を検証中…"
+                    return "生成されたMP4の品質（映像/音声トラック・同期・再生時間・3点フレーム）を検証中…"
                 case .completed(let summary):
-                    return "MP4変換・検証完了（\(String(format: "%.1f秒", summary.durationSeconds))）"
+                    let modeLabel = summary.isSeparateAudioMerged ? "分離音声結合MP4" : "統合fMP4→MP4"
+                    return "\(modeLabel)完了（\(String(format: "%.1f秒", summary.durationSeconds))）"
                 case .failed(let reason):
                     return "MP4変換不可：\(reason)"
                 case .cancelled:
@@ -59,11 +65,15 @@ final class VideoExportManager: ObservableObject {
     struct VerificationSummary: Equatable {
         let byteSize: Int64
         let durationSeconds: Double
+        let audioDurationSeconds: Double?
         let expectedPlaylistDuration: Double
         let videoCodec: String
         let audioCodec: String?
-        let segmentCount: Int
+        let videoSegmentCount: Int
+        let audioSegmentCount: Int
         let decodedCheckpoints: Int
+        let avSyncOffsetMs: Int
+        let isSeparateAudioMerged: Bool
         let exportPresetUsed: String
     }
 
@@ -72,14 +82,16 @@ final class VideoExportManager: ObservableObject {
         case invalidPlaylist
         case encryptedStream(String)
         case liveStream
-        case separateAudioNotSupportedYet
+        case separateAudioPlaylistMissing(String)
         case notFMP4Format(String)
         case discontinuityNotSupported(String)
         case unsupportedCodec(String)
-        case segmentDownloadFailed(index: Int, total: Int, reason: String)
+        case segmentDownloadFailed(streamLabel: String, index: Int, total: Int, reason: String)
         case invalidInitSegment(String)
-        case invalidMediaSegment(index: Int, reason: String)
-        case timestampDiscontinuity(trackID: UInt32, segmentIndex: Int, previousDTS: UInt64, currentDTS: UInt64)
+        case invalidMediaSegment(streamLabel: String, index: Int, reason: String)
+        case duplicateOrMissingSegment(streamLabel: String, segmentIndex: Int, detail: String)
+        case timestampDiscontinuity(streamLabel: String, trackID: UInt32, segmentIndex: Int, previousDTS: UInt64, currentDTS: UInt64)
+        case avSyncFailed(String)
         case combinedFMP4NotPlayable(String)
         case exportSessionNotCompatible(String)
         case exportSessionFailed(String)
@@ -97,24 +109,28 @@ final class VideoExportManager: ObservableObject {
                 return "暗号化またはDRM保護された配信（\(detail)）のため、MP4として保存できません。「オフラインHLS」での保存をご利用ください。"
             case .liveStream:
                 return "ライブ配信（#EXT-X-ENDLISTなし）のため、MP4として保存できません。"
-            case .separateAudioNotSupportedYet:
-                return "映像と音声が別プレイリストに分離されたHLS配信（#EXT-X-MEDIA:TYPE=AUDIO）です。現段階では単一ストリーム（映像・音声統合型）のfMP4のみ対応しています。「オフラインHLS」で保存してください。"
+            case .separateAudioPlaylistMissing(let detail):
+                return "分離音声プレイリストの解決に失敗しました（\(detail)）。「オフラインHLS」で保存してください。"
             case .notFMP4Format(let detail):
                 return "fMP4（Fragmented MP4 / #EXT-X-MAP）形式のHLSではありません（\(detail)）。MPEG-TS（.ts）形式等は「オフラインHLS」で保存してください。"
             case .discontinuityNotSupported(let detail):
-                return "プレイリスト内に不連続区間（\(detail)）が含まれているため、fMP4結合によるMP4変換の対象外です。「オフラインHLS」で保存してください。"
+                return "プレイリスト内に不連続区間（\(detail)）が含まれているため、MP4変換の対象外です。「オフラインHLS」で保存してください。"
             case .unsupportedCodec(let detail):
                 return "MP4書き出しに対応していないコーデック構成です（\(detail)）。"
-            case .segmentDownloadFailed(let idx, let total, let reason):
-                return "セグメント \(idx)/\(total) の取得に失敗しました（\(reason)）。セグメント欠落のあるMP4は保存しません。"
+            case .segmentDownloadFailed(let label, let idx, let total, let reason):
+                return "\(label)セグメント \(idx)/\(total) の取得に失敗しました（\(reason)）。セグメント欠落のあるMP4は保存しません。"
             case .invalidInitSegment(let detail):
                 return "fMP4初期化セグメント（#EXT-X-MAP）の構造が不正です（\(detail)）。"
-            case .invalidMediaSegment(let idx, let reason):
-                return "セグメント \(idx) のfMP4ボックス構造（moof/mdat）が不正です（\(reason)）。"
-            case .timestampDiscontinuity(let trackID, let idx, let prev, let curr):
-                return "セグメント \(idx)（track_ID=\(trackID)）でタイムスタンプの不連続（\(prev) → \(curr)）を検出したため中止しました。"
+            case .invalidMediaSegment(let label, let idx, let reason):
+                return "\(label)セグメント \(idx) のfMP4ボックス構造（moof/mdat）が不正です（\(reason)）。"
+            case .duplicateOrMissingSegment(let label, let idx, let detail):
+                return "\(label)セグメント \(idx) でデータの欠落または重複を検出したため中止しました（\(detail)）。"
+            case .timestampDiscontinuity(let label, let trackID, let idx, let prev, let curr):
+                return "\(label)セグメント \(idx)（track_ID=\(trackID)）でタイムスタンプの逆行・不連続（\(prev) → \(curr)）を検出したため中止しました。"
+            case .avSyncFailed(let detail):
+                return "映像と分離音声の時間同期・結合に失敗しました（\(detail)）。"
             case .combinedFMP4NotPlayable(let detail):
-                return "結合したfMP4をAVFoundationで読み込めませんでした（\(detail)）。"
+                return "組み立てたfMP4をAVFoundationで読み込めませんでした（\(detail)）。"
             case .exportSessionNotCompatible(let detail):
                 return "AVAssetExportSession で通常のMP4へ変換できないストリーム構成です（\(detail)）。"
             case .exportSessionFailed(let detail):
@@ -152,13 +168,14 @@ final class VideoExportManager: ObservableObject {
 
     // MARK: - 公開API
 
-    /// HLS候補（fMP4 VOD）から独立して標準MP4を生成・検証し、成功時のみ保存済み一覧へ登録する
+    /// HLS候補（単一ストリームfMP4 または 分離音声fMP4 VOD）から独立して標準MP4を生成・検証し、成功時のみ保存済み一覧へ登録する
     @discardableResult
     func startFMP4Export(
         candidate: MediaCandidate,
         displayName: String,
         targetFolder: String = "",
-        context: RequestContext
+        context: RequestContext,
+        preferredMaxBandwidth: Int? = 3_500_000
     ) -> UUID {
         var cleanName = FileNaming.sanitizedBaseName(displayName)
         if cleanName.isEmpty { cleanName = FileNaming.sanitizedBaseName(candidate.suggestedName) }
@@ -186,7 +203,8 @@ final class VideoExportManager: ObservableObject {
                 targetFolder: cleanFolder,
                 sourceHost: candidate.url.host,
                 context: context,
-                session: session
+                session: session,
+                preferredMaxBandwidth: preferredMaxBandwidth
             )
         }
         runningTasks[jobID] = task
@@ -209,7 +227,7 @@ final class VideoExportManager: ObservableObject {
     // MARK: - 実機PoC検証用エントリ（テストA / テストB / テストC）
 
     /// テストA: Apple公式の保存許諾テスト素材（BipBop fMP4: v2映像 avc1 + a1音声 mp4a）から
-    /// 単一ストリーム（映像・音声統合型）の非暗号化fMP4 VOD HLSを生成し、MP4変換・8項目品質検証を実行する
+    /// 単一ストリーム（映像・音声統合型）の非暗号化fMP4 VOD HLSを生成し、MP4変換・品質検証を実行する
     @discardableResult
     func startPoCTestA_MuxedFMP4() -> UUID {
         let jobID = UUID()
@@ -303,7 +321,8 @@ final class VideoExportManager: ObservableObject {
                     targetFolder: "",
                     sourceHost: "devstreaming-cdn.apple.com",
                     context: context,
-                    session: session
+                    session: session,
+                    preferredMaxBandwidth: nil
                 )
             } catch is CancellationError {
                 self.updateJob(jobID) { $0.state = .cancelled }
@@ -325,8 +344,8 @@ final class VideoExportManager: ObservableObject {
         return jobID
     }
 
-    /// テストB: Apple公式の分離音声fMP4 HLS（#EXT-X-MEDIA:TYPE=AUDIO,URI="a1/prog_index.m3u8"）が
-    /// 現段階で正常に非対応判定（.separateAudioNotSupportedYet）されることを確認する
+    /// テストB: Apple公式の分離音声fMP4 HLS（#EXT-X-MEDIA:TYPE=AUDIO,URI="a1/prog_index.m3u8"）から
+    /// 映像fMP4と音声fMP4をそれぞれ取得・同期・結合して、音声付きMP4を生成・検証する
     @discardableResult
     func startPoCTestB_AppleSeparateAudioFMP4() -> UUID {
         let url = URL(string: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8")!
@@ -342,7 +361,8 @@ final class VideoExportManager: ObservableObject {
             candidate: candidate,
             displayName: "PoC_TestB_Apple_SeparateAudio",
             targetFolder: "",
-            context: RequestContext(cookies: [], userAgent: nil, pageURL: nil)
+            context: RequestContext(cookies: [], userAgent: nil, pageURL: nil),
+            preferredMaxBandwidth: 600_000
         )
     }
 
@@ -366,7 +386,23 @@ final class VideoExportManager: ObservableObject {
         )
     }
 
-    // MARK: - 変換パイプライン本体
+    // MARK: - 変換パイプライン本体（単一ストリームfMP4 ＆ 分離音声fMP4 両対応）
+
+    private struct AssembledStreamResult {
+        let fileURL: URL
+        let initInfo: FMP4BoxInspector.InitSegmentInfo
+        let segmentCount: Int
+        let playlistDuration: Double
+        let primaryTrackID: UInt32
+        let primaryTimescale: UInt32
+        let originalInitialDTS: UInt64
+        let originalFirstCTO: Int64
+
+        var originalStartSeconds: Double {
+            guard primaryTimescale > 0 else { return 0 }
+            return Double(originalInitialDTS) / Double(primaryTimescale)
+        }
+    }
 
     private func runExportPipeline(
         jobID: UUID,
@@ -375,7 +411,8 @@ final class VideoExportManager: ObservableObject {
         targetFolder: String,
         sourceHost: String?,
         context: RequestContext,
-        session: URLSession
+        session: URLSession,
+        preferredMaxBandwidth: Int?
     ) async {
         let workDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClipHarborFMP4Export_\(jobID.uuidString)", isDirectory: true)
@@ -395,164 +432,206 @@ final class VideoExportManager: ObservableObject {
                 session: session
             )
 
-            let mediaPlaylistURL: URL
-            let mediaPlaylistText: String
+            let videoPlaylistURL: URL
+            let videoPlaylistText: String
+            let separateAudioPlaylistURL: URL?
             let masterExpectedAudio: Bool
 
             if HLSFMP4PlaylistParser.isMasterPlaylist(initialText) {
-                let selection = try HLSFMP4PlaylistParser.selectMuxedVariant(
+                let plan = try HLSFMP4PlaylistParser.selectStreamPlan(
                     masterPlaylist: initialText,
-                    baseURL: resolvedPlaylistURL
+                    baseURL: resolvedPlaylistURL,
+                    preferredMaxBandwidth: preferredMaxBandwidth
                 )
-                mediaPlaylistURL = selection.variantURL
-                masterExpectedAudio = selection.declaresAudioCodec
-                let fetched = try await fetchPlaylistText(
-                    url: mediaPlaylistURL,
-                    stage: "メディアプレイリスト取得",
+                videoPlaylistURL = plan.videoVariantURL
+                separateAudioPlaylistURL = plan.separateAudioURL
+                masterExpectedAudio = plan.declaresAudioCodec
+
+                let fetchedVideo = try await fetchPlaylistText(
+                    url: videoPlaylistURL,
+                    stage: "映像メディアプレイリスト取得",
                     context: context,
                     session: session
                 )
-                mediaPlaylistText = fetched.text
+                videoPlaylistText = fetchedVideo.text
             } else {
-                mediaPlaylistURL = resolvedPlaylistURL
-                mediaPlaylistText = initialText
+                videoPlaylistURL = resolvedPlaylistURL
+                videoPlaylistText = initialText
+                separateAudioPlaylistURL = nil
                 masterExpectedAudio = false
             }
 
-            // 2. メディアプレイリストの解析（#EXT-X-MAP / #EXT-X-BYTERANGE / #EXT-X-KEY / #EXT-X-DISCONTINUITY 検査）
-            let parsedMedia = try HLSFMP4PlaylistParser.parseMediaPlaylist(
-                mediaPlaylistText,
-                baseURL: mediaPlaylistURL
+            // 2. 映像メディアプレイリストの解析
+            let parsedVideoMedia = try HLSFMP4PlaylistParser.parseMediaPlaylist(
+                videoPlaylistText,
+                baseURL: videoPlaylistURL
             )
 
-            // 3. 初期化セグメント（#EXT-X-MAP）の取得と ISO-BMFF (ftyp / moov / mvex / trak) 検証
-            try Task.checkCancellation()
-            let initData = try await fetchSegmentData(
-                url: parsedMedia.initSegment.url,
-                byteRange: parsedMedia.initSegment.byteRange,
-                stage: "初期化セグメント(#EXT-X-MAP)",
-                context: context,
-                session: session
-            )
+            let exportedTempURL = workDir.appendingPathComponent("exported_final.mp4")
 
-            let initInfo = try FMP4BoxInspector.inspectInitSegment(initData)
-            if masterExpectedAudio && !initInfo.hasAudio {
-                // マスタープレイリストで音声コーデックが宣言されているのに初期化セグメントに音声トラックがない場合は分離音声
-                throw ExportError.separateAudioNotSupportedYet
-            }
-
-            // 4. 一時結合ファイルへの初期化セグメント書き込みと、全メディアセグメントの順次取得・タイムスタンプ連続性検証
-            let combinedFMP4URL = workDir.appendingPathComponent("combined_source.mp4")
-            FileManager.default.createFile(atPath: combinedFMP4URL.path, contents: nil)
-            let writerHandle = try FileHandle(forWritingTo: combinedFMP4URL)
-            defer { try? writerHandle.close() }
-            try writerHandle.write(contentsOf: initData)
-
-            var initialDecodeTimeByTrack: [UInt32: UInt64] = [:]
-            var lastDecodeTimeByTrack: [UInt32: UInt64] = [:]
-            var nextSequenceNumber: UInt32 = 1
-            let totalSegments = parsedMedia.segments.count
-
-            for (idx, seg) in parsedMedia.segments.enumerated() {
-                try Task.checkCancellation()
-                let segNumber = idx + 1
-                let progress = Double(idx) / Double(max(totalSegments, 1))
-                updateJob(jobID) {
-                    $0.state = .downloadingSegments(completed: idx, total: totalSegments, progress: progress)
-                }
-
-                let segData: Data
-                do {
-                    segData = try await fetchSegmentData(
-                        url: seg.url,
-                        byteRange: seg.byteRange,
-                        stage: "セグメント \(segNumber)/\(totalSegments)",
-                        context: context,
-                        session: session
-                    )
-                } catch let err as ExportError {
-                    throw ExportError.segmentDownloadFailed(
-                        index: segNumber,
-                        total: totalSegments,
-                        reason: err.localizedDescription
-                    )
-                } catch {
-                    throw ExportError.segmentDownloadFailed(
-                        index: segNumber,
-                        total: totalSegments,
-                        reason: error.localizedDescription
-                    )
-                }
-
-                let normalized = try FMP4BoxInspector.inspectAndNormalizeMediaSegment(
-                    segData,
-                    segmentIndex: segNumber,
-                    initialDecodeTimes: &initialDecodeTimeByTrack,
-                    lastDecodeTimes: &lastDecodeTimeByTrack,
-                    nextSequenceNumber: &nextSequenceNumber
+            if let audioPlaylistURL = separateAudioPlaylistURL {
+                // ==========================================================
+                // Mode B: 分離音声 fMP4 HLS（映像プレイリスト + 音声プレイリスト）
+                // ==========================================================
+                let fetchedAudio = try await fetchPlaylistText(
+                    url: audioPlaylistURL,
+                    stage: "音声メディアプレイリスト取得",
+                    context: context,
+                    session: session
+                )
+                let parsedAudioMedia = try HLSFMP4PlaylistParser.parseMediaPlaylist(
+                    fetchedAudio.text,
+                    baseURL: fetchedAudio.finalURL
                 )
 
-                try writerHandle.write(contentsOf: normalized.normalizedData)
-            }
-            try writerHandle.synchronize()
-            try writerHandle.close()
-
-            // 初期化セグメントに音声トラックが存在する場合、メディアセグメントにもその track_ID のフラグメントが含まれているか確認
-            if initInfo.hasAudio {
-                let audioTrackIDs = initInfo.tracks.filter { $0.handlerType == "soun" }.map(\.trackID)
-                let hasAnyAudioFragment = audioTrackIDs.contains { lastDecodeTimeByTrack[$0] != nil }
-                if !hasAnyAudioFragment {
-                    throw ExportError.invalidMediaSegment(
-                        index: totalSegments,
-                        reason: "初期化セグメントに音声トラックがありますが、メディアセグメントに音声フラグメントが含まれていません"
+                // 映像と音声のプレイリスト合計時間が大きく乖離していないか確認
+                let durationGap = abs(parsedVideoMedia.totalDuration - parsedAudioMedia.totalDuration)
+                let allowedGap = max(3.0, parsedVideoMedia.totalDuration * 0.10)
+                if durationGap > allowedGap {
+                    throw ExportError.avSyncFailed(
+                        String(
+                            format: "映像プレイリスト(%.1f秒)と音声プレイリスト(%.1f秒)の長さが一致しません。",
+                            parsedVideoMedia.totalDuration,
+                            parsedAudioMedia.totalDuration
+                        )
                     )
                 }
+
+                let totalSteps = parsedVideoMedia.segments.count + parsedAudioMedia.segments.count
+
+                // 3B-1. 映像fMP4ストリームを独立した一時ファイルへ組み立て
+                let videoFileURL = workDir.appendingPathComponent("video_source.mp4")
+                let videoStream = try await assembleStreamFile(
+                    jobID: jobID,
+                    streamLabel: "映像fMP4",
+                    parsedMedia: parsedVideoMedia,
+                    outputFileURL: videoFileURL,
+                    requireVideo: true,
+                    requireAudio: false,
+                    progressOffset: 0,
+                    progressTotal: totalSteps,
+                    context: context,
+                    session: session
+                )
+
+                // 3B-2. 音声fMP4ストリームを独立した一時ファイルへ組み立て
+                let audioFileURL = workDir.appendingPathComponent("audio_source.mp4")
+                let audioStream = try await assembleStreamFile(
+                    jobID: jobID,
+                    streamLabel: "音声fMP4",
+                    parsedMedia: parsedAudioMedia,
+                    outputFileURL: audioFileURL,
+                    requireVideo: false,
+                    requireAudio: true,
+                    progressOffset: parsedVideoMedia.segments.count,
+                    progressTotal: totalSteps,
+                    context: context,
+                    session: session
+                )
+
+                // 4B. 映像・音声間の相対的な時間関係（originalStartSeconds の差）を維持して AVMutableComposition で結合・書き出し
+                try Task.checkCancellation()
+                updateJob(jobID) { $0.state = .remuxingToMP4(isSeparateAudio: true) }
+
+                let (presetUsed, syncOffsetMs) = try await mergeSeparateVideoAndAudioToMP4(
+                    videoStream: videoStream,
+                    audioStream: audioStream,
+                    outputURL: exportedTempURL
+                )
+
+                // 5B. 生成したMP4の品質検証（映像/音声トラック・音声サンプル読出・再生時間・冒頭/中間/終端フレーム）
+                try Task.checkCancellation()
+                updateJob(jobID) { $0.state = .verifyingMP4 }
+
+                let summary = try await verifyExportedMP4(
+                    at: exportedTempURL,
+                    videoCodec: videoStream.initInfo.videoCodecs.first ?? "vide",
+                    expectedAudioCodec: audioStream.initInfo.audioCodecs.first ?? "mp4a",
+                    expectedPlaylistDuration: parsedVideoMedia.totalDuration,
+                    videoSegmentCount: videoStream.segmentCount,
+                    audioSegmentCount: audioStream.segmentCount,
+                    avSyncOffsetMs: syncOffsetMs,
+                    isSeparateAudioMerged: true,
+                    exportPresetUsed: presetUsed
+                )
+
+                let savedVideo = try moveVerifiedMP4ToDownloads(
+                    tempMP4URL: exportedTempURL,
+                    baseName: baseName,
+                    targetFolder: targetFolder,
+                    sourceHost: sourceHost,
+                    byteSize: summary.byteSize
+                )
+
+                _ = DownloadCenter.shared.registerExportedVideo(savedVideo)
+                VideoFolderManager.shared.syncWithFileSystemAndSavedVideos()
+
+                updateJob(jobID) { $0.state = .completed(summary) }
+                setStatus("分離音声fMP4→MP4変換完了：\(baseName).mp4")
+            } else {
+                // ==========================================================
+                // Mode A: 単一ストリーム（映像・音声統合型）fMP4 HLS
+                // ==========================================================
+                let combinedFMP4URL = workDir.appendingPathComponent("combined_source.mp4")
+                let combinedStream = try await assembleStreamFile(
+                    jobID: jobID,
+                    streamLabel: "fMP4",
+                    parsedMedia: parsedVideoMedia,
+                    outputFileURL: combinedFMP4URL,
+                    requireVideo: true,
+                    requireAudio: false,
+                    progressOffset: 0,
+                    progressTotal: parsedVideoMedia.segments.count,
+                    context: context,
+                    session: session
+                )
+
+                if masterExpectedAudio && !combinedStream.initInfo.hasAudio {
+                    throw ExportError.separateAudioPlaylistMissing(
+                        "マスタープレイリストで音声コーデックが宣言されていますが、初期化セグメントに音声トラックがなく、外部音声プレイリストURIも特定できませんでした。"
+                    )
+                }
+
+                try Task.checkCancellation()
+                updateJob(jobID) { $0.state = .remuxingToMP4(isSeparateAudio: false) }
+
+                let combinedAsset = AVURLAsset(url: combinedFMP4URL)
+                let isCombinedPlayable = (try? await combinedAsset.load(.isPlayable)) ?? false
+                guard isCombinedPlayable else {
+                    throw ExportError.combinedFMP4NotPlayable("AVURLAsset.isPlayable が false です。")
+                }
+
+                let presetUsed = try await remuxToStandardMP4(sourceAsset: combinedAsset, outputURL: exportedTempURL)
+
+                try Task.checkCancellation()
+                updateJob(jobID) { $0.state = .verifyingMP4 }
+
+                let summary = try await verifyExportedMP4(
+                    at: exportedTempURL,
+                    videoCodec: combinedStream.initInfo.videoCodecs.first ?? "vide",
+                    expectedAudioCodec: combinedStream.initInfo.audioCodecs.first,
+                    expectedPlaylistDuration: parsedVideoMedia.totalDuration,
+                    videoSegmentCount: combinedStream.segmentCount,
+                    audioSegmentCount: 0,
+                    avSyncOffsetMs: 0,
+                    isSeparateAudioMerged: false,
+                    exportPresetUsed: presetUsed
+                )
+
+                let savedVideo = try moveVerifiedMP4ToDownloads(
+                    tempMP4URL: exportedTempURL,
+                    baseName: baseName,
+                    targetFolder: targetFolder,
+                    sourceHost: sourceHost,
+                    byteSize: summary.byteSize
+                )
+
+                _ = DownloadCenter.shared.registerExportedVideo(savedVideo)
+                VideoFolderManager.shared.syncWithFileSystemAndSavedVideos()
+
+                updateJob(jobID) { $0.state = .completed(summary) }
+                setStatus("MP4変換・検証完了：\(baseName).mp4")
             }
-
-            updateJob(jobID) {
-                $0.state = .downloadingSegments(completed: totalSegments, total: totalSegments, progress: 1.0)
-            }
-
-            // 5. 結合したfMP4を AVFoundation (AVURLAsset) が読み込めるか検証
-            try Task.checkCancellation()
-            updateJob(jobID) { $0.state = .remuxingToMP4 }
-
-            let combinedAsset = AVURLAsset(url: combinedFMP4URL)
-            let isCombinedPlayable = (try? await combinedAsset.load(.isPlayable)) ?? false
-            guard isCombinedPlayable else {
-                throw ExportError.combinedFMP4NotPlayable("AVURLAsset.isPlayable が false です。")
-            }
-
-            // 6. AVAssetExportSession で通常のMP4（単一moov・FastStart）として書き出せるか検証・実行
-            let exportedTempURL = workDir.appendingPathComponent("exported_final.mp4")
-            let presetUsed = try await remuxToStandardMP4(sourceAsset: combinedAsset, outputURL: exportedTempURL)
-
-            // 7. 生成されたMP4の8項目品質検証（ファイル存在・AVURLAsset・映像/音声トラック・再生時間・冒頭/中間/終端デコード）
-            try Task.checkCancellation()
-            updateJob(jobID) { $0.state = .verifyingMP4 }
-
-            let summary = try await verifyExportedMP4(
-                at: exportedTempURL,
-                initInfo: initInfo,
-                expectedPlaylistDuration: parsedMedia.totalDuration,
-                segmentCount: totalSegments,
-                exportPresetUsed: presetUsed
-            )
-
-            // 8. Documents/Downloads（または指定サブフォルダ）へ移動し、成功後にのみ DownloadCenter へ登録
-            let savedVideo = try moveVerifiedMP4ToDownloads(
-                tempMP4URL: exportedTempURL,
-                baseName: baseName,
-                targetFolder: targetFolder,
-                sourceHost: sourceHost,
-                byteSize: summary.byteSize
-            )
-
-            _ = DownloadCenter.shared.registerExportedVideo(savedVideo)
-            VideoFolderManager.shared.syncWithFileSystemAndSavedVideos()
-
-            updateJob(jobID) { $0.state = .completed(summary) }
-            setStatus("MP4変換・検証完了：\(baseName).mp4")
         } catch is CancellationError {
             updateJob(jobID) { $0.state = .cancelled }
             setStatus("MP4変換をキャンセルしました")
@@ -567,9 +646,291 @@ final class VideoExportManager: ObservableObject {
         }
     }
 
-    // MARK: - AVAssetExportSession による標準MP4書き出し
+    // MARK: - ストリーム（映像または音声）の一時fMP4ファイル組み立てと時間連続性検査
 
-    private func remuxToStandardMP4(sourceAsset: AVURLAsset, outputURL: URL) async throws -> String {
+    private func assembleStreamFile(
+        jobID: UUID,
+        streamLabel: String,
+        parsedMedia: HLSFMP4PlaylistParser.ParsedMediaPlaylist,
+        outputFileURL: URL,
+        requireVideo: Bool,
+        requireAudio: Bool,
+        progressOffset: Int,
+        progressTotal: Int,
+        context: RequestContext,
+        session: URLSession
+    ) async throws -> AssembledStreamResult {
+        try Task.checkCancellation()
+        let initData = try await fetchSegmentData(
+            url: parsedMedia.initSegment.url,
+            byteRange: parsedMedia.initSegment.byteRange,
+            stage: "\(streamLabel)初期化セグメント(#EXT-X-MAP)",
+            context: context,
+            session: session
+        )
+
+        let initInfo = try FMP4BoxInspector.inspectInitSegment(
+            initData,
+            requireVideo: requireVideo,
+            requireAudio: requireAudio
+        )
+
+        var timescalesByTrack: [UInt32: UInt32] = [:]
+        for t in initInfo.tracks {
+            timescalesByTrack[t.trackID] = t.timescale
+        }
+
+        FileManager.default.createFile(atPath: outputFileURL.path, contents: nil)
+        let writerHandle = try FileHandle(forWritingTo: outputFileURL)
+        defer { try? writerHandle.close() }
+        try writerHandle.write(contentsOf: initData)
+
+        var originalInitialDecodeTimes: [UInt32: UInt64] = [:]
+        var originalFirstCTOs: [UInt32: Int64] = [:]
+        var lastDecodeTimes: [UInt32: UInt64] = [:]
+        var nextSequenceNumber: UInt32 = 1
+
+        let totalStreamSegments = parsedMedia.segments.count
+        let batches = HLSFMP4PlaylistParser.buildContiguousBatches(parsedMedia.segments)
+        var completedInStream = 0
+
+        for batch in batches {
+            try Task.checkCancellation()
+            let overallDone = progressOffset + completedInStream
+            let overallProgress = Double(overallDone) / Double(max(progressTotal, 1))
+            updateJob(jobID) {
+                $0.state = .downloadingSegments(
+                    stage: "\(streamLabel)取得中",
+                    completed: completedInStream,
+                    total: totalStreamSegments,
+                    progress: overallProgress
+                )
+            }
+
+            let segmentDataSliceList: [Data]
+            do {
+                segmentDataSliceList = try await fetchSegmentBatch(
+                    batch,
+                    streamLabel: streamLabel,
+                    startSegmentIndex: completedInStream + 1,
+                    totalSegments: totalStreamSegments,
+                    context: context,
+                    session: session
+                )
+            } catch let err as ExportError {
+                throw ExportError.segmentDownloadFailed(
+                    streamLabel: streamLabel,
+                    index: completedInStream + 1,
+                    total: totalStreamSegments,
+                    reason: err.localizedDescription
+                )
+            } catch {
+                throw ExportError.segmentDownloadFailed(
+                    streamLabel: streamLabel,
+                    index: completedInStream + 1,
+                    total: totalStreamSegments,
+                    reason: error.localizedDescription
+                )
+            }
+
+            for (offsetInBatch, segData) in segmentDataSliceList.enumerated() {
+                let segNumber = completedInStream + offsetInBatch + 1
+                let segRef = batch[offsetInBatch]
+                let normalized = try FMP4BoxInspector.inspectAndNormalizeMediaSegment(
+                    segData,
+                    streamLabel: streamLabel,
+                    segmentIndex: segNumber,
+                    expectedSegmentDuration: segRef.duration,
+                    trackTimescales: timescalesByTrack,
+                    originalInitialDecodeTimes: &originalInitialDecodeTimes,
+                    originalFirstCTOs: &originalFirstCTOs,
+                    lastDecodeTimes: &lastDecodeTimes,
+                    nextSequenceNumber: &nextSequenceNumber
+                )
+                try writerHandle.write(contentsOf: normalized.normalizedData)
+            }
+
+            completedInStream += batch.count
+        }
+
+        try writerHandle.synchronize()
+        try writerHandle.close()
+
+        // 初期化セグメントに宣言されたトラックのフラグメントが実際に存在したか確認
+        if initInfo.hasVideo {
+            let videoTrackIDs = initInfo.tracks.filter { $0.handlerType == "vide" }.map(\.trackID)
+            guard videoTrackIDs.contains(where: { lastDecodeTimes[$0] != nil }) else {
+                throw ExportError.invalidMediaSegment(
+                    streamLabel: streamLabel,
+                    index: totalStreamSegments,
+                    reason: "映像トラックのメディアフラグメントが存在しません"
+                )
+            }
+        }
+        if initInfo.hasAudio {
+            let audioTrackIDs = initInfo.tracks.filter { $0.handlerType == "soun" }.map(\.trackID)
+            guard audioTrackIDs.contains(where: { lastDecodeTimes[$0] != nil }) else {
+                throw ExportError.invalidMediaSegment(
+                    streamLabel: streamLabel,
+                    index: totalStreamSegments,
+                    reason: "音声トラックのメディアフラグメントが存在しません"
+                )
+            }
+        }
+
+        let targetHandler = requireAudio && !requireVideo ? "soun" : "vide"
+        let primaryTrack = initInfo.tracks.first(where: { $0.handlerType == targetHandler }) ?? initInfo.tracks[0]
+        let origDTS = originalInitialDecodeTimes[primaryTrack.trackID] ?? 0
+        let origCTO = originalFirstCTOs[primaryTrack.trackID] ?? 0
+
+        updateJob(jobID) {
+            let done = progressOffset + totalStreamSegments
+            $0.state = .downloadingSegments(
+                stage: "\(streamLabel)取得完了",
+                completed: totalStreamSegments,
+                total: totalStreamSegments,
+                progress: Double(done) / Double(max(progressTotal, 1))
+            )
+        }
+
+        return AssembledStreamResult(
+            fileURL: outputFileURL,
+            initInfo: initInfo,
+            segmentCount: totalStreamSegments,
+            playlistDuration: parsedMedia.totalDuration,
+            primaryTrackID: primaryTrack.trackID,
+            primaryTimescale: primaryTrack.timescale,
+            originalInitialDTS: origDTS,
+            originalFirstCTO: origCTO
+        )
+    }
+
+    // MARK: - 分離音声fMP4と映像fMP4の同期・結合（AVMutableComposition + AVAssetExportSession）
+
+    private func mergeSeparateVideoAndAudioToMP4(
+        videoStream: AssembledStreamResult,
+        audioStream: AssembledStreamResult,
+        outputURL: URL
+    ) async throws -> (presetUsed: String, syncOffsetMs: Int) {
+        let videoAsset = AVURLAsset(url: videoStream.fileURL)
+        let audioAsset = AVURLAsset(url: audioStream.fileURL)
+
+        let vPlayable = (try? await videoAsset.load(.isPlayable)) ?? false
+        guard vPlayable else {
+            throw ExportError.combinedFMP4NotPlayable("映像fMP4の AVURLAsset.isPlayable が false です。")
+        }
+        let aPlayable = (try? await audioAsset.load(.isPlayable)) ?? false
+        guard aPlayable else {
+            throw ExportError.combinedFMP4NotPlayable("音声fMP4の AVURLAsset.isPlayable が false です。")
+        }
+
+        guard let sourceVideoTrack = (try? await videoAsset.loadTracks(withMediaType: .video))?.first else {
+            throw ExportError.combinedFMP4NotPlayable("映像fMP4内に有効な映像トラックが見つかりません。")
+        }
+        guard let sourceAudioTrack = (try? await audioAsset.loadTracks(withMediaType: .audio))?.first else {
+            throw ExportError.combinedFMP4NotPlayable("音声fMP4内に有効な音声トラックが見つかりません。")
+        }
+
+        let videoTimeRange = try await sourceVideoTrack.load(.timeRange)
+        let audioTimeRange = try await sourceAudioTrack.load(.timeRange)
+        guard videoTimeRange.duration.isNumeric, videoTimeRange.duration.seconds > 0 else {
+            throw ExportError.avSyncFailed("映像トラックの timeRange が無効です。")
+        }
+        guard audioTimeRange.duration.isNumeric, audioTimeRange.duration.seconds > 0 else {
+            throw ExportError.avSyncFailed("音声トラックの timeRange が無効です。")
+        }
+
+        // 元ストリームにおける映像開始時刻と音声開始時刻の相対差（秒）を算出
+        // 例: Apple BipBop では videoStart = 10.000000s (300000/30000), audioStart = 9.956000s (477888/48000)
+        // relativeAudioMinusVideo = -0.044000s (-44ms: 音声が44ms先行)
+        let videoStartSec = videoStream.originalStartSeconds
+        let audioStartSec = audioStream.originalStartSeconds
+        let relativeAudioMinusVideo = audioStartSec - videoStartSec
+        let syncOffsetMs = Int((relativeAudioMinusVideo * 1000.0).rounded())
+
+        if abs(relativeAudioMinusVideo) > 10.0 {
+            throw ExportError.avSyncFailed(
+                String(
+                    format: "映像開始時刻(%.2f秒)と音声開始時刻(%.2f秒)の差(%.2f秒)が大きすぎるため同期できません。",
+                    videoStartSec,
+                    audioStartSec,
+                    relativeAudioMinusVideo
+                )
+            )
+        }
+
+        let composition = AVMutableComposition()
+        guard let compVideoTrack = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: 1
+        ) else {
+            throw ExportError.avSyncFailed("AVMutableComposition に映像トラックを追加できませんでした。")
+        }
+        guard let compAudioTrack = composition.addMutableTrack(
+            withMediaType: .audio,
+            preferredTrackID: 2
+        ) else {
+            throw ExportError.avSyncFailed("AVMutableComposition に音声トラックを追加できませんでした。")
+        }
+
+        if let transform = try? await sourceVideoTrack.load(.preferredTransform) {
+            compVideoTrack.preferredTransform = transform
+        }
+
+        // 映像トラックは常に先頭IDRキーフレームから at: .zero へ配置（空のEditListギャップを作らない）
+        try compVideoTrack.insertTimeRange(
+            CMTimeRange(start: videoTimeRange.start, duration: videoTimeRange.duration),
+            of: sourceVideoTrack,
+            at: .zero
+        )
+
+        let audioTimescale = Int32(clamping: max(audioStream.primaryTimescale, 48000))
+        if relativeAudioMinusVideo < -0.001 {
+            // 音声が映像より少し先行して始まる場合（AACプライミング等: 例 -44ms）
+            // 映像先頭(t=0)に対応する音声位置まで audioStart を進めて at: .zero に挿入し、相対同期を完全維持する
+            let audioLeadSec = -relativeAudioMinusVideo
+            let leadTime = CMTime(seconds: audioLeadSec, preferredTimescale: audioTimescale)
+            let trimmedStart = CMTimeAdd(audioTimeRange.start, leadTime)
+            let availableAudioDuration = CMTimeSubtract(audioTimeRange.duration, leadTime)
+            let insertDuration = CMTimeMinimum(availableAudioDuration, videoTimeRange.duration)
+            guard insertDuration.isNumeric, insertDuration.seconds > 0 else {
+                throw ExportError.avSyncFailed("同期トリム後の音声トラック長が0秒以下になりました。")
+            }
+            try compAudioTrack.insertTimeRange(
+                CMTimeRange(start: trimmedStart, duration: insertDuration),
+                of: sourceAudioTrack,
+                at: .zero
+            )
+        } else if relativeAudioMinusVideo > 0.001 {
+            // 音声が映像より遅れて始まる場合、その遅延分だけ at: lagTime の位置へ挿入する
+            let audioLagSec = relativeAudioMinusVideo
+            let lagTime = CMTime(seconds: audioLagSec, preferredTimescale: audioTimescale)
+            let maxAudioDuration = CMTimeSubtract(videoTimeRange.duration, lagTime)
+            let insertDuration = CMTimeMinimum(audioTimeRange.duration, maxAudioDuration)
+            guard insertDuration.isNumeric, insertDuration.seconds > 0 else {
+                throw ExportError.avSyncFailed("同期オフセット適用後の音声トラック長が0秒以下になりました。")
+            }
+            try compAudioTrack.insertTimeRange(
+                CMTimeRange(start: audioTimeRange.start, duration: insertDuration),
+                of: sourceAudioTrack,
+                at: lagTime
+            )
+        } else {
+            let insertDuration = CMTimeMinimum(audioTimeRange.duration, videoTimeRange.duration)
+            try compAudioTrack.insertTimeRange(
+                CMTimeRange(start: audioTimeRange.start, duration: insertDuration),
+                of: sourceAudioTrack,
+                at: .zero
+            )
+        }
+
+        let presetUsed = try await remuxToStandardMP4(sourceAsset: composition, outputURL: outputURL)
+        return (presetUsed, syncOffsetMs)
+    }
+
+    // MARK: - AVAssetExportSession による標準MP4書き出し（AVURLAsset / AVMutableComposition 共通）
+
+    private func remuxToStandardMP4(sourceAsset: AVAsset, outputURL: URL) async throws -> String {
         let passthroughCompatible = await AVAssetExportSession.compatibility(
             ofExportPreset: AVAssetExportPresetPassthrough,
             with: sourceAsset,
@@ -629,13 +990,17 @@ final class VideoExportManager: ObservableObject {
         throw ExportError.exportSessionFailed(errorLogs.joined(separator: " / "))
     }
 
-    // MARK: - 書き出し後のMP4品質検証（全8項目）
+    // MARK: - 書き出し後のMP4品質検証（映像・音声・同期・再生時間・3点フレーム・AVAssetReader音声読出）
 
     private func verifyExportedMP4(
         at mp4URL: URL,
-        initInfo: FMP4BoxInspector.InitSegmentInfo,
+        videoCodec: String,
+        expectedAudioCodec: String?,
         expectedPlaylistDuration: Double,
-        segmentCount: Int,
+        videoSegmentCount: Int,
+        audioSegmentCount: Int,
+        avSyncOffsetMs: Int,
+        isSeparateAudioMerged: Bool,
         exportPresetUsed: String
     ) async throws -> VerificationSummary {
         // 1. ファイル存在・サイズ・マジックバイト検査
@@ -663,13 +1028,7 @@ final class VideoExportManager: ObservableObject {
             throw ExportError.verificationFailed("出力されたMP4に映像トラックが存在しません。")
         }
 
-        // 4. 入力に音声がある場合、出力にも音声トラックが存在することを確認
-        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
-        if initInfo.hasAudio && audioTracks.isEmpty {
-            throw ExportError.verificationFailed("入力fMP4には音声トラックが存在しましたが、出力MP4で音声トラックが欠落しました。")
-        }
-
-        // 5. 再生時間が元動画（プレイリスト合計時間）と概ね一致することを確認
+        // 4. 再生時間が元動画（プレイリスト合計時間）と概ね一致することを確認
         let cmDuration = try await asset.load(.duration)
         guard cmDuration.isNumeric, !cmDuration.isIndefinite, cmDuration.seconds > 0 else {
             throw ExportError.verificationFailed("出力されたMP4の再生時間（duration）が不明または0秒です。")
@@ -687,6 +1046,44 @@ final class VideoExportManager: ObservableObject {
                     )
                 )
             }
+        }
+
+        // 5. 音声トラックの存在・再生時間一致・AVAssetReaderによる実サンプル読み出し検証
+        let audioTracks = (try? await asset.loadTracks(withMediaType: .audio)) ?? []
+        var verifiedAudioDuration: Double?
+        if expectedAudioCodec != nil {
+            guard let firstAudioTrack = audioTracks.first else {
+                throw ExportError.verificationFailed("入力には音声が存在しましたが、出力MP4で音声トラックが欠落しました。")
+            }
+            let audioTimeRange = try await firstAudioTrack.load(.timeRange)
+            let audioDur = audioTimeRange.duration.isNumeric ? audioTimeRange.duration.seconds : 0
+            guard audioDur > 0 else {
+                throw ExportError.verificationFailed("出力MP4の音声トラックの再生時間が0秒です（音声欠落）。")
+            }
+            let trackDiff = abs(actualDuration - audioDur)
+            if trackDiff > max(2.5, actualDuration * 0.08) {
+                throw ExportError.verificationFailed(
+                    String(
+                        format: "出力MP4の映像トラック長(%.1f秒)と音声トラック長(%.1f秒)が乖離しています。",
+                        actualDuration,
+                        audioDur
+                    )
+                )
+            }
+
+            let reader = try AVAssetReader(asset: asset)
+            let audioOutput = AVAssetReaderTrackOutput(track: firstAudioTrack, outputSettings: nil)
+            audioOutput.alwaysCopiesSampleData = false
+            guard reader.canAdd(audioOutput) else {
+                throw ExportError.verificationFailed("出力MP4の音声トラックをAVAssetReaderで検証できませんでした。")
+            }
+            reader.add(audioOutput)
+            guard reader.startReading(), let firstAudioSample = audioOutput.copyNextSampleBuffer() else {
+                throw ExportError.verificationFailed("出力MP4の音声トラックから音声サンプルを読み出せませんでした。")
+            }
+            _ = firstAudioSample
+            reader.cancelReading()
+            verifiedAudioDuration = audioDur
         }
 
         // 6. 冒頭・中間・終端を正常にデコード・再生できることを確認
@@ -717,11 +1114,15 @@ final class VideoExportManager: ObservableObject {
         return VerificationSummary(
             byteSize: byteSize,
             durationSeconds: actualDuration,
+            audioDurationSeconds: verifiedAudioDuration,
             expectedPlaylistDuration: expectedPlaylistDuration,
-            videoCodec: initInfo.videoCodecs.first ?? "vide",
-            audioCodec: initInfo.audioCodecs.first,
-            segmentCount: segmentCount,
+            videoCodec: videoCodec,
+            audioCodec: expectedAudioCodec,
+            videoSegmentCount: videoSegmentCount,
+            audioSegmentCount: audioSegmentCount,
             decodedCheckpoints: decodedCount,
+            avSyncOffsetMs: avSyncOffsetMs,
+            isSeparateAudioMerged: isSeparateAudioMerged,
             exportPresetUsed: exportPresetUsed
         )
     }
@@ -783,7 +1184,7 @@ final class VideoExportManager: ObservableObject {
         )
     }
 
-    // MARK: - ネットワーク取得ヘルパー（ByteRange対応）
+    // MARK: - ネットワーク取得ヘルパー（ByteRange・連続Rangeバッチ取得対応）
 
     private func fetchPlaylistText(
         url: URL,
@@ -802,6 +1203,78 @@ final class VideoExportManager: ObservableObject {
         }
         let finalURL = (response as? HTTPURLResponse)?.url ?? url
         return (text, finalURL)
+    }
+
+    private func fetchSegmentBatch(
+        _ batch: [HLSFMP4PlaylistParser.SegmentRef],
+        streamLabel: String,
+        startSegmentIndex: Int,
+        totalSegments: Int,
+        context: RequestContext,
+        session: URLSession
+    ) async throws -> [Data] {
+        guard !batch.isEmpty else { return [] }
+        if batch.count == 1 {
+            let single = try await fetchSegmentData(
+                url: batch[0].url,
+                byteRange: batch[0].byteRange,
+                stage: "\(streamLabel) \(startSegmentIndex)/\(totalSegments)",
+                context: context,
+                session: session
+            )
+            return [single]
+        }
+
+        // 同一URLの連続した #EXT-X-BYTERANGE をまとめて1回のHTTP Rangeリクエストで取得し、各セグメントへ正確に分割する
+        guard let firstRange = batch.first?.byteRange else {
+            var results: [Data] = []
+            for (idx, seg) in batch.enumerated() {
+                let d = try await fetchSegmentData(
+                    url: seg.url,
+                    byteRange: seg.byteRange,
+                    stage: "\(streamLabel) \(startSegmentIndex + idx)/\(totalSegments)",
+                    context: context,
+                    session: session
+                )
+                results.append(d)
+            }
+            return results
+        }
+
+        let totalLength = batch.compactMap { $0.byteRange?.length }.reduce(0, +)
+        let combinedRange = HLSFMP4PlaylistParser.ByteRange(length: totalLength, offset: firstRange.offset)
+        let endIdx = startSegmentIndex + batch.count - 1
+        let batchData = try await fetchSegmentData(
+            url: batch[0].url,
+            byteRange: combinedRange,
+            stage: "\(streamLabel) \(startSegmentIndex)-\(endIdx)/\(totalSegments)",
+            context: context,
+            session: session
+        )
+
+        var slices: [Data] = []
+        slices.reserveCapacity(batch.count)
+        var cursor = 0
+        for (idx, seg) in batch.enumerated() {
+            guard let r = seg.byteRange else {
+                throw ExportError.invalidMediaSegment(
+                    streamLabel: streamLabel,
+                    index: startSegmentIndex + idx,
+                    reason: "バッチ内のByteRange情報が欠落しています"
+                )
+            }
+            let nextCursor = cursor + Int(r.length)
+            guard batchData.count >= nextCursor else {
+                throw ExportError.invalidMediaSegment(
+                    streamLabel: streamLabel,
+                    index: startSegmentIndex + idx,
+                    reason: "バッチByteRange切り出し範囲外 (\(nextCursor) > \(batchData.count))"
+                )
+            }
+            slices.append(batchData.subdata(in: cursor..<nextCursor))
+            cursor = nextCursor
+        }
+        return slices
     }
 
     private func fetchSegmentData(
@@ -825,6 +1298,7 @@ final class VideoExportManager: ObservableObject {
                 if http.statusCode == 206 {
                     guard data.count == Int(range.length) else {
                         throw ExportError.invalidMediaSegment(
+                            streamLabel: stage,
                             index: 0,
                             reason: "ByteRange長不一致 (期待: \(range.length)B / 実際: \(data.count)B)"
                         )
@@ -836,6 +1310,7 @@ final class VideoExportManager: ObservableObject {
                     let end = start + Int(range.length)
                     guard data.count >= end else {
                         throw ExportError.invalidMediaSegment(
+                            streamLabel: stage,
                             index: 0,
                             reason: "ByteRange切り出し範囲外 (\(end) > \(data.count))"
                         )
@@ -849,6 +1324,7 @@ final class VideoExportManager: ObservableObject {
                 let end = start + Int(range.length)
                 guard data.count >= end else {
                     throw ExportError.invalidMediaSegment(
+                        streamLabel: stage,
                         index: 0,
                         reason: "ローカルByteRange切り出し範囲外 (\(end) > \(data.count))"
                     )
@@ -856,11 +1332,11 @@ final class VideoExportManager: ObservableObject {
                 return data.subdata(in: start..<end)
             }
         } else {
-            throw ExportError.invalidMediaSegment(index: 0, reason: "HTTP応答がありません")
+            throw ExportError.invalidMediaSegment(streamLabel: stage, index: 0, reason: "HTTP応答がありません")
         }
 
         guard !data.isEmpty else {
-            throw ExportError.invalidMediaSegment(index: 0, reason: "セグメントデータが0バイトです")
+            throw ExportError.invalidMediaSegment(streamLabel: stage, index: 0, reason: "セグメントデータが0バイトです")
         }
         return data
     }
@@ -887,7 +1363,7 @@ final class VideoExportManager: ObservableObject {
     }
 }
 
-// MARK: - HLS プレイリスト解析器（マスター / メディア / EXT-X-MAP / EXT-X-BYTERANGE / EXT-X-DISCONTINUITY）
+// MARK: - HLS プレイリスト解析器（マスター / 分離音声EXT-X-MEDIA / メディア / EXT-X-MAP / EXT-X-BYTERANGE）
 
 enum HLSFMP4PlaylistParser {
 
@@ -908,22 +1384,33 @@ enum HLSFMP4PlaylistParser {
         let totalDuration: Double
     }
 
-    struct VariantSelection: Equatable {
-        let variantURL: URL
-        let bandwidth: Int
+    struct AudioRendition: Equatable {
+        let groupID: String
+        let name: String
+        let language: String?
+        let isDefault: Bool
+        let autoSelect: Bool
+        let channels: String?
+        let uri: URL?
+    }
+
+    struct StreamPlan: Equatable {
+        let videoVariantURL: URL
+        let separateAudioURL: URL?
         let declaresAudioCodec: Bool
+        let bandwidth: Int
     }
 
     static func isMasterPlaylist(_ text: String) -> Bool {
         text.contains("#EXT-X-STREAM-INF")
     }
 
-    /// マスタープレイリストを解析し、単一ストリームに映像（または映像＋音声）が含まれるバリアントを選択する。
-    /// すべてのバリアントが外部の分離音声（#EXT-X-MEDIA:TYPE=AUDIO,URI="..."）を要求する場合は `.separateAudioNotSupportedYet` を返す。
-    static func selectMuxedVariant(
+    /// マスタープレイリストを解析し、最適な映像バリアントと、対応する音声プレイリスト（分離音声の場合）を選択する
+    static func selectStreamPlan(
         masterPlaylist text: String,
-        baseURL: URL
-    ) throws -> VariantSelection {
+        baseURL: URL,
+        preferredMaxBandwidth: Int? = 3_500_000
+    ) throws -> StreamPlan {
         let lines = text.components(separatedBy: .newlines).map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -935,19 +1422,35 @@ enum HLSFMP4PlaylistParser {
             }
         }
 
-        // #EXT-X-MEDIA:TYPE=AUDIO のグループごとに外部 URI の有無を記録
-        var audioGroupsWithExternalURI: Set<String> = []
-        var audioGroupsWithMuxedStream: Set<String> = []
-
+        // #EXT-X-MEDIA:TYPE=AUDIO を GROUP-ID ごとに収集
+        var audioGroups: [String: [AudioRendition]] = [:]
         for line in lines where line.hasPrefix("#EXT-X-MEDIA:") {
             let attrs = parseAttributeList(String(line.dropFirst("#EXT-X-MEDIA:".count)))
             guard attrs["TYPE"]?.uppercased() == "AUDIO",
-                  let groupID = attrs["GROUP-ID"] else { continue }
-            if let uri = attrs["URI"], !uri.isEmpty {
-                audioGroupsWithExternalURI.insert(groupID)
+                  let groupID = attrs["GROUP-ID"], !groupID.isEmpty else { continue }
+            let resolvedURI: URL?
+            if let uriStr = attrs["URI"], !uriStr.isEmpty {
+                resolvedURI = URL(string: uriStr, relativeTo: baseURL)?.absoluteURL
             } else {
-                audioGroupsWithMuxedStream.insert(groupID)
+                resolvedURI = nil
             }
+            let rendition = AudioRendition(
+                groupID: groupID,
+                name: attrs["NAME"] ?? "",
+                language: attrs["LANGUAGE"],
+                isDefault: attrs["DEFAULT"]?.uppercased() == "YES",
+                autoSelect: attrs["AUTOSELECT"]?.uppercased() == "YES",
+                channels: attrs["CHANNELS"],
+                uri: resolvedURI
+            )
+            audioGroups[groupID, default: []].append(rendition)
+        }
+
+        func chooseAudioRendition(for groupID: String) -> AudioRendition? {
+            guard let list = audioGroups[groupID], !list.isEmpty else { return nil }
+            if let def = list.first(where: { $0.isDefault }) { return def }
+            if let auto = list.first(where: { $0.autoSelect }) { return auto }
+            return list[0]
         }
 
         struct CandidateVariant {
@@ -992,43 +1495,95 @@ enum HLSFMP4PlaylistParser {
             throw VideoExportManager.ExportError.invalidPlaylist
         }
 
-        // 外部音声URIに依存しない単一ストリームのバリアントを抽出
-        let singleStreamVariants = variants.filter { v in
-            guard let group = v.audioGroup else { return true }
-            if audioGroupsWithMuxedStream.contains(group) { return true }
-            return !audioGroupsWithExternalURI.contains(group)
+        // H.264 (avc1) / HEVC (hvc1) + AAC (mp4a) を最優先で選択
+        let compatible = variants.filter { codecCompatibilityScore($0.codecs) > 0 }
+        guard !compatible.isEmpty else {
+            throw VideoExportManager.ExportError.unsupportedCodec("対応コーデック（H.264/HEVC + AAC）のバリアントがありません")
         }
 
-        guard !singleStreamVariants.isEmpty else {
-            throw VideoExportManager.ExportError.separateAudioNotSupportedYet
+        let maxScore = compatible.map { codecCompatibilityScore($0.codecs) }.max() ?? 0
+        let topScoreVariants = compatible.filter { codecCompatibilityScore($0.codecs) == maxScore }
+
+        let best: CandidateVariant
+        if let cap = preferredMaxBandwidth {
+            let underCap = topScoreVariants.filter { $0.bandwidth <= cap }
+            if !underCap.isEmpty {
+                best = underCap.max(by: { $0.bandwidth < $1.bandwidth })!
+            } else {
+                best = topScoreVariants.min(by: { $0.bandwidth < $1.bandwidth })!
+            }
+        } else {
+            best = topScoreVariants.max(by: { $0.bandwidth < $1.bandwidth })!
         }
 
-        // H.264 (avc1) / HEVC (hvc1) かつ AAC (mp4a) を優先し、帯域幅の大きいものを選択
-        let sorted = singleStreamVariants.sorted { a, b in
-            let aScore = codecCompatibilityScore(a.codecs)
-            let bScore = codecCompatibilityScore(b.codecs)
-            if aScore != bScore { return aScore > bScore }
-            return a.bandwidth > b.bandwidth
+        var separateAudioURL: URL?
+        if let groupID = best.audioGroup, !groupID.isEmpty {
+            if let chosenRendition = chooseAudioRendition(for: groupID) {
+                separateAudioURL = chosenRendition.uri
+            } else {
+                throw VideoExportManager.ExportError.separateAudioPlaylistMissing(
+                    "AUDIOグループ '\(groupID)' に対応する #EXT-X-MEDIA:TYPE=AUDIO が見つかりません"
+                )
+            }
         }
 
-        let best = sorted[0]
         let declaresAudio = best.codecs.contains("mp4a")
             || best.codecs.contains("ac-3")
             || best.codecs.contains("ec-3")
-        return VariantSelection(
-            variantURL: best.url,
-            bandwidth: best.bandwidth,
-            declaresAudioCodec: declaresAudio
+            || separateAudioURL != nil
+
+        return StreamPlan(
+            videoVariantURL: best.url,
+            separateAudioURL: separateAudioURL,
+            declaresAudioCodec: declaresAudio,
+            bandwidth: best.bandwidth
         )
     }
 
     private static func codecCompatibilityScore(_ codecs: String) -> Int {
         if codecs.isEmpty { return 1 }
+        if codecs.contains("vp09") || codecs.contains("av01") { return -100 }
         var score = 0
-        if codecs.contains("avc1") { score += 10 }
+        if codecs.contains("avc1") || codecs.contains("avc3") { score += 10 }
         else if codecs.contains("hvc1") || codecs.contains("hev1") { score += 8 }
-        if codecs.contains("mp4a") { score += 5 }
+        if codecs.contains("mp4a") { score += 6 }
+        else if codecs.contains("ac-3") || codecs.contains("ec-3") { score -= 20 }
         return score
+    }
+
+    /// 連続した同一URLの #EXT-X-BYTERANGE セグメントをバッチ化（最大20セグメント・最大6MB）する
+    static func buildContiguousBatches(
+        _ segments: [SegmentRef],
+        maxCount: Int = 20,
+        maxBytes: Int64 = 6 * 1024 * 1024
+    ) -> [[SegmentRef]] {
+        var batches: [[SegmentRef]] = []
+        var i = 0
+        let n = segments.count
+        while i < n {
+            let first = segments[i]
+            guard let firstRange = first.byteRange else {
+                batches.append([first])
+                i += 1
+                continue
+            }
+            var batch: [SegmentRef] = [first]
+            var totalLen = firstRange.length
+            var currentEnd = firstRange.offset + firstRange.length
+            var j = i + 1
+            while j < n && batch.count < maxCount {
+                let next = segments[j]
+                guard next.url == first.url, let nextRange = next.byteRange else { break }
+                guard nextRange.offset == currentEnd, (totalLen + nextRange.length) <= maxBytes else { break }
+                batch.append(next)
+                totalLen += nextRange.length
+                currentEnd += nextRange.length
+                j += 1
+            }
+            batches.append(batch)
+            i = j
+        }
+        return batches
     }
 
     /// メディアプレイリストを解析し、#EXT-X-MAP と各メディアセグメント（#EXT-X-BYTERANGE 対応）を抽出する
@@ -1071,7 +1626,6 @@ enum HLSFMP4PlaylistParser {
 
             if line.hasPrefix("#EXT-X-MAP:") {
                 if initSegment != nil {
-                    // 複数の初期化セグメントが存在する場合は単一fMP4連結の対象外
                     throw VideoExportManager.ExportError.discontinuityNotSupported("複数の #EXT-X-MAP")
                 }
                 let attrs = parseAttributeList(String(line.dropFirst("#EXT-X-MAP:".count)))
@@ -1106,7 +1660,6 @@ enum HLSFMP4PlaylistParser {
                 continue
             }
 
-            // セグメントURI行
             guard let resolvedURL = URL(string: line, relativeTo: baseURL)?.absoluteURL else {
                 continue
             }
@@ -1222,7 +1775,11 @@ enum FMP4BoxInspector {
     }
 
     /// `#EXT-X-MAP` の初期化セグメント（ftyp + moov + mvex + trak）を解析・検証する
-    static func inspectInitSegment(_ data: Data) throws -> InitSegmentInfo {
+    static func inspectInitSegment(
+        _ data: Data,
+        requireVideo: Bool = true,
+        requireAudio: Bool = false
+    ) throws -> InitSegmentInfo {
         let bytes = [UInt8](data)
         guard bytes.count >= 16 else {
             throw VideoExportManager.ExportError.invalidInitSegment("データサイズが小さすぎます (\(bytes.count)B)")
@@ -1255,37 +1812,52 @@ enum FMP4BoxInspector {
         }
 
         let info = InitSegmentInfo(tracks: tracks)
-        guard info.hasVideo else {
+        if requireVideo && !info.hasVideo {
             throw VideoExportManager.ExportError.invalidInitSegment("映像トラック（vide）が含まれていません")
         }
+        if requireAudio && !info.hasAudio {
+            throw VideoExportManager.ExportError.invalidInitSegment("音声トラック（soun）が含まれていません")
+        }
 
-        // 対応コーデック確認（H.264 avc1 / HEVC hvc1, hev1）
+        // 対応映像コーデック確認（H.264 avc1/avc3 / HEVC hvc1/hev1）
         let supportedVideo = Set(["avc1", "avc3", "hvc1", "hev1", "mp4v"])
         for vc in info.videoCodecs where !vc.isEmpty && !supportedVideo.contains(vc) {
             throw VideoExportManager.ExportError.unsupportedCodec("映像コーデック \(vc) はMP4書き出し非対応です")
         }
 
+        // 対応音声コーデック確認（AAC mp4a）
+        let supportedAudio = Set(["mp4a"])
+        for ac in info.audioCodecs where !ac.isEmpty && !supportedAudio.contains(ac) {
+            throw VideoExportManager.ExportError.unsupportedCodec("音声コーデック \(ac) は標準MP4書き出し非対応です")
+        }
+
         return info
     }
 
-    /// 各メディアセグメント（moof + mdat）の構造と tfdt（baseMediaDecodeTime）を解析・検証し、
-    /// 先頭セグメントの初期オフセット（10秒オフセット等）を 0 基準へ正規化（リベース）および mfhd 連番を整列する
+    /// 各メディアセグメント（moof + mdat）の構造・不連続・欠落・重複を検証し、
+    /// 元ストリームの先頭タイムスタンプ（originalInitialDecodeTimes / originalFirstCTOs）を記録した上で
+    /// 各一時ファイル内の tfdt を 0 基準へ正規化および mfhd 連番を整列する
     static func inspectAndNormalizeMediaSegment(
         _ data: Data,
+        streamLabel: String = "fMP4",
         segmentIndex: Int,
-        initialDecodeTimes: inout [UInt32: UInt64],
+        expectedSegmentDuration: Double = 6.0,
+        trackTimescales: [UInt32: UInt32] = [:],
+        originalInitialDecodeTimes: inout [UInt32: UInt64],
+        originalFirstCTOs: inout [UInt32: Int64],
         lastDecodeTimes: inout [UInt32: UInt64],
         nextSequenceNumber: inout UInt32
     ) throws -> (normalizedData: Data, info: MediaSegmentInfo) {
         var bytes = [UInt8](data)
         guard bytes.count >= 16 else {
             throw VideoExportManager.ExportError.invalidMediaSegment(
+                streamLabel: streamLabel,
                 index: segmentIndex,
                 reason: "サイズが小さすぎます (\(bytes.count)B)"
             )
         }
         if bytes[0] == 0x47 {
-            throw VideoExportManager.ExportError.notFMP4Format("セグメント \(segmentIndex) が MPEG-TS (0x47) です")
+            throw VideoExportManager.ExportError.notFMP4Format("\(streamLabel)セグメント \(segmentIndex) が MPEG-TS (0x47) です")
         }
 
         var moofCount = 0
@@ -1300,8 +1872,12 @@ enum FMP4BoxInspector {
                     in: &bytes,
                     start: box.payloadStart,
                     end: box.boxEnd,
+                    streamLabel: streamLabel,
                     segmentIndex: segmentIndex,
-                    initialDecodeTimes: &initialDecodeTimes,
+                    expectedSegmentDuration: expectedSegmentDuration,
+                    trackTimescales: trackTimescales,
+                    originalInitialDecodeTimes: &originalInitialDecodeTimes,
+                    originalFirstCTOs: &originalFirstCTOs,
                     lastDecodeTimes: &lastDecodeTimes,
                     segmentTrackDecodeTimes: &segmentTrackDecodeTimes,
                     nextSequenceNumber: &nextSequenceNumber
@@ -1314,6 +1890,7 @@ enum FMP4BoxInspector {
 
         guard moofCount > 0, mdatPayloadBytes > 0 else {
             throw VideoExportManager.ExportError.invalidMediaSegment(
+                streamLabel: streamLabel,
                 index: segmentIndex,
                 reason: "moof (\(moofCount)個) または mdat (\(mdatPayloadBytes)B) が見つかりません"
             )
@@ -1402,10 +1979,8 @@ enum FMP4BoxInspector {
             throw VideoExportManager.ExportError.invalidInitSegment("テストA用統合init生成に必要なボックスが不足しています")
         }
 
-        // mvhd の next_track_ID を 3 に更新
         writeUInt32(&mvhdBox, at: mvhdBox.count - 4, value: 3)
 
-        // 音声 trak 内の tkhd.track_ID を 2 に更新
         var tpos = 8
         while let tbox = nextBox(in: aTrakBox, from: tpos, limit: aTrakBox.count) {
             if tbox.type == "tkhd" {
@@ -1418,15 +1993,12 @@ enum FMP4BoxInspector {
             tpos = tbox.boxEnd
         }
 
-        // 音声 trex の track_ID を 2 に更新
         writeUInt32(&aTrexBox, at: 12, value: 2)
 
-        // mvex = header(8) + vTrex + aTrex
         var mvexBox = makeBoxHeader(type: "mvex", payloadLength: vTrexBox.count + aTrexBox.count)
         mvexBox.append(contentsOf: vTrexBox)
         mvexBox.append(contentsOf: aTrexBox)
 
-        // moov = header(8) + mvhd + vTrak + aTrak + mvex
         let moovPayloadCount = mvhdBox.count + vTrakBox.count + aTrakBox.count + mvexBox.count
         var moovBox = makeBoxHeader(type: "moov", payloadLength: moovPayloadCount)
         moovBox.append(contentsOf: mvhdBox)
@@ -1452,7 +2024,6 @@ enum FMP4BoxInspector {
 
         for idx in 0..<count {
             var aSegBytes = [UInt8](audioSegments[idx])
-            // 音声セグメント内の moof -> traf -> tfhd.track_ID を 2 に更新
             var apos = 0
             while let box = nextBox(in: aSegBytes, from: apos, limit: aSegBytes.count) {
                 if box.type == "moof" {
@@ -1620,8 +2191,12 @@ enum FMP4BoxInspector {
         in bytes: inout [UInt8],
         start: Int,
         end: Int,
+        streamLabel: String,
         segmentIndex: Int,
-        initialDecodeTimes: inout [UInt32: UInt64],
+        expectedSegmentDuration: Double,
+        trackTimescales: [UInt32: UInt32],
+        originalInitialDecodeTimes: inout [UInt32: UInt64],
+        originalFirstCTOs: inout [UInt32: Int64],
         lastDecodeTimes: inout [UInt32: UInt64],
         segmentTrackDecodeTimes: inout [UInt32: UInt64],
         nextSequenceNumber: inout UInt32
@@ -1636,6 +2211,7 @@ enum FMP4BoxInspector {
                 var currentDTS: UInt64?
                 var tfdtVersion: UInt8 = 0
                 var tfdtValueOffset: Int?
+                var firstSampleCTO: Int64?
 
                 var trafPos = box.payloadStart
                 while let tbox = nextBox(in: bytes, from: trafPos, limit: box.boxEnd) {
@@ -1650,24 +2226,50 @@ enum FMP4BoxInspector {
                         } else {
                             currentDTS = UInt64(readUInt32(bytes, at: tbox.payloadStart + 4))
                         }
+                    } else if tbox.type == "trun", firstSampleCTO == nil, tbox.payloadStart + 8 <= tbox.boxEnd {
+                        firstSampleCTO = parseFirstSampleCTO(in: bytes, start: tbox.payloadStart, end: tbox.boxEnd)
                     }
                     trafPos = tbox.boxEnd
                 }
 
                 if let tid = currentTrackID, let dts = currentDTS {
-                    if let prevDTS = lastDecodeTimes[tid], dts < prevDTS {
-                        throw VideoExportManager.ExportError.timestampDiscontinuity(
-                            trackID: tid,
-                            segmentIndex: segmentIndex,
-                            previousDTS: prevDTS,
-                            currentDTS: dts
-                        )
+                    if let prevDTS = lastDecodeTimes[tid] {
+                        if dts < prevDTS {
+                            throw VideoExportManager.ExportError.timestampDiscontinuity(
+                                streamLabel: streamLabel,
+                                trackID: tid,
+                                segmentIndex: segmentIndex,
+                                previousDTS: prevDTS,
+                                currentDTS: dts
+                            )
+                        }
+                        if dts == prevDTS {
+                            throw VideoExportManager.ExportError.duplicateOrMissingSegment(
+                                streamLabel: streamLabel,
+                                segmentIndex: segmentIndex,
+                                detail: "重複したタイムスタンプ (track_ID=\(tid), tfdt=\(dts))"
+                            )
+                        }
+                        if let ts = trackTimescales[tid], ts > 0 {
+                            let gapSeconds = Double(dts - prevDTS) / Double(ts)
+                            let maxAllowedGap = max(expectedSegmentDuration * 2.5, 15.0)
+                            if gapSeconds > maxAllowedGap {
+                                throw VideoExportManager.ExportError.duplicateOrMissingSegment(
+                                    streamLabel: streamLabel,
+                                    segmentIndex: segmentIndex,
+                                    detail: String(format: "セグメント間に %.2f秒 の欠落ギャップを検出", gapSeconds)
+                                )
+                            }
+                        }
                     }
+
                     lastDecodeTimes[tid] = dts
-                    if initialDecodeTimes[tid] == nil {
-                        initialDecodeTimes[tid] = dts
+                    if originalInitialDecodeTimes[tid] == nil {
+                        originalInitialDecodeTimes[tid] = dts
+                        originalFirstCTOs[tid] = firstSampleCTO ?? 0
                     }
-                    let baseDTS = initialDecodeTimes[tid] ?? 0
+
+                    let baseDTS = originalInitialDecodeTimes[tid] ?? 0
                     let rebasedDTS = dts >= baseDTS ? (dts - baseDTS) : 0
                     if let valOff = tfdtValueOffset {
                         if tfdtVersion == 1 {
@@ -1682,6 +2284,30 @@ enum FMP4BoxInspector {
                 }
             }
             pos = box.boxEnd
+        }
+    }
+
+    private static func parseFirstSampleCTO(in bytes: [UInt8], start: Int, end: Int) -> Int64? {
+        guard start + 8 <= end else { return nil }
+        let verFlags = readUInt32(bytes, at: start)
+        let ver = (verFlags >> 24) & 0xFF
+        let flags = verFlags & 0xFFFFFF
+        let sampleCount = readUInt32(bytes, at: start + 4)
+        guard sampleCount > 0, (flags & 0x000800) != 0 else { return 0 }
+
+        var offset = start + 8
+        if (flags & 0x000001) != 0 { offset += 4 } // data_offset
+        if (flags & 0x000004) != 0 { offset += 4 } // first_sample_flags
+        if (flags & 0x000100) != 0 { offset += 4 } // sample_duration
+        if (flags & 0x000200) != 0 { offset += 4 } // sample_size
+        if (flags & 0x000400) != 0 { offset += 4 } // sample_flags
+        guard offset + 4 <= end else { return nil }
+
+        let raw = readUInt32(bytes, at: offset)
+        if ver == 0 {
+            return Int64(raw)
+        } else {
+            return Int64(Int32(bitPattern: raw))
         }
     }
 

@@ -318,7 +318,7 @@ struct FileManagerView: View {
                 Button {
                     _ = exports.startPoCTestB_AppleSeparateAudioFMP4()
                 } label: {
-                    Label("テストB：Apple公式 分離音声 fMP4（非対応判定確認）", systemImage: "waveform.slash")
+                    Label("テストB：Apple公式 分離音声 fMP4（映像＋音声結合MP4変換）", systemImage: "waveform.badge.plus")
                 }
                 Button {
                     _ = exports.startPoCTestC_MPEGTS()
@@ -330,9 +330,9 @@ struct FileManagerView: View {
                     .font(.subheadline)
             }
         } header: {
-            Text("PoC検証メニュー（第1段階）")
+            Text("PoC検証メニュー（Phase 2：分離音声fMP4対応）")
         } footer: {
-            Text("テストAはApple公式の保存許諾fMP4素材（v2映像avc1＋a1音声mp4a、18秒）から統合fMP4 HLSを構成し、実機のAVAssetExportSessionによるMP4生成・8項目品質検証・Documents/Downloadsへの保存を確認します。テストB・Cは非対応形式が理由付きで拒否されることを確認します。")
+            Text("テストAは統合型fMP4 HLS（18秒）、テストBはApple公式の分離音声fMP4 HLS（#EXT-X-MEDIA:TYPE=AUDIO、600秒）から映像と音声を取得・同期・結合してMP4を生成し、品質検証の合格後にDocuments/Downloadsへ保存します。テストCはMPEG-TS形式が非対応判定されることを確認します。")
         }
     }
 }
@@ -459,7 +459,7 @@ private struct FMP4ExportJobRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-            case .downloadingSegments(_, _, let progress):
+            case .downloadingSegments(_, _, _, let progress):
                 ProgressView(value: progress)
                 Text(job.state.label)
                     .font(.caption)
@@ -470,9 +470,17 @@ private struct FMP4ExportJobRow: View {
                     .foregroundStyle(.green)
                 let sizeStr = ByteCountFormatter.string(fromByteCount: summary.byteSize, countStyle: .file)
                 let audioStr = summary.audioCodec ?? "なし(映像のみ)"
-                Text("映像:\(summary.videoCodec) / 音声:\(audioStr) · Preset:\(summary.exportPresetUsed) · \(sizeStr) · \(summary.segmentCount)セグメント · フレーム検査:\(summary.decodedCheckpoints)/3点合格")
+                let segStr = summary.isSeparateAudioMerged
+                    ? "映像\(summary.videoSegmentCount)+音声\(summary.audioSegmentCount)seg (同期補正:\(summary.avSyncOffsetMs)ms)"
+                    : "\(summary.videoSegmentCount)seg"
+                Text("映像:\(summary.videoCodec) / 音声:\(audioStr) · Preset:\(summary.exportPresetUsed) · \(sizeStr) · \(segStr) · フレーム検査:\(summary.decodedCheckpoints)/3点合格")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if let aDur = summary.audioDurationSeconds {
+                    Text(String(format: "映像長:%.1f秒 / 音声長:%.1f秒 · ※実機再生で冒頭・中間・終端の音声同期もご確認ください", summary.durationSeconds, aDur))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             case .failed(let reason):
                 Label(reason, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)

@@ -151,9 +151,9 @@ struct SaveVideoSheet: View {
                             }
                         }
                     } header: {
-                        Text("MP4変換テスト（第1段階：単一ストリームfMP4）")
+                        Text("MP4変換テスト（Phase 2：単一＆分離音声fMP4対応）")
                     } footer: {
-                        Text("非暗号化・単一ストリームfMP4形式のVOD HLSのみMP4へ変換し、品質検証に合格した場合のみDocuments/Downloadsへ保存します。非対応形式（MPEG-TS・分離音声・暗号化HLS）の場合は理由を表示します。通常の確実な保存は上の「ダウンロード」を使用してください。")
+                        Text("非暗号化fMP4形式のVOD HLS（単一ストリームおよび #EXT-X-MEDIA:TYPE=AUDIO 分離音声）から映像と音声を取得・同期・結合してMP4を生成し、品質検証に合格した場合のみDocuments/Downloadsへ保存します。非対応形式（MPEG-TS・暗号化HLS等）の場合は理由を表示します。通常の確実な保存は上の「ダウンロード」を使用してください。")
                     }
                 }
             }
