@@ -21,6 +21,7 @@ files = [
     'DownloadCenter.swift',
     'RequestSecurity.swift',
     'HistoryManager.swift',
+    'HistoryView.swift',
     'FileNaming.swift',
 ]
 

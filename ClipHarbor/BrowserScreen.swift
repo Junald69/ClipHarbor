@@ -28,7 +28,10 @@ private struct ActiveBrowserContainer: View {
     @State private var savingCandidate: MediaCandidate?
     @State private var showCandidateList = false
     @State private var showDownloads = false
+    @State private var showHistory = false
     @State private var pendingSourceURL: URL?
+    @State private var pendingHistoryAction: HistoryNavigationAction?
+    @State private var pendingMenuAction: (() -> Void)?
     @State private var showMenu = false
     @State private var showTabSwitcher = false
     @State private var unsupportedMessage: String?
@@ -94,21 +97,42 @@ private struct ActiveBrowserContainer: View {
                 }
             )
         }
-        .sheet(isPresented: $showMenu) {
+        .sheet(isPresented: $showMenu, onDismiss: {
+            if let action = pendingMenuAction {
+                pendingMenuAction = nil
+                action()
+            }
+        }) {
             BrowserMenuSheet(
                 browser: browser,
                 downloads: downloads,
                 exports: exports,
                 onOpenCandidateList: {
+                    pendingMenuAction = { showCandidateList = true }
                     showMenu = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        showCandidateList = true
-                    }
                 },
                 onOpenDownloads: {
+                    pendingMenuAction = { showDownloads = true }
                     showMenu = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        showDownloads = true
+                },
+                onOpenHistory: {
+                    pendingMenuAction = { showHistory = true }
+                    showMenu = false
+                }
+            )
+        }
+        .sheet(isPresented: $showHistory, onDismiss: {
+            if let action = pendingHistoryAction {
+                pendingHistoryAction = nil
+                handleHistoryNavigation(action)
+            }
+        }) {
+            HistoryView(
+                onSelectURL: { url, openInNewTab in
+                    if openInNewTab {
+                        pendingHistoryAction = .openInNewTab(url)
+                    } else {
+                        pendingHistoryAction = .openInCurrentTab(url)
                     }
                 }
             )
@@ -310,6 +334,25 @@ private struct ActiveBrowserContainer: View {
         }
     }
 
+    private enum HistoryNavigationAction {
+        case openInCurrentTab(URL)
+        case openInNewTab(URL)
+    }
+
+    private func handleHistoryNavigation(_ action: HistoryNavigationAction) {
+        switch action {
+        case .openInCurrentTab(let url):
+            guard let scheme = url.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  let host = url.host, !host.isEmpty else {
+                return
+            }
+            browser.navigate(to: url.absoluteString)
+        case .openInNewTab(let url):
+            handleOpenURLInNewTab(url)
+        }
+    }
+
     private func handleOpenURLInNewTab(_ url: URL) {
         guard let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme),
@@ -491,8 +534,10 @@ struct BrowserMenuSheet: View {
     @ObservedObject var browser: BrowserModel
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var exports: VideoExportManager
+    @ObservedObject private var historyManager = HistoryManager.shared
     let onOpenCandidateList: () -> Void
     let onOpenDownloads: () -> Void
+    let onOpenHistory: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -551,16 +596,21 @@ struct BrowserMenuSheet: View {
                     }
                 }
 
-                Section {
-                    HStack {
-                        Label("履歴", systemImage: "clock")
-                        Spacer()
-                        Text("Step 5で実装予定")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                Section("履歴") {
+                    Button(action: onOpenHistory) {
+                        HStack {
+                            Label("履歴", systemImage: "clock")
+                            Spacer()
+                            if !historyManager.items.isEmpty {
+                                Text("\(historyManager.items.count)件")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .foregroundStyle(.secondary)
+                }
 
+                Section {
                     HStack {
                         Label("ブックマーク", systemImage: "bookmark")
                         Spacer()
@@ -590,7 +640,7 @@ struct BrowserMenuSheet: View {
                 } header: {
                     Text("準備中の機能（将来のアップデート）")
                 } footer: {
-                    Text("閲覧履歴・ブックマーク・プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
+                    Text("ブックマーク・プライベートブラウズ・各種設定は、今後のステップで順次実装されます。")
                 }
             }
             .navigationTitle("メニュー")
