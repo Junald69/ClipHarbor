@@ -1,17 +1,26 @@
 import SwiftUI
-import AVKit
 
-/// ダウンロードボタンを押したときに表示する、ネイティブのファイル名入力・保存確認シート。
+/// ダウンロードボタンを押したときに表示する、ネイティブのファイル名・保存先フォルダ入力シート。
 struct SaveVideoSheet: View {
     let candidate: MediaCandidate
-    let onConfirm: (String) -> Void
+    @ObservedObject var downloads: DownloadCenter
+    let onConfirm: (_ chosenName: String, _ folderName: String, _ pauseWebPlayback: Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var videoName: String
+    @State private var selectedFolder: String = ""
+    @State private var pauseWebPlayback: Bool = true
+    @State private var showNewFolderAlert = false
+    @State private var newFolderName = ""
     @FocusState private var nameFocused: Bool
 
-    init(candidate: MediaCandidate, onConfirm: @escaping (String) -> Void) {
+    init(
+        candidate: MediaCandidate,
+        downloads: DownloadCenter = .shared,
+        onConfirm: @escaping (_ chosenName: String, _ folderName: String, _ pauseWebPlayback: Bool) -> Void
+    ) {
         self.candidate = candidate
+        self.downloads = downloads
         self.onConfirm = onConfirm
         _videoName = State(initialValue: candidate.suggestedName)
     }
@@ -26,6 +35,17 @@ struct SaveVideoSheet: View {
             return "\(sanitizedName).\(ext)"
         }
         return sanitizedName
+    }
+
+    private var destinationDescription: String {
+        if candidate.isHLS {
+            return selectedFolder.isEmpty
+                ? "ClipHarbor内（オフラインHLS）"
+                : "ClipHarbor内（オフラインHLS · フォルダ: \(selectedFolder)）"
+        }
+        return selectedFolder.isEmpty
+            ? "ClipHarbor / Documents / Downloads"
+            : "ClipHarbor / Documents / Downloads / \(selectedFolder)"
     }
 
     var body: some View {
@@ -52,15 +72,33 @@ struct SaveVideoSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("保存先フォルダ") {
+                    Picker("フォルダ", selection: $selectedFolder) {
+                        Text("Downloads（標準）").tag("")
+                        ForEach(downloads.folders, id: \.self) { folder in
+                            Text("Downloads / \(folder)").tag(folder)
+                        }
+                    }
+                    Button {
+                        newFolderName = ""
+                        showNewFolderAlert = true
+                    } label: {
+                        Label("新しいフォルダを作成…", systemImage: "folder.badge.plus")
+                            .font(.subheadline)
+                    }
+                }
+
+                Section("高速化オプション") {
+                    Toggle("保存開始時にページの再生を一時停止", isOn: $pauseWebPlayback)
+                    Text("再生中の動画ストリームによる帯域・接続枠の競合を防ぎ、ダウンロード速度を優先します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section("保存情報") {
                     LabeledContent("保存形式", value: candidate.formatLabel)
                     LabeledContent("配信元", value: candidate.host)
-                    LabeledContent(
-                        "保存先",
-                        value: candidate.isHLS
-                            ? "ClipHarbor内（オフラインHLS）"
-                            : "ClipHarbor / Documents / Downloads"
-                    )
+                    LabeledContent("保存先", value: destinationDescription)
                     if let note = candidate.formatNote {
                         Text(note)
                             .font(.caption)
@@ -70,9 +108,7 @@ struct SaveVideoSheet: View {
 
                 Section {
                     Button {
-                        let finalName = sanitizedName
-                        dismiss()
-                        onConfirm(finalName)
+                        confirmDownload()
                     } label: {
                         HStack {
                             Spacer()
@@ -93,15 +129,32 @@ struct SaveVideoSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("ダウンロード") {
-                        let finalName = sanitizedName
-                        dismiss()
-                        onConfirm(finalName)
+                        confirmDownload()
                     }
                     .fontWeight(.semibold)
                 }
             }
+            .alert("新規フォルダ作成", isPresented: $showNewFolderAlert) {
+                TextField("フォルダ名", text: $newFolderName)
+                Button("キャンセル", role: .cancel) { }
+                Button("作成") {
+                    if case .success(let folder) = downloads.createFolder(name: newFolderName) {
+                        selectedFolder = folder
+                    }
+                }
+            } message: {
+                Text("Documents / Downloads 内に新しいサブフォルダを作成します。")
+            }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func confirmDownload() {
+        let finalName = sanitizedName
+        let folder = selectedFolder
+        let pause = pauseWebPlayback
+        dismiss()
+        onConfirm(finalName, folder, pause)
     }
 }
 
@@ -227,244 +280,6 @@ private struct CandidateRowView: View {
         } else {
             Image(systemName: row.candidate != nil ? "film" : "video.slash")
                 .foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// ダウンロードの進捗管理と、保存済み動画の再生・共有・削除を行うシート。
-struct DownloadLibrarySheet: View {
-    @ObservedObject var downloads: DownloadCenter
-    @Environment(\.dismiss) private var dismiss
-    @State private var playingVideo: SavedVideo?
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if !downloads.jobs.isEmpty {
-                    Section("ダウンロード状況") {
-                        ForEach(downloads.jobs) { job in
-                            DownloadJobRow(
-                                job: job,
-                                onCancel: { downloads.cancel(job.id) },
-                                onRetry: { downloads.retry(job.id) },
-                                onDismiss: { downloads.dismissJob(job.id) }
-                            )
-                        }
-                    }
-                }
-
-                Section("保存済み動画") {
-                    if downloads.saved.isEmpty {
-                        ContentUnavailableView(
-                            "保存した動画はありません",
-                            systemImage: "square.and.arrow.down",
-                            description: Text("動画再生中に表示される↓ボタンから保存できます。")
-                        )
-                    } else {
-                        ForEach(downloads.saved) { video in
-                            SavedVideoRow(video: video) {
-                                playingVideo = video
-                            }
-                        }
-                        .onDelete { indices in
-                            let targets = indices.map { downloads.saved[$0] }
-                            for item in targets { downloads.delete(item) }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("ダウンロード")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
-            .fullScreenCover(item: $playingVideo) { video in
-                OfflineVideoPlayerSheet(video: video)
-            }
-        }
-    }
-}
-
-private struct DownloadJobRow: View {
-    let job: DownloadJob
-    let onCancel: () -> Void
-    let onRetry: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(job.displayName)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Spacer()
-                if job.state.isActive {
-                    Button("キャンセル", role: .destructive, action: onCancel)
-                        .font(.caption)
-                        .buttonStyle(.borderless)
-                } else {
-                    HStack(spacing: 12) {
-                        if job.canRetry {
-                            Button("再試行", action: onRetry)
-                                .font(.caption.weight(.semibold))
-                                .buttonStyle(.borderless)
-                        }
-                        Button(action: onDismiss) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("履歴から消す")
-                    }
-                }
-            }
-
-            switch job.state {
-            case .preparing:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("準備中… (\(job.host))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            case .downloading(let progress):
-                if let p = progress {
-                    ProgressView(value: p)
-                } else {
-                    ProgressView()
-                }
-                HStack {
-                    Text(job.state.label)
-                    Spacer()
-                    if job.receivedBytes > 0 {
-                        Text(byteProgressText)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            case .completed:
-                Label("保存完了", systemImage: "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            case .cancelled:
-                Label("キャンセルしました", systemImage: "slash.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var byteProgressText: String {
-        let received = ByteCountFormatter.string(fromByteCount: job.receivedBytes, countStyle: .file)
-        if job.expectedBytes > 0 {
-            let total = ByteCountFormatter.string(fromByteCount: job.expectedBytes, countStyle: .file)
-            return "\(received) / \(total)"
-        }
-        return received
-    }
-}
-
-private struct SavedVideoRow: View {
-    let video: SavedVideo
-    let onPlay: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(video.title)
-                .font(.headline)
-                .lineLimit(2)
-
-            HStack(spacing: 6) {
-                Text(video.format.label)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.15), in: Capsule())
-                if let size = video.byteSize, size > 0 {
-                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                }
-                if let host = video.sourceHost, !host.isEmpty {
-                    Text("· \(host)")
-                }
-                Text("· \(video.createdAt.formatted(date: .abbreviated, time: .shortened))")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            HStack(spacing: 20) {
-                Button(action: onPlay) {
-                    Label("再生", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderless)
-
-                if !video.isHLS && video.fileExists {
-                    ShareLink(item: video.fileURL) {
-                        Label("共有・書き出し", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderless)
-                } else if video.isHLS {
-                    Text("アプリ内再生専用（HLS）")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.subheadline)
-            .padding(.top, 2)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-/// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生用）。
-private struct OfflineVideoPlayerSheet: View {
-    let video: SavedVideo
-    @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer?
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if video.fileExists {
-                    VideoPlayer(player: player)
-                        .ignoresSafeArea(edges: .bottom)
-                        .onAppear {
-                            let avPlayer = AVPlayer(url: video.fileURL)
-                            player = avPlayer
-                            avPlayer.play()
-                        }
-                        .onDisappear {
-                            player?.pause()
-                            player = nil
-                        }
-                } else {
-                    ContentUnavailableView(
-                        "ファイルがありません",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text("保存場所が変更されたか、OSによって消去された可能性があります。")
-                    )
-                }
-            }
-            .navigationTitle(video.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }
-                }
-                if !video.isHLS && video.fileExists {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ShareLink(item: video.fileURL) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                }
-            }
         }
     }
 }

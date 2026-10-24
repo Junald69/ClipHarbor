@@ -31,6 +31,25 @@ enum FileNaming {
         return s
     }
 
+    /// ユーザーが入力したフォルダ名から、安全なサブフォルダ名を作る。
+    static func sanitizedFolderName(_ raw: String) -> String {
+        var s = raw.precomposedStringWithCanonicalMapping
+        s = String(String.UnicodeScalarView(s.unicodeScalars.filter {
+            !CharacterSet.controlCharacters.contains($0) && $0.properties.generalCategory != .format
+        }))
+        let illegal = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        s = s.components(separatedBy: illegal).joined(separator: "_")
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasPrefix(".") || s.hasPrefix("~") { s.removeFirst() }
+        while s.hasSuffix(".") { s.removeLast() }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.count > 40 { s = String(s.prefix(40)) }
+        while s.utf8.count > 100 { s.removeLast() }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s == "." || s == ".." { return "" }
+        return s
+    }
+
     /// 同名ファイルがある場合は「名前 (2).mp4」のように番号を付けたURLを返す。
     static func uniqueDestination(in folder: URL, baseName: String, fileExtension ext: String,
                                   fileManager: FileManager = .default) -> URL {
@@ -49,5 +68,13 @@ enum FileNaming {
         let parent = url.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath().path
         let expected = folder.standardizedFileURL.resolvingSymlinksInPath().path
         return parent == expected && !url.lastPathComponent.hasPrefix(".")
+    }
+
+    /// 指定したURLがルートフォルダの配下（直下またはサブフォルダ内）にあることを確認する（パストラバーサル対策）
+    static func isDescendant(_ url: URL, of root: URL) -> Bool {
+        let target = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let base = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        return target.hasPrefix(prefix) && !url.lastPathComponent.hasPrefix(".")
     }
 }

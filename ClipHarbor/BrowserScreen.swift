@@ -41,8 +41,8 @@ struct BrowserScreen: View {
             browser.isEditingAddress = focused
         }
         .sheet(item: $savingCandidate) { candidate in
-            SaveVideoSheet(candidate: candidate) { chosenName in
-                startDownload(candidate: candidate, displayName: chosenName)
+            SaveVideoSheet(candidate: candidate, downloads: downloads) { chosenName, folderName, pausePlayback in
+                startDownload(candidate: candidate, displayName: chosenName, folderName: folderName, pausePlayback: pausePlayback)
             }
         }
         .sheet(isPresented: $showCandidateList) {
@@ -51,7 +51,7 @@ struct BrowserScreen: View {
             }
         }
         .sheet(isPresented: $showDownloads) {
-            DownloadLibrarySheet(downloads: downloads)
+            FileManagerView(downloads: downloads)
         }
         .alert(
             "この動画は保存できません",
@@ -247,9 +247,12 @@ struct BrowserScreen: View {
         }
     }
 
-    private func startDownload(candidate: MediaCandidate, displayName: String) {
+    private func startDownload(candidate: MediaCandidate, displayName: String, folderName: String, pausePlayback: Bool) {
+        if pausePlayback {
+            browser.pauseActiveVideos()
+        }
         browser.makeRequestContext { context in
-            downloads.start(candidate, displayName: displayName, context: context)
+            downloads.start(candidate, displayName: displayName, folderName: folderName, context: context)
         }
     }
 
@@ -257,23 +260,44 @@ struct BrowserScreen: View {
 
     @ViewBuilder
     private var statusBanner: some View {
-        if let notice = browser.notice ?? downloads.statusMessage {
+        let activeJob = downloads.jobs.first { $0.state.isActive }
+        if let job = activeJob {
             HStack(spacing: 8) {
-                if downloads.activeCount > 0 {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.blue)
+                ProgressView().controlSize(.mini)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("「\(job.displayName)」\(job.state.label)")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if !job.isHLS && job.currentSpeedBytesPerSec > 0 {
+                        HStack(spacing: 6) {
+                            Text(DownloadJob.formatSpeed(job.currentSpeedBytesPerSec))
+                            if let eta = DownloadJob.formatETA(job.estimatedRemainingSeconds) {
+                                Text("· \(eta)")
+                            }
+                        }
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    }
                 }
+                Spacer(minLength: 4)
+                Button("詳細") { showDownloads = true }
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(.ultraThinMaterial)
+        } else if let notice = browser.notice ?? downloads.statusMessage {
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle.fill")
+                    .foregroundStyle(.blue)
                 Text(notice)
                     .font(.caption)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                if downloads.activeCount > 0 {
-                    Button("詳細") { showDownloads = true }
-                        .font(.caption.weight(.semibold))
-                }
+                Button("開く") { showDownloads = true }
+                    .font(.caption.weight(.semibold))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)

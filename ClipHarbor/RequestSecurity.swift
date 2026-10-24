@@ -29,6 +29,9 @@ struct RequestContext {
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
         request.httpShouldHandleCookies = false
+        request.networkServiceType = .responsiveData
+        // 既に圧縮済みの動画バイナリに対する不要なgzip再圧縮を防ぎ、Content-LengthとRange応答を維持する
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         if let ua = userAgent, !ua.isEmpty { request.setValue(ua, forHTTPHeaderField: "User-Agent") }
         if let referer = refererValue(for: url) { request.setValue(referer, forHTTPHeaderField: "Referer") }
         for (key, value) in cookieHeaders(for: url) { request.setValue(value, forHTTPHeaderField: key) }

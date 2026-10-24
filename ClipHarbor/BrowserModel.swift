@@ -126,6 +126,25 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func reload() { webView.reload() }
     func goHome() { webView.load(URLRequest(url: Self.homeURL)) }
 
+    /// ダウンロード開始時にページ内の動画再生を一時停止し、通信帯域やサーバーの接続枠の競合を防ぐ
+    func pauseActiveVideos() {
+        let script = """
+        (function(){
+          try {
+            document.querySelectorAll('video').forEach(function(v){ try { v.pause(); } catch(_){} });
+            document.querySelectorAll('iframe').forEach(function(f){
+              try {
+                if (f.contentDocument) {
+                  f.contentDocument.querySelectorAll('video').forEach(function(v){ try { v.pause(); } catch(_){} });
+                }
+              } catch(_){}
+            });
+          } catch(_){}
+        })();
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
     /// ダウンロード時に使う、ページの最小限の通信情報（メモリ上のみ）
     func makeRequestContext(completion: @escaping (RequestContext) -> Void) {
         let pageURL = webView.url

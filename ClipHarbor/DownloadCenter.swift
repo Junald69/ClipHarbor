@@ -3,7 +3,7 @@ import AVFoundation
 import UIKit
 
 /// ユーザーが保存操作をした動画のみダウンロードする。回数・件数によるアプリ内制限はない（DL-03）。
-/// - MP4等の直接ファイル: Documents/Downloads へ保存（ファイルアプリから参照可能）
+/// - MP4等の直接ファイル: Documents/Downloads（およびそのサブフォルダ）へ保存（ファイルアプリから参照可能）
 /// - HLS: AVFoundationのオフライン形式（.movpkg）でApple指定の領域へ保存。MP4には変換しない。
 /// - 元の動画URL・Cookieはメモリ上のみで扱い、永続化・ログ出力しない（DL-04）。
 final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelegate, AVAssetDownloadDelegate {
@@ -11,27 +11,70 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     @Published private(set) var saved: [SavedVideo] = []
     @Published private(set) var jobs: [DownloadJob] = []
+    @Published private(set) var folders: [String] = []
     @Published var statusMessage: String?
 
     var activeCount: Int { jobs.filter { $0.state.isActive }.count }
     /// AppDelegateから渡される、バックグラウンドURLSession完了時のハンドラー
     var backgroundCompletionHandler: (() -> Void)?
 
+    enum FolderOperationError: LocalizedError {
+        case emptyName
+        case alreadyExists
+        case fileSystemError(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyName: return "有効な名前を入力してください。"
+            case .alreadyExists: return "同じ名前のフォルダが既に存在します。"
+            case .fileSystemError(let msg): return msg
+            }
+        }
+    }
+
     private final class Transfer {
         let jobID: UUID
         let candidate: MediaCandidate
         let context: RequestContext
-        let baseName: String
+        var baseName: String
+        var targetFolder: String
         var redirectCount = 0
         var outcome: Outcome?
         var failureOverride: String?
         var checkedCapacity = false
 
-        init(jobID: UUID, candidate: MediaCandidate, context: RequestContext, baseName: String) {
+        // 速度・進捗計測（delegateQueue上で更新）
+        var startUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+        var initialOffsetBytes: Int64 = 0
+        var lastSampleUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+        var lastSampleBytes: Int64 = 0
+        var smoothedSpeedBytesPerSec: Double = 0
+        var lastUIUpdateUptime: TimeInterval = 0
+
+        // メトリクス計測
+        var fileWriteMilliseconds: Double?
+        var metricsSummary: DownloadMetricsSummary?
+
+        // 一時停止・再開（HTTP Range 対応サーバー用）
+        var resumeData: Data?
+        var isPausing = false
+
+        init(jobID: UUID, candidate: MediaCandidate, context: RequestContext, baseName: String, targetFolder: String) {
             self.jobID = jobID
             self.candidate = candidate
             self.context = context
             self.baseName = baseName
+            self.targetFolder = targetFolder
+        }
+
+        func resetTiming(initialBytes: Int64 = 0) {
+            let now = ProcessInfo.processInfo.systemUptime
+            startUptime = now
+            initialOffsetBytes = initialBytes
+            lastSampleUptime = now
+            lastSampleBytes = initialBytes
+            smoothedSpeedBytesPerSec = 0
+            lastUIUpdateUptime = 0
         }
     }
 
@@ -40,6 +83,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         case failed(String)
     }
 
+    private let stateLock = NSLock()
     private var transfers: [UUID: Transfer] = [:]
     private var tasks: [UUID: URLSessionTask] = [:]
     private var observations: [UUID: NSKeyValueObservation] = [:]
@@ -53,6 +97,17 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     private static let pendingHLSKey = "clipHarborPendingHLSV2"
     private static let minimumFreeBytes: Int64 = 100 * 1024 * 1024
     private static let maxRedirects = 10
+    /// 進捗UIの更新間隔（秒）。メインスレッドの再描画負荷を抑えるため最大約4回/秒に制限する。
+    private static let uiUpdateInterval: TimeInterval = 0.25
+
+    /// 直接ファイル受信用デリゲートキュー（メインスレッドをブロックしない専用直列キュー）
+    private lazy var fileDelegateQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "ClipHarbor.FileDownloadDelegateQueue"
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .userInitiated
+        return q
+    }()
 
     /// 直接ファイル用。Cookieは自動保存・自動送信せず、リダイレクトごとに宛先を検証する。
     private lazy var fileSession: URLSession = {
@@ -62,9 +117,12 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         config.httpCookieAcceptPolicy = .never
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.networkServiceType = .responsiveData
+        config.httpMaximumConnectionsPerHost = 6
+        config.waitsForConnectivity = true
         config.timeoutIntervalForRequest = 60
         config.timeoutIntervalForResource = 6 * 60 * 60
-        return URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        return URLSession(configuration: config, delegate: self, delegateQueue: fileDelegateQueue)
     }()
 
     /// HLS用。AVAssetDownloadURLSessionはバックグラウンド構成が必須。
@@ -78,43 +136,332 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     override init() {
         super.init()
+        _ = try? ensureDownloadsDirectory()
         loadSaved()
+        reloadFolders()
         loadPendingHLS()
         restoreHLSTasks()
     }
 
-    // MARK: - 公開操作
+    // MARK: - 公開操作（ダウンロード制御）
 
-    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) {
+    func start(_ candidate: MediaCandidate, displayName: String, folderName: String = "", context: RequestContext) {
         var name = FileNaming.sanitizedBaseName(displayName)
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
-        let job = DownloadJob(id: UUID(), displayName: name, isHLS: candidate.isHLS,
-                              host: candidate.host, state: .preparing)
-        jobs.insert(job, at: 0)
-        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name)
-        transfers[job.id] = transfer
-        launch(transfer)
+        let cleanFolder = FileNaming.sanitizedFolderName(folderName)
+        if !cleanFolder.isEmpty {
+            _ = try? ensureSubfolder(named: cleanFolder)
+            reloadFolders()
+        }
+
+        let job = DownloadJob(
+            id: UUID(),
+            displayName: name,
+            targetFolder: cleanFolder,
+            isHLS: candidate.isHLS,
+            host: candidate.host,
+            state: .preparing,
+            canPause: !candidate.isHLS
+        )
+        onMain {
+            self.jobs.insert(job, at: 0)
+        }
+        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context,
+                                baseName: name, targetFolder: cleanFolder)
+        stateLock.withLock {
+            transfers[job.id] = transfer
+        }
+        launch(transfer, resumeData: nil)
+    }
+
+    func pause(_ jobID: UUID) {
+        guard let transfer = stateLock.withLock({ transfers[jobID] }),
+              !transfer.candidate.isHLS,
+              let downloadTask = stateLock.withLock({ tasks[jobID] }) as? URLSessionDownloadTask else { return }
+
+        stateLock.withLock {
+            transfer.isPausing = true
+            tasks[jobID] = nil
+        }
+        downloadTask.cancel(byProducingResumeData: { [weak self] data in
+            guard let self = self else { return }
+            self.stateLock.withLock {
+                transfer.resumeData = data
+                transfer.isPausing = false
+            }
+            self.onMain {
+                self.updateJob(jobID) { job in
+                    let p: Double? = job.expectedBytes > 0
+                        ? min(Double(job.receivedBytes) / Double(job.expectedBytes), 1.0)
+                        : nil
+                    job.state = .paused(progress: p)
+                    job.currentSpeedBytesPerSec = 0
+                    job.estimatedRemainingSeconds = nil
+                    job.canRetry = true
+                }
+                self.setStatus("「\(transfer.baseName)」を一時停止しました")
+                self.updateBackgroundTask()
+            }
+        })
+    }
+
+    func resume(_ jobID: UUID) {
+        guard let transfer = stateLock.withLock({ transfers[jobID] }) else { return }
+        let data = stateLock.withLock { () -> Data? in
+            let d = transfer.resumeData
+            transfer.resumeData = nil
+            return d
+        }
+        launch(transfer, resumeData: data)
     }
 
     func cancel(_ jobID: UUID) {
-        if let task = tasks[jobID] {
+        if let transfer = stateLock.withLock({ transfers[jobID] }) {
+            stateLock.withLock {
+                transfer.isPausing = false
+                transfer.resumeData = nil
+            }
+        }
+        if let task = stateLock.withLock({ tasks[jobID] }) {
             task.cancel()
         } else {
-            updateJob(jobID) { $0.state = .cancelled }
+            onMain {
+                self.updateJob(jobID) {
+                    $0.state = .cancelled
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = true
+                }
+                self.updateBackgroundTask()
+            }
         }
     }
 
     func retry(_ jobID: UUID) {
-        guard let transfer = transfers[jobID],
+        guard let transfer = stateLock.withLock({ transfers[jobID] }),
               let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
-        launch(transfer)
+        let data = stateLock.withLock { () -> Data? in
+            let d = transfer.resumeData
+            transfer.resumeData = nil
+            return d
+        }
+        launch(transfer, resumeData: data)
     }
 
     func dismissJob(_ jobID: UUID) {
         guard let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
         jobs.removeAll { $0.id == jobID }
-        transfers[jobID] = nil
+        stateLock.withLock {
+            transfers[jobID] = nil
+        }
+    }
+
+    func clearInactiveJobs() {
+        let inactiveIDs = jobs.filter { !$0.state.isActive && !$0.state.isPaused }.map(\.id)
+        jobs.removeAll { !$0.state.isActive && !$0.state.isPaused }
+        stateLock.withLock {
+            for id in inactiveIDs { transfers[id] = nil }
+        }
+    }
+
+    // MARK: - 公開操作（フォルダ管理・ファイル管理）
+
+    func reloadFolders() {
+        guard let root = try? ensureDownloadsDirectory() else { return }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        var names: Set<String> = []
+        for url in contents {
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                let clean = FileNaming.sanitizedFolderName(url.lastPathComponent)
+                if !clean.isEmpty { names.insert(clean) }
+            }
+        }
+        for video in saved where !video.folderName.isEmpty {
+            names.insert(video.folderName)
+        }
+        let sorted = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        onMain {
+            if self.folders != sorted {
+                self.folders = sorted
+            }
+        }
+    }
+
+    @discardableResult
+    func createFolder(name: String) -> Result<String, FolderOperationError> {
+        let clean = FileNaming.sanitizedFolderName(name)
+        guard !clean.isEmpty else { return .failure(.emptyName) }
+        if folders.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            return .failure(.alreadyExists)
+        }
+        do {
+            _ = try ensureSubfolder(named: clean)
+            reloadFolders()
+            setStatus("フォルダ「\(clean)」を作成しました")
+            return .success(clean)
+        } catch {
+            return .failure(.fileSystemError("フォルダを作成できませんでした"))
+        }
+    }
+
+    @discardableResult
+    func renameFolder(from oldName: String, to newName: String) -> Result<String, FolderOperationError> {
+        let cleanNew = FileNaming.sanitizedFolderName(newName)
+        guard !cleanNew.isEmpty else { return .failure(.emptyName) }
+        if oldName == cleanNew { return .success(cleanNew) }
+        if folders.contains(where: { $0.caseInsensitiveCompare(cleanNew) == .orderedSame }) {
+            return .failure(.alreadyExists)
+        }
+        do {
+            let root = try ensureDownloadsDirectory()
+            let oldURL = root.appendingPathComponent(oldName, isDirectory: true)
+            let newURL = root.appendingPathComponent(cleanNew, isDirectory: true)
+            guard FileNaming.isDirectChild(oldURL, of: root),
+                  FileNaming.isDirectChild(newURL, of: root) else {
+                return .failure(.emptyName)
+            }
+            if FileManager.default.fileExists(atPath: oldURL.path) {
+                try FileManager.default.moveItem(at: oldURL, to: newURL)
+            } else {
+                try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: true)
+            }
+            for idx in saved.indices where saved[idx].folderName == oldName {
+                saved[idx].folderName = cleanNew
+                if !saved[idx].isHLS {
+                    let fileName = (saved[idx].relativePath as NSString).lastPathComponent
+                    let updatedURL = newURL.appendingPathComponent(fileName)
+                    if let rel = SavedVideo.relativePath(for: updatedURL) {
+                        saved[idx].relativePath = rel
+                    }
+                }
+            }
+            persistSaved()
+            reloadFolders()
+            setStatus("フォルダ名を「\(cleanNew)」に変更しました")
+            return .success(cleanNew)
+        } catch {
+            return .failure(.fileSystemError("フォルダ名を変更できませんでした"))
+        }
+    }
+
+    func deleteFolder(name: String) {
+        guard !name.isEmpty, let root = try? ensureDownloadsDirectory() else { return }
+        let folderURL = root.appendingPathComponent(name, isDirectory: true)
+        guard FileNaming.isDirectChild(folderURL, of: root) else { return }
+
+        // フォルダ内の動画が消えないよう、先にDownloads直下へ移動する
+        let videosInFolder = saved.filter { $0.folderName == name }
+        for video in videosInFolder {
+            _ = moveVideo(video, toFolder: "")
+        }
+
+        if FileManager.default.fileExists(atPath: folderURL.path) {
+            try? FileManager.default.removeItem(at: folderURL)
+        }
+        reloadFolders()
+        setStatus("フォルダ「\(name)」を削除しました（動画はDownloads直下へ移動）")
+    }
+
+    @discardableResult
+    func renameVideo(_ item: SavedVideo, to newTitle: String) -> Result<SavedVideo, FolderOperationError> {
+        let cleanBase = FileNaming.sanitizedBaseName(newTitle)
+        guard !cleanBase.isEmpty else { return .failure(.emptyName) }
+        guard let idx = saved.firstIndex(where: { $0.id == item.id }) else {
+            return .failure(.fileSystemError("対象の動画が見つかりません"))
+        }
+
+        if item.isHLS {
+            saved[idx].title = cleanBase
+            persistSaved()
+            setStatus("「\(cleanBase)」に名前を変更しました")
+            return .success(saved[idx])
+        }
+
+        let currentURL = item.fileURL
+        let folderURL = currentURL.deletingLastPathComponent()
+        let ext = currentURL.pathExtension.isEmpty ? item.format.rawValue : currentURL.pathExtension
+        let desiredURL = folderURL.appendingPathComponent(cleanBase).appendingPathExtension(ext)
+
+        if currentURL.standardizedFileURL == desiredURL.standardizedFileURL {
+            saved[idx].title = cleanBase
+            persistSaved()
+            return .success(saved[idx])
+        }
+
+        guard let root = try? ensureDownloadsDirectory(),
+              FileNaming.isDescendant(desiredURL, of: root) else {
+            return .failure(.fileSystemError("不正なファイル名です"))
+        }
+
+        let targetURL = FileNaming.uniqueDestination(in: folderURL, baseName: cleanBase, fileExtension: ext)
+        do {
+            if FileManager.default.fileExists(atPath: currentURL.path) {
+                try FileManager.default.moveItem(at: currentURL, to: targetURL)
+            }
+            if let rel = SavedVideo.relativePath(for: targetURL) {
+                saved[idx].relativePath = rel
+            }
+            saved[idx].title = cleanBase
+            persistSaved()
+            setStatus("「\(cleanBase)」に名前を変更しました")
+            return .success(saved[idx])
+        } catch {
+            return .failure(.fileSystemError("ファイル名を変更できませんでした"))
+        }
+    }
+
+    @discardableResult
+    func moveVideo(_ item: SavedVideo, toFolder folderName: String) -> Result<SavedVideo, FolderOperationError> {
+        let cleanFolder = FileNaming.sanitizedFolderName(folderName)
+        guard let idx = saved.firstIndex(where: { $0.id == item.id }) else {
+            return .failure(.fileSystemError("対象の動画が見つかりません"))
+        }
+        if saved[idx].folderName == cleanFolder {
+            return .success(saved[idx])
+        }
+
+        // HLS（.movpkg）はApple指定領域に置いたまま、論理フォルダのみ更新する
+        if item.isHLS {
+            saved[idx].folderName = cleanFolder
+            persistSaved()
+            reloadFolders()
+            let destLabel = cleanFolder.isEmpty ? "Downloads" : cleanFolder
+            setStatus("「\(item.title)」を「\(destLabel)」へ移動しました")
+            return .success(saved[idx])
+        }
+
+        do {
+            let targetDir = try cleanFolder.isEmpty
+                ? ensureDownloadsDirectory()
+                : ensureSubfolder(named: cleanFolder)
+            let currentURL = item.fileURL
+            let ext = currentURL.pathExtension.isEmpty ? item.format.rawValue : currentURL.pathExtension
+            let base = FileNaming.sanitizedBaseName(item.title)
+            let destURL = FileNaming.uniqueDestination(in: targetDir, baseName: base.isEmpty ? "Video" : base, fileExtension: ext)
+            let root = try ensureDownloadsDirectory()
+            guard FileNaming.isDescendant(destURL, of: root) else {
+                return .failure(.fileSystemError("移動先のパスが不正です"))
+            }
+            if FileManager.default.fileExists(atPath: currentURL.path) {
+                try FileManager.default.moveItem(at: currentURL, to: destURL)
+            }
+            if let rel = SavedVideo.relativePath(for: destURL) {
+                saved[idx].relativePath = rel
+            }
+            saved[idx].folderName = cleanFolder
+            persistSaved()
+            reloadFolders()
+            let destLabel = cleanFolder.isEmpty ? "Downloads" : cleanFolder
+            setStatus("「\(item.title)」を「\(destLabel)」へ移動しました")
+            return .success(saved[idx])
+        } catch {
+            return .failure(.fileSystemError("ファイルを移動できませんでした"))
+        }
     }
 
     func delete(_ item: SavedVideo) {
@@ -126,22 +473,41 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 return
             }
         }
+        Task { @MainActor in
+            VideoThumbnailGenerator.shared.invalidate(for: item.id.uuidString)
+        }
         saved.removeAll { $0.id == item.id }
         persistSaved()
+        reloadFolders()
     }
 
     // MARK: - 開始処理
 
-    private func launch(_ transfer: Transfer) {
-        transfer.outcome = nil
-        transfer.failureOverride = nil
-        transfer.checkedCapacity = false
-        transfer.redirectCount = 0
-        updateJob(transfer.jobID) {
-            $0.state = .preparing
-            $0.receivedBytes = 0
-            $0.expectedBytes = 0
-            $0.canRetry = false
+    private func launch(_ transfer: Transfer, resumeData: Data?) {
+        stateLock.withLock {
+            transfer.outcome = nil
+            transfer.failureOverride = nil
+            transfer.checkedCapacity = false
+            transfer.redirectCount = 0
+            transfer.isPausing = false
+            transfer.fileWriteMilliseconds = nil
+            transfer.metricsSummary = nil
+            transfer.resetTiming()
+        }
+        onMain {
+            self.updateJob(transfer.jobID) {
+                $0.state = .preparing
+                if resumeData == nil {
+                    $0.receivedBytes = 0
+                    $0.expectedBytes = 0
+                }
+                $0.currentSpeedBytesPerSec = 0
+                $0.averageSpeedBytesPerSec = 0
+                $0.estimatedRemainingSeconds = nil
+                $0.canRetry = false
+                $0.canPause = !transfer.candidate.isHLS
+                $0.metrics = nil
+            }
         }
         if let free = availableCapacity(), free < Self.minimumFreeBytes {
             finish(transfer.jobID, state: .failed("iPhoneの空き容量が不足しています"), name: transfer.baseName)
@@ -150,18 +516,36 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if transfer.candidate.isHLS {
             launchHLS(transfer)
         } else {
-            launchFile(transfer)
+            launchFile(transfer, resumeData: resumeData)
         }
-        setStatus("「\(transfer.baseName)」のダウンロードを開始しました")
-        updateBackgroundTask()
+        let actionText = resumeData != nil ? "再開" : "開始"
+        onMain {
+            self.setStatus("「\(transfer.baseName)」のダウンロードを\(actionText)しました")
+            self.updateBackgroundTask()
+        }
     }
 
-    private func launchFile(_ transfer: Transfer) {
-        let request = transfer.context.makeRequest(for: transfer.candidate.url)
-        let task = fileSession.downloadTask(with: request)
+    private func launchFile(_ transfer: Transfer, resumeData: Data?) {
+        let task: URLSessionDownloadTask
+        if let resumeData = resumeData {
+            task = fileSession.downloadTask(withResumeData: resumeData)
+        } else {
+            let request = transfer.context.makeRequest(for: transfer.candidate.url)
+            task = fileSession.downloadTask(with: request)
+        }
         task.taskDescription = transfer.jobID.uuidString
-        tasks[transfer.jobID] = task
-        updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
+        task.priority = URLSessionTask.highPriority
+        stateLock.withLock {
+            tasks[transfer.jobID] = task
+        }
+        onMain {
+            self.updateJob(transfer.jobID) { job in
+                let p: Double? = job.expectedBytes > 0
+                    ? min(Double(job.receivedBytes) / Double(job.expectedBytes), 1.0)
+                    : nil
+                job.state = .downloading(progress: p)
+            }
+        }
         task.resume()
     }
 
@@ -175,33 +559,53 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let configuration = AVAssetDownloadConfiguration(asset: asset, title: transfer.baseName)
         let task = hlsSession.makeAssetDownloadTask(downloadConfiguration: configuration)
         task.taskDescription = transfer.jobID.uuidString
-        tasks[transfer.jobID] = task
+        stateLock.withLock {
+            tasks[transfer.jobID] = task
+        }
         observations[transfer.jobID] = observeProgress(of: task, jobID: transfer.jobID)
-        pendingHLS[transfer.jobID] = PendingHLSRecord(jobID: transfer.jobID, displayName: transfer.baseName,
-                                                       host: transfer.candidate.host)
+        pendingHLS[transfer.jobID] = PendingHLSRecord(
+            jobID: transfer.jobID,
+            displayName: transfer.baseName,
+            host: transfer.candidate.host,
+            folderName: transfer.targetFolder
+        )
         persistPendingHLS()
-        updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
+        onMain {
+            self.updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
+        }
         task.resume()
     }
 
     private func observeProgress(of task: URLSessionTask, jobID: UUID) -> NSKeyValueObservation {
         task.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+            guard let self = self else { return }
             let value = progress.fractionCompleted
-            DispatchQueue.main.async {
-                self?.updateJob(jobID) { job in
+            let now = ProcessInfo.processInfo.systemUptime
+            let shouldUpdate = self.stateLock.withLock { () -> Bool in
+                guard let transfer = self.transfers[jobID] else { return true }
+                if now - transfer.lastUIUpdateUptime >= Self.uiUpdateInterval || value >= 0.999 {
+                    transfer.lastUIUpdateUptime = now
+                    return true
+                }
+                return false
+            }
+            guard shouldUpdate else { return }
+            self.onMain {
+                self.updateJob(jobID) { job in
                     if job.state.isActive { job.state = .downloading(progress: min(max(value, 0), 1)) }
                 }
             }
         }
     }
 
-    // MARK: - URLSessionDelegate（直接ファイル）
+    // MARK: - URLSessionDelegate（直接ファイル・fileDelegateQueue上で実行）
 
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest,
                     completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        guard let id = jobID(for: task), let transfer = transfers[id] else {
+        guard let id = jobID(for: task),
+              let transfer = stateLock.withLock({ transfers[id] }) else {
             completionHandler(nil)
             return
         }
@@ -223,9 +627,17 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didResumeAtOffset fileOffset: Int64, expectedTotalBytes: Int64) {
+        guard let id = jobID(for: downloadTask),
+              let transfer = stateLock.withLock({ transfers[id] }) else { return }
+        transfer.resetTiming(initialBytes: fileOffset)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        guard let id = jobID(for: downloadTask), let transfer = transfers[id] else { return }
+        guard let id = jobID(for: downloadTask),
+              let transfer = stateLock.withLock({ transfers[id] }) else { return }
         let expected = max(totalBytesExpectedToWrite, 0)
         if !transfer.checkedCapacity && expected > 0 {
             transfer.checkedCapacity = true
@@ -235,53 +647,189 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 return
             }
         }
-        updateJob(id) {
-            $0.receivedBytes = totalBytesWritten
-            $0.expectedBytes = expected
-            $0.state = .downloading(progress: expected > 0 ? min(Double(totalBytesWritten) / Double(expected), 1) : nil)
+
+        let now = ProcessInfo.processInfo.systemUptime
+        if transfer.initialOffsetBytes == 0 && totalBytesWritten == bytesWritten {
+            transfer.resetTiming(initialBytes: 0)
+        }
+
+        let sampleDelta = now - transfer.lastSampleUptime
+        if sampleDelta >= Self.uiUpdateInterval {
+            let bytesDelta = max(totalBytesWritten - transfer.lastSampleBytes, 0)
+            let instantSpeed = Double(bytesDelta) / sampleDelta
+            if transfer.smoothedSpeedBytesPerSec > 0 {
+                transfer.smoothedSpeedBytesPerSec = transfer.smoothedSpeedBytesPerSec * 0.65 + instantSpeed * 0.35
+            } else {
+                transfer.smoothedSpeedBytesPerSec = instantSpeed
+            }
+            transfer.lastSampleUptime = now
+            transfer.lastSampleBytes = totalBytesWritten
+        }
+
+        let isFinished = expected > 0 && totalBytesWritten >= expected
+        guard isFinished || (now - transfer.lastUIUpdateUptime >= Self.uiUpdateInterval) else {
+            return
+        }
+        transfer.lastUIUpdateUptime = now
+
+        let elapsed = max(now - transfer.startUptime, 0.001)
+        let sessionBytes = max(totalBytesWritten - transfer.initialOffsetBytes, 0)
+        let avgSpeed = Double(sessionBytes) / elapsed
+        let currentSpeed = transfer.smoothedSpeedBytesPerSec > 0 ? transfer.smoothedSpeedBytesPerSec : avgSpeed
+        let eta: Double?
+        if expected > totalBytesWritten && currentSpeed > 0 {
+            eta = Double(expected - totalBytesWritten) / currentSpeed
+        } else {
+            eta = nil
+        }
+
+        onMain {
+            self.updateJob(id) {
+                $0.receivedBytes = totalBytesWritten
+                $0.expectedBytes = expected
+                $0.currentSpeedBytesPerSec = currentSpeed
+                $0.averageSpeedBytesPerSec = avgSpeed
+                $0.estimatedRemainingSeconds = eta
+                $0.state = .downloading(progress: expected > 0 ? min(Double(totalBytesWritten) / Double(expected), 1) : nil)
+            }
         }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
-        // このメソッドから戻ると一時ファイルは削除されるため、ここで検証・移動する
-        guard let id = jobID(for: downloadTask), let transfer = transfers[id] else { return }
-        transfer.outcome = processDownloadedFile(at: location, response: downloadTask.response, transfer: transfer)
+        // このメソッドから戻ると一時ファイルは削除されるため、バックグラウンドキュー上で検証・移動する
+        guard let id = jobID(for: downloadTask),
+              let transfer = stateLock.withLock({ transfers[id] }) else { return }
+        let writeStart = ProcessInfo.processInfo.systemUptime
+        let outcome = processDownloadedFile(at: location, response: downloadTask.response, transfer: transfer)
+        let writeMs = (ProcessInfo.processInfo.systemUptime - writeStart) * 1000.0
+        stateLock.withLock {
+            transfer.fileWriteMilliseconds = writeMs
+            transfer.outcome = outcome
+            if var summary = transfer.metricsSummary {
+                summary.fileWriteMilliseconds = writeMs
+                if summary.isServerPacingSuspected && writeMs > 1000 {
+                    summary.isServerPacingSuspected = false
+                }
+                transfer.metricsSummary = summary
+            }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didFinishCollecting metrics: URLSessionTaskMetrics) {
+        guard let id = jobID(for: task),
+              let transfer = stateLock.withLock({ transfers[id] }) else { return }
+
+        let tx = metrics.transactionMetrics.last { $0.resourceFetchType == .networkLoad } ?? metrics.transactionMetrics.last
+        var summary = DownloadMetricsSummary()
+        summary.protocolName = tx?.networkProtocolName
+
+        if let s = tx?.domainLookupStartDate, let e = tx?.domainLookupEndDate {
+            summary.dnsMilliseconds = max(e.timeIntervalSince(s) * 1000.0, 0)
+        }
+        if let s = tx?.connectStartDate, let e = tx?.connectEndDate {
+            summary.connectMilliseconds = max(e.timeIntervalSince(s) * 1000.0, 0)
+        }
+        if let s = tx?.secureConnectionStartDate, let e = tx?.secureConnectionEndDate {
+            summary.tlsMilliseconds = max(e.timeIntervalSince(s) * 1000.0, 0)
+        }
+        if let s = tx?.requestStartDate, let e = tx?.responseStartDate {
+            summary.ttfbMilliseconds = max(e.timeIntervalSince(s) * 1000.0, 0)
+        }
+
+        let bodyBytes = tx?.countOfResponseBodyBytesReceived ?? task.countOfBytesReceived
+        let transferSec: Double
+        if let rs = tx?.responseStartDate, let re = tx?.responseEndDate, re > rs {
+            transferSec = re.timeIntervalSince(rs)
+        } else {
+            transferSec = max(metrics.taskInterval.duration, 0.001)
+        }
+        summary.transferSeconds = transferSec
+        let avgSpeed = transferSec > 0 ? Double(bodyBytes) / transferSec : 0
+        summary.averageSpeedBytesPerSec = avgSpeed
+
+        let writeMs = stateLock.withLock { transfer.fileWriteMilliseconds }
+        summary.fileWriteMilliseconds = writeMs
+
+        // 2MB以上の転送で、初回応答<1.5秒・ディスク書込<1秒なのに平均速度が0.6MB/s未満の場合はサーバー側の帯域ペーシングを疑う
+        let fastSetup = (summary.ttfbMilliseconds ?? 0) < 1500
+        let fastDisk = (writeMs ?? 0) < 1000
+        if bodyBytes >= 2 * 1024 * 1024 && fastSetup && fastDisk && avgSpeed > 0 && avgSpeed < 600 * 1024 {
+            summary.isServerPacingSuspected = true
+        }
+
+        stateLock.withLock {
+            transfer.metricsSummary = summary
+        }
+        onMain {
+            self.updateJob(id) {
+                $0.metrics = summary
+                if avgSpeed > 0 { $0.averageSpeedBytesPerSec = avgSpeed }
+            }
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let id = jobID(for: task) else { return }
-        tasks[id] = nil
-        observations[id] = nil
 
         if task is AVAssetDownloadTask {
-            completeHLS(jobID: id, error: error)
+            stateLock.withLock { tasks[id] = nil }
+            onMain {
+                self.observations[id] = nil
+                self.completeHLS(jobID: id, error: error)
+            }
             return
         }
-        guard let transfer = transfers[id] else { return }
-        if let message = transfer.failureOverride {
-            finish(id, state: .failed(message), name: transfer.baseName)
+
+        guard let transfer = stateLock.withLock({ transfers[id] }) else { return }
+        let isPausing = stateLock.withLock { transfer.isPausing }
+        if isPausing {
+            return
+        }
+        stateLock.withLock {
+            tasks[id] = nil
+        }
+
+        var finalMetrics = stateLock.withLock { transfer.metricsSummary }
+        if var m = finalMetrics, m.fileWriteMilliseconds == nil {
+            m.fileWriteMilliseconds = stateLock.withLock { transfer.fileWriteMilliseconds }
+            finalMetrics = m
+        }
+
+        if let message = stateLock.withLock({ transfer.failureOverride }) {
+            finish(id, state: .failed(message), name: transfer.baseName, metrics: finalMetrics)
         } else if let error = error {
-            if (error as NSError).code == NSURLErrorCancelled && (error as NSError).domain == NSURLErrorDomain {
-                finish(id, state: .cancelled, name: transfer.baseName)
-            } else {
-                finish(id, state: .failed(DownloadErrorMessage.forError(error)), name: transfer.baseName)
+            let ns = error as NSError
+            if let resumeData = ns.userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
+                stateLock.withLock { transfer.resumeData = resumeData }
             }
-        } else if let outcome = transfer.outcome {
+            if ns.code == NSURLErrorCancelled && ns.domain == NSURLErrorDomain {
+                let paused = stateLock.withLock { transfer.resumeData != nil }
+                if !paused {
+                    finish(id, state: .cancelled, name: transfer.baseName, metrics: finalMetrics)
+                }
+            } else {
+                finish(id, state: .failed(DownloadErrorMessage.forError(error)), name: transfer.baseName, metrics: finalMetrics)
+            }
+        } else if let outcome = stateLock.withLock({ transfer.outcome }) {
             switch outcome {
             case .saved(let video):
-                addSaved(video)
-                finish(id, state: .completed, name: video.title)
+                onMain {
+                    self.addSaved(video)
+                    self.reloadFolders()
+                }
+                finish(id, state: .completed, name: video.title, metrics: finalMetrics)
             case .failed(let message):
-                finish(id, state: .failed(message), name: transfer.baseName)
+                finish(id, state: .failed(message), name: transfer.baseName, metrics: finalMetrics)
             }
         } else {
-            finish(id, state: .failed("保存できませんでした"), name: transfer.baseName)
+            finish(id, state: .failed("保存できませんでした"), name: transfer.baseName, metrics: finalMetrics)
         }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
-        DispatchQueue.main.async {
+        onMain {
             let handler = self.backgroundCompletionHandler
             self.backgroundCompletionHandler = nil
             handler?()
@@ -306,8 +854,10 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let location = hlsLocations.removeValue(forKey: id)
         let record = pendingHLS.removeValue(forKey: id)
         persistPendingHLS()
-        let name = transfers[id]?.baseName ?? record?.displayName ?? "HLS動画"
-        let host = transfers[id]?.candidate.host ?? record?.host
+        let transfer = stateLock.withLock { transfers[id] }
+        let name = transfer?.baseName ?? record?.displayName ?? "HLS動画"
+        let host = transfer?.candidate.host ?? record?.host
+        let folderName = transfer?.targetFolder ?? record?.folderName ?? ""
 
         if let error = error {
             if let location = location { try? FileManager.default.removeItem(at: location) }
@@ -331,7 +881,9 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return
         }
         addSaved(SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
-                            sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location)))
+                            sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location),
+                            folderName: folderName))
+        reloadFolders()
         finish(id, state: .completed, name: name)
     }
 
@@ -352,12 +904,16 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 guard let self = self else { return }
                 for task in sessionTasks {
                     guard let desc = task.taskDescription, let id = UUID(uuidString: desc),
-                          let record = self.pendingHLS[id], self.tasks[id] == nil else { continue }
-                    self.tasks[id] = task
+                          let record = self.pendingHLS[id],
+                          self.stateLock.withLock({ self.tasks[id] == nil }) else { continue }
+                    self.stateLock.withLock { self.tasks[id] = task }
                     self.observations[id] = self.observeProgress(of: task, jobID: id)
                     if !self.jobs.contains(where: { $0.id == id }) {
-                        self.jobs.append(DownloadJob(id: id, displayName: record.displayName, isHLS: true,
-                                                     host: record.host, state: .downloading(progress: nil)))
+                        self.jobs.append(DownloadJob(id: id, displayName: record.displayName,
+                                                     targetFolder: record.folderName,
+                                                     isHLS: true, host: record.host,
+                                                     state: .downloading(progress: nil),
+                                                     canPause: false))
                     }
                 }
             }
@@ -391,12 +947,17 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         }
 
         do {
-            let folder = try ensureDownloadsDirectory()
+            let root = try ensureDownloadsDirectory()
+            let cleanFolder = FileNaming.sanitizedFolderName(transfer.targetFolder)
+            let folder = try cleanFolder.isEmpty
+                ? root
+                : ensureSubfolder(named: cleanFolder)
             var destination: URL?
             for _ in 0..<5 {
                 let candidateURL = FileNaming.uniqueDestination(in: folder, baseName: transfer.baseName,
                                                                 fileExtension: format.rawValue)
-                guard FileNaming.isDirectChild(candidateURL, of: folder) else {
+                guard FileNaming.isDirectChild(candidateURL, of: folder),
+                      FileNaming.isDescendant(candidateURL, of: root) else {
                     return .failed("ファイル名が不正です。別の名前で保存してください。")
                 }
                 do {
@@ -416,10 +977,15 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 return .failed("保存先を確認できませんでした。")
             }
             return .saved(SavedVideo(id: UUID(), title: transfer.baseName, relativePath: relative, format: format,
-                                     sourceHost: transfer.candidate.url.host, createdAt: Date(), byteSize: size))
+                                     sourceHost: transfer.candidate.url.host, createdAt: Date(),
+                                     byteSize: size, folderName: cleanFolder))
         } catch {
             return .failed(DownloadErrorMessage.forError(error))
         }
+    }
+
+    func downloadsRootURL() -> URL? {
+        try? ensureDownloadsDirectory()
     }
 
     private func ensureDownloadsDirectory() throws -> URL {
@@ -427,6 +993,16 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let folder = documents.appendingPathComponent("Downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+    }
+
+    private func ensureSubfolder(named folderName: String) throws -> URL {
+        let root = try ensureDownloadsDirectory()
+        let clean = FileNaming.sanitizedFolderName(folderName)
+        guard !clean.isEmpty else { return root }
+        let sub = root.appendingPathComponent(clean, isDirectory: true)
+        guard FileNaming.isDirectChild(sub, of: root) else { return root }
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        return sub
     }
 
     private func availableCapacity() -> Int64? {
@@ -444,7 +1020,15 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         return total
     }
 
-    // MARK: - 状態管理
+    // MARK: - 状態管理（メインスレッド上でUI状態を更新）
+
+    private func onMain(_ block: @escaping () -> Void) {
+        if Thread.isMainThread {
+            block()
+        } else {
+            DispatchQueue.main.async(execute: block)
+        }
+    }
 
     private func jobID(for task: URLSessionTask) -> UUID? {
         task.taskDescription.flatMap(UUID.init(uuidString:))
@@ -457,43 +1041,71 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if job != jobs[index] { jobs[index] = job }
     }
 
-    private func finish(_ id: UUID, state: DownloadState, name: String) {
-        switch state {
-        case .completed:
-            jobs.removeAll { $0.id == id }
-            transfers[id] = nil
-            setStatus("保存しました：\(name)")
-        case .failed(let message):
-            updateJob(id) { $0.state = state; $0.canRetry = true }
-            setStatus("「\(name)」\(message)")
-        case .cancelled:
-            updateJob(id) { $0.state = state; $0.canRetry = true }
-            setStatus("「\(name)」のダウンロードをキャンセルしました")
-        default:
-            updateJob(id) { $0.state = state }
+    private func finish(_ id: UUID, state: DownloadState, name: String, metrics: DownloadMetricsSummary? = nil) {
+        onMain {
+            let hasTransfer = self.stateLock.withLock { self.transfers[id] != nil }
+            switch state {
+            case .completed:
+                self.stateLock.withLock { self.transfers[id] = nil }
+                self.updateJob(id) {
+                    $0.state = .completed
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = false
+                    $0.canPause = false
+                    if let m = metrics { $0.metrics = m }
+                }
+                self.setStatus("保存しました：\(name)")
+            case .failed(let message):
+                self.updateJob(id) {
+                    $0.state = state
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = hasTransfer
+                    if let m = metrics { $0.metrics = m }
+                }
+                self.setStatus("「\(name)」\(message)")
+            case .cancelled:
+                self.updateJob(id) {
+                    $0.state = state
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = hasTransfer
+                    if let m = metrics { $0.metrics = m }
+                }
+                self.setStatus("「\(name)」のダウンロードをキャンセルしました")
+            default:
+                self.updateJob(id) {
+                    $0.state = state
+                    if let m = metrics { $0.metrics = m }
+                }
+            }
+            self.updateBackgroundTask()
         }
-        if transfers[id] == nil { updateJob(id) { $0.canRetry = false } }
-        updateBackgroundTask()
     }
 
     private func setStatus(_ text: String) {
-        statusMessage = text
-        statusClearWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.statusMessage = nil }
-        statusClearWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+        onMain {
+            self.statusMessage = text
+            self.statusClearWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.statusMessage = nil }
+            self.statusClearWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+        }
     }
 
     /// 直接ファイルのダウンロード中にアプリが背面へ移動しても、OSが許す範囲で処理を続ける
     private func updateBackgroundTask() {
-        let hasActiveFile = jobs.contains { $0.state.isActive && !$0.isHLS }
-        MainActor.assumeIsolated {
-            if hasActiveFile && backgroundTaskID == .invalid {
-                backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ClipHarborDownload") { [weak self] in
-                    self?.endBackgroundTask()
+        onMain {
+            let hasActiveFile = self.jobs.contains { $0.state.isActive && !$0.isHLS }
+            MainActor.assumeIsolated {
+                if hasActiveFile && self.backgroundTaskID == .invalid {
+                    self.backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ClipHarborDownload") { [weak self] in
+                        self?.endBackgroundTask()
+                    }
+                } else if !hasActiveFile {
+                    self.endBackgroundTask()
                 }
-            } else if !hasActiveFile {
-                endBackgroundTask()
             }
         }
     }
