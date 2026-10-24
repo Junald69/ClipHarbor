@@ -49,9 +49,8 @@ struct BrowserScreen: View {
                 onConfirm: { chosenName, chosenFolder in
                     startDownload(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
                 },
-                onStartFMP4ExportPoC: { chosenName, chosenFolder in
-                    startFMP4ExportPoC(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
-                }
+                onConfirmMP4: mp4ConfirmHandler(for: candidate),
+                mp4Probe: mp4ProbeHandler(for: candidate)
             )
         }
         .sheet(isPresented: $showCandidateList) {
@@ -263,7 +262,24 @@ struct BrowserScreen: View {
         }
     }
 
-    private func startFMP4ExportPoC(candidate: MediaCandidate, displayName: String, folderName: String) {
+    /// HLS候補のみ「MP4として保存」を提供する（動画ファイル候補は従来の直接保存のみ）
+    private func mp4ConfirmHandler(for candidate: MediaCandidate) -> ((String, String) -> Void)? {
+        guard candidate.isHLS else { return nil }
+        return { chosenName, chosenFolder in
+            startMP4Export(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
+        }
+    }
+
+    private func mp4ProbeHandler(for candidate: MediaCandidate) -> (() async -> VideoExportManager.MP4Compatibility)? {
+        guard candidate.isHLS else { return nil }
+        return {
+            await probeMP4Compatibility(candidate: candidate)
+        }
+    }
+
+    /// 「MP4として保存」：VideoExportManagerで変換・品質検証し、合格時のみDocuments/Downloads（または選択フォルダ）へ保存・一覧登録する。
+    /// 保存先フォルダはファイルの配置場所で決まるため、DownloadCenterのonVideoSaved（フォルダ移動）は経由しない。
+    private func startMP4Export(candidate: MediaCandidate, displayName: String, folderName: String) {
         browser.makeRequestContext { context in
             _ = exports.startFMP4Export(
                 candidate: candidate,
@@ -272,6 +288,16 @@ struct BrowserScreen: View {
                 context: context
             )
         }
+    }
+
+    /// 保存シートのMP4互換性判定。ページのCookie等は既存のmakeRequestContextでメモリ上にのみ取得する。
+    private func probeMP4Compatibility(candidate: MediaCandidate) async -> VideoExportManager.MP4Compatibility {
+        let context = await withCheckedContinuation { (continuation: CheckedContinuation<RequestContext, Never>) in
+            browser.makeRequestContext { context in
+                continuation.resume(returning: context)
+            }
+        }
+        return await exports.probeMP4Compatibility(candidate: candidate, context: context)
     }
 
     // MARK: - ステータス表示と下部ツールバー（Safe Area内）
@@ -349,8 +375,8 @@ struct BrowserScreen: View {
             Button { showDownloads = true } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "folder")
-                    if downloads.activeCount > 0 {
-                        Text("\(downloads.activeCount)")
+                    if downloads.activeCount + exports.activeCount > 0 {
+                        Text("\(downloads.activeCount + exports.activeCount)")
                             .font(.caption2.weight(.bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)

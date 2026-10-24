@@ -45,7 +45,7 @@ struct FileManagerView: View {
                 }
 
                 if !exports.exportJobs.isEmpty {
-                    Section("MP4変換テスト状況 (fMP4 PoC)") {
+                    Section("MP4変換状況") {
                         ForEach(exports.exportJobs) { job in
                             FMP4ExportJobRow(
                                 job: job,
@@ -330,7 +330,7 @@ struct FileManagerView: View {
                     .font(.subheadline)
             }
         } header: {
-            Text("PoC検証メニュー（Phase 2：分離音声fMP4対応）")
+            Text("PoC回帰テストメニュー（MP4変換 A / B / C）")
         } footer: {
             Text("テストAは統合型fMP4 HLS（18秒）、テストBはApple公式の分離音声fMP4 HLS（#EXT-X-MEDIA:TYPE=AUDIO、600秒）から映像と音声を取得・同期・結合してMP4を生成し、品質検証の合格後にDocuments/Downloadsへ保存します。テストCはMPEG-TS形式が非対応判定されることを確認します。")
         }

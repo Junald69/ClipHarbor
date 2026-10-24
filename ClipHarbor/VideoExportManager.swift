@@ -106,7 +106,7 @@ final class VideoExportManager: ObservableObject {
             case .invalidPlaylist:
                 return "有効なHLSプレイリスト（#EXTM3U）として解析できませんでした。"
             case .encryptedStream(let detail):
-                return "暗号化またはDRM保護された配信（\(detail)）のため、MP4として保存できません。「オフラインHLS」での保存をご利用ください。"
+                return "暗号化されたHLS（\(detail)）のため、MP4変換の対象外です。ClipHarborは暗号化HLSの復号処理を行いません。「オフラインHLS」で保存できる場合があります。"
             case .liveStream:
                 return "ライブ配信（#EXT-X-ENDLISTなし）のため、MP4として保存できません。"
             case .separateAudioPlaylistMissing(let detail):
@@ -148,6 +148,8 @@ final class VideoExportManager: ObservableObject {
     @Published private(set) var exportJobs: [ExportJob] = []
     @Published private(set) var statusMessage: String?
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
+    /// 実行中ジョブと変換元URL（MediaCandidate.id）の対応。同一動画の二重変換開始を防止する（メモリ上のみ）
+    private var activeExportSourceIDs: [UUID: String] = [:]
     private var statusClearTask: Task<Void, Never>?
 
     var activeCount: Int {
@@ -177,10 +179,20 @@ final class VideoExportManager: ObservableObject {
         context: RequestContext,
         preferredMaxBandwidth: Int? = 3_500_000
     ) -> UUID {
+        // 同じ動画のMP4変換が実行中なら新しいジョブを作らない（二重保存・二重登録の防止）
+        if let existingJobID = activeExportSourceIDs.first(where: { $0.value == candidate.id })?.key,
+           runningTasks[existingJobID] != nil {
+            setStatus("同じ動画のMP4変換が既に進行中です")
+            return existingJobID
+        }
+
         var cleanName = FileNaming.sanitizedBaseName(displayName)
         if cleanName.isEmpty { cleanName = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if cleanName.isEmpty { cleanName = "Video" }
         let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder)
+        if !cleanFolder.isEmpty {
+            _ = VideoFolderManager.shared.createFolder(name: cleanFolder)
+        }
 
         let jobID = UUID()
         let job = ExportJob(
@@ -208,12 +220,14 @@ final class VideoExportManager: ObservableObject {
             )
         }
         runningTasks[jobID] = task
+        activeExportSourceIDs[jobID] = candidate.id
         return jobID
     }
 
     func cancelExport(_ jobID: UUID) {
         runningTasks[jobID]?.cancel()
         runningTasks[jobID] = nil
+        activeExportSourceIDs[jobID] = nil
         updateJob(jobID) { $0.state = .cancelled }
         setStatus("MP4変換をキャンセルしました")
     }
@@ -222,6 +236,187 @@ final class VideoExportManager: ObservableObject {
         guard let job = exportJobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
         exportJobs.removeAll { $0.id == jobID }
         runningTasks[jobID] = nil
+    }
+
+    // MARK: - MP4互換性の事前判定（保存シート用・変換もファイル保存も行わない）
+
+    /// 保存シートで表示するMP4互換性の判定結果。
+    /// - `compatible` でも変換・品質検証の完了までは保存を保証しない（最終判定は変換後の検証）。
+    /// - 判定できない場合は `undetermined` とし、保存可能とは扱わない。
+    enum MP4Compatibility: Equatable {
+        case compatible(MP4CompatibilityDetail)
+        case incompatible(String)
+        case undetermined(String)
+    }
+
+    struct MP4CompatibilityDetail: Equatable {
+        let isSeparateAudio: Bool
+        let videoCodec: String
+        let audioCodec: String?
+        let durationSeconds: Double
+        let videoSegmentCount: Int
+        let audioSegmentCount: Int
+    }
+
+    /// 変換パイプラインと同じ解析器・同じバリアント選択条件で、プレイリストと初期化セグメント（#EXT-X-MAP）だけを取得して判定する。
+    /// メディアセグメント本体は取得しない（各セグメントの構造・タイムスタンプ検査は変換時に実施）。
+    func probeMP4Compatibility(
+        candidate: MediaCandidate,
+        context: RequestContext,
+        preferredMaxBandwidth: Int? = 3_500_000
+    ) async -> MP4Compatibility {
+        guard candidate.isHLS else {
+            return .incompatible("HLS配信ではありません。動画ファイルは通常の保存で直接保存されます。")
+        }
+        let session = exportURLSession
+
+        do {
+            try Task.checkCancellation()
+            let (initialText, resolvedPlaylistURL) = try await fetchPlaylistText(
+                url: candidate.url,
+                stage: "互換性判定：プレイリスト取得",
+                context: context,
+                session: session
+            )
+
+            var videoPlaylistURL = resolvedPlaylistURL
+            var videoPlaylistText = initialText
+            var separateAudioURL: URL?
+            var masterExpectedAudio = false
+
+            if HLSFMP4PlaylistParser.isMasterPlaylist(initialText) {
+                let plan = try HLSFMP4PlaylistParser.selectStreamPlan(
+                    masterPlaylist: initialText,
+                    baseURL: resolvedPlaylistURL,
+                    preferredMaxBandwidth: preferredMaxBandwidth
+                )
+                separateAudioURL = plan.separateAudioURL
+                masterExpectedAudio = plan.declaresAudioCodec
+                videoPlaylistURL = plan.videoVariantURL
+                let fetchedVideo = try await fetchPlaylistText(
+                    url: plan.videoVariantURL,
+                    stage: "互換性判定：映像プレイリスト取得",
+                    context: context,
+                    session: session
+                )
+                videoPlaylistURL = fetchedVideo.finalURL
+                videoPlaylistText = fetchedVideo.text
+            }
+
+            try Task.checkCancellation()
+            let videoMedia = try HLSFMP4PlaylistParser.parseMediaPlaylist(
+                videoPlaylistText,
+                baseURL: videoPlaylistURL
+            )
+            let videoInitData = try await fetchSegmentData(
+                url: videoMedia.initSegment.url,
+                byteRange: videoMedia.initSegment.byteRange,
+                stage: "互換性判定：映像初期化セグメント",
+                context: context,
+                session: session
+            )
+            let videoInit = try FMP4BoxInspector.inspectInitSegment(
+                videoInitData,
+                requireVideo: true,
+                requireAudio: false
+            )
+
+            if let audioURL = separateAudioURL {
+                try Task.checkCancellation()
+                let fetchedAudio = try await fetchPlaylistText(
+                    url: audioURL,
+                    stage: "互換性判定：音声プレイリスト取得",
+                    context: context,
+                    session: session
+                )
+                let audioMedia = try HLSFMP4PlaylistParser.parseMediaPlaylist(
+                    fetchedAudio.text,
+                    baseURL: fetchedAudio.finalURL
+                )
+                let durationGap = abs(videoMedia.totalDuration - audioMedia.totalDuration)
+                guard durationGap <= max(3.0, videoMedia.totalDuration * 0.10) else {
+                    return .incompatible(
+                        String(
+                            format: "映像プレイリスト(%.1f秒)と音声プレイリスト(%.1f秒)の長さが一致しないため、MP4変換の対象外です。",
+                            videoMedia.totalDuration,
+                            audioMedia.totalDuration
+                        )
+                    )
+                }
+                let audioInitData = try await fetchSegmentData(
+                    url: audioMedia.initSegment.url,
+                    byteRange: audioMedia.initSegment.byteRange,
+                    stage: "互換性判定：音声初期化セグメント",
+                    context: context,
+                    session: session
+                )
+                let audioInit = try FMP4BoxInspector.inspectInitSegment(
+                    audioInitData,
+                    requireVideo: false,
+                    requireAudio: true
+                )
+                return .compatible(
+                    MP4CompatibilityDetail(
+                        isSeparateAudio: true,
+                        videoCodec: videoInit.videoCodecs.first ?? "不明",
+                        audioCodec: audioInit.audioCodecs.first,
+                        durationSeconds: videoMedia.totalDuration,
+                        videoSegmentCount: videoMedia.segments.count,
+                        audioSegmentCount: audioMedia.segments.count
+                    )
+                )
+            }
+
+            if masterExpectedAudio && !videoInit.hasAudio {
+                return .incompatible("音声コーデックが宣言されていますが、音声トラックまたは分離音声プレイリストを特定できないため、MP4変換の対象外です。")
+            }
+
+            return .compatible(
+                MP4CompatibilityDetail(
+                    isSeparateAudio: false,
+                    videoCodec: videoInit.videoCodecs.first ?? "不明",
+                    audioCodec: videoInit.audioCodecs.first,
+                    durationSeconds: videoMedia.totalDuration,
+                    videoSegmentCount: videoMedia.segments.count,
+                    audioSegmentCount: 0
+                )
+            )
+        } catch is CancellationError {
+            return .undetermined("互換性の判定を中断しました。")
+        } catch let exportError as ExportError {
+            return Self.classifyProbeError(exportError)
+        } catch {
+            if (error as? URLError)?.code == .cancelled {
+                return .undetermined("互換性の判定を中断しました。")
+            }
+            return .undetermined("通信エラーのため互換性を判定できませんでした（\(error.localizedDescription)）。")
+        }
+    }
+
+    /// 構造上MP4変換できないことが確定したエラーだけを `incompatible` とし、
+    /// 通信エラーや期限切れなど判定材料が揃わないものは `undetermined` とする。
+    private static func classifyProbeError(_ error: ExportError) -> MP4Compatibility {
+        switch error {
+        case .encryptedStream(let detail):
+            return .incompatible(encryptionReason(detail))
+        case .liveStream, .notFMP4Format, .discontinuityNotSupported, .unsupportedCodec,
+             .invalidInitSegment, .separateAudioPlaylistMissing, .avSyncFailed:
+            return .incompatible(error.localizedDescription)
+        default:
+            return .undetermined(error.errorDescription ?? "互換性を判定できませんでした。")
+        }
+    }
+
+    /// AES-128暗号化とDRMを同一視しない説明文を返す（いずれも復号・回避は行わない）
+    private static func encryptionReason(_ detail: String) -> String {
+        let upper = detail.uppercased()
+        if upper.contains("SAMPLE-AES") {
+            return "サンプル単位で暗号化されたHLS（\(detail)）です。FairPlay等のDRMが使われている可能性があり、MP4変換の対象外です。"
+        }
+        if upper.contains("AES-128") {
+            return "AES-128で暗号化されたHLS（\(detail)）です。AES-128暗号化はDRMとは異なりますが、ClipHarborは現段階で暗号化HLSの復号処理を行わないため、MP4変換の対象外です。「オフラインHLS」で保存できる場合があります。"
+        }
+        return "暗号化されたHLS（\(detail)）のため、MP4変換の対象外です。ClipHarborは復号処理を行いません。"
     }
 
     // MARK: - 実機PoC検証用エントリ（テストA / テストB / テストC）
@@ -420,6 +615,7 @@ final class VideoExportManager: ObservableObject {
         defer {
             try? FileManager.default.removeItem(at: workDir)
             runningTasks[jobID] = nil
+            activeExportSourceIDs[jobID] = nil
         }
 
         do {
@@ -1141,6 +1337,9 @@ final class VideoExportManager: ObservableObject {
         try FileManager.default.createDirectory(at: downloadsRoot, withIntermediateDirectories: true)
 
         let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder)
+        if !cleanFolder.isEmpty {
+            _ = VideoFolderManager.shared.createFolder(name: cleanFolder)
+        }
         let targetDir: URL
         if cleanFolder.isEmpty {
             targetDir = downloadsRoot
@@ -1193,7 +1392,7 @@ final class VideoExportManager: ObservableObject {
         session: URLSession
     ) async throws -> (text: String, finalURL: URL) {
         let request = context.makeRequest(for: url)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: ExportRedirectGuard(context: context))
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw ExportError.httpError(statusCode: http.statusCode, stage: stage)
         }
@@ -1289,7 +1488,7 @@ final class VideoExportManager: ObservableObject {
             let endByte = range.offset + range.length - 1
             request.setValue("bytes=\(range.offset)-\(endByte)", forHTTPHeaderField: "Range")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: ExportRedirectGuard(context: context))
         if let http = response as? HTTPURLResponse {
             guard (200...299).contains(http.statusCode) else {
                 throw ExportError.httpError(statusCode: http.statusCode, stage: stage)
@@ -1360,6 +1559,29 @@ final class VideoExportManager: ObservableObject {
                 self?.statusMessage = nil
             }
         }
+    }
+}
+
+// MARK: - リダイレクト時のCookie/認証ヘッダー引き継ぎ防止
+
+/// URLSession は既定でリダイレクト先へ元リクエストのヘッダー（手動設定した Cookie を含む）を引き継ぐため、
+/// 既存の `RequestContext.redirectedRequest` を用いて前の宛先の Cookie / Authorization を除去し、
+/// リダイレクト先に一致する Cookie だけを RFC 6265 のポリシーで付け直す。
+final class ExportRedirectGuard: NSObject, URLSessionTaskDelegate {
+    private let context: RequestContext
+
+    init(context: RequestContext) {
+        self.context = context
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(context.redirectedRequest(request, from: task.currentRequest?.url))
     }
 }
 
