@@ -39,48 +39,64 @@ private struct ActiveBrowserContainer: View {
     @State private var unsupportedMessage: String?
     @FocusState private var addressFocused: Bool
 
+    private var windowSafeAreaTop: CGFloat {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let activeScene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+        let keyWindow = activeScene?.windows.first(where: { $0.isKeyWindow }) ?? activeScene?.windows.first
+        return keyWindow?.safeAreaInsets.top ?? 0
+    }
+
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // 1. Edge-to-Edge Webビュー（画面最上部〜最下部まで全面描画）
-            BrowserWebView(browser: browser)
-                .id(browser.id)
-                .ignoresSafeArea()
+        GeometryReader { windowGeo in
+            let safeAreaTop = max(windowGeo.safeAreaInsets.top, windowSafeAreaTop)
+            ZStack(alignment: .bottom) {
+                // 1. Webビュー（iOS 26+ は Edge-to-Edge + obscuredContentInsets、iOS 17-25 は上部Safe Area下配置）
+                if #available(iOS 26.0, *) {
+                    BrowserWebView(browser: browser, topInset: safeAreaTop)
+                        .id(browser.id)
+                        .ignoresSafeArea()
+                } else {
+                    BrowserWebView(browser: browser, topInset: 0)
+                        .id(browser.id)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
 
-            // 2. 動画検出オーバーレイ（全画面座標）
-            GeometryReader { geo in
-                videoDownloadOverlay(in: geo.size)
-            }
-            .ignoresSafeArea()
+                // 2. 動画検出オーバーレイ（全画面座標）
+                videoDownloadOverlay(in: windowGeo.size)
+                    .ignoresSafeArea()
 
-            // 3. ページ読み込み進捗バー（ステータスバー直下に配置）
-            if browser.isLoading {
-                VStack(spacing: 0) {
-                    ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
-                        .progressViewStyle(.linear)
-                        .tint(.blue)
-                    Spacer()
+                // 3. ページ読み込み進捗バー（ステータスバー直下に配置）
+                if browser.isLoading {
+                    VStack(spacing: 0) {
+                        ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
+                            .progressViewStyle(.linear)
+                            .tint(.blue)
+                        Spacer()
+                    }
+                }
+
+                // 4. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
+                if browser.isEditingAddress {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            addressFocused = false
+                            browser.isEditingAddress = false
+                            browser.address = browser.currentURL.absoluteString
+                        }
+                }
+
+                // 5. 下部フローティング通知 & ツールバー（ホームインジケータ上に配置）
+                VStack(spacing: 6) {
+                    statusBanner
+                    floatingToolbar
                 }
             }
-
-            // 4. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
-            if browser.isEditingAddress {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        addressFocused = false
-                        browser.isEditingAddress = false
-                        browser.address = browser.currentURL.absoluteString
-                    }
-            }
-
-            // 5. 下部フローティング通知 & ツールバー（ホームインジケータ上に配置）
-            VStack(spacing: 6) {
-                statusBanner
-                floatingToolbar
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground).ignoresSafeArea())
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground).ignoresSafeArea())
+        .ignoresSafeArea()
         .onChange(of: addressFocused) { _, focused in
             browser.isEditingAddress = focused
             if focused {
@@ -845,6 +861,15 @@ struct BrowserMenuSheet: View {
 
 private struct BrowserWebView: UIViewRepresentable {
     let browser: BrowserModel
-    func makeUIView(context: Context) -> WKWebView { browser.webView }
-    func updateUIView(_ uiView: WKWebView, context: Context) { }
+    var topInset: CGFloat = 0
+
+    func makeUIView(context: Context) -> WKWebView {
+        let view = browser.webView
+        browser.updateObscuredInsets(top: topInset)
+        return view
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        browser.updateObscuredInsets(top: topInset)
+    }
 }
