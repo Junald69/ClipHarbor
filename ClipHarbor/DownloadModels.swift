@@ -22,6 +22,8 @@ struct SavedVideo: Identifiable, Codable, Equatable {
     let sourceHost: String?
     let createdAt: Date
     var byteSize: Int64?
+    /// 保存元WebページのURL（動画の直接URLではなく、閲覧していたページURL。クレデンシャル・機密パラメータ除去済み）
+    var sourcePageURL: String? = nil
 
     var fileURL: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(relativePath)
@@ -96,9 +98,10 @@ struct DownloadJob: Identifiable, Equatable {
     var canRetry: Bool = false
 }
 
-/// アプリ再起動後もHLSのバックグラウンドダウンロードを表示するための情報（URLは含まない）
+/// アプリ再起動後もHLSのバックグラウンドダウンロードを表示するための情報
 struct PendingHLSRecord: Codable {
     let jobID: UUID
     let displayName: String
     let host: String
+    var pageURL: String? = nil
 }

@@ -24,16 +24,18 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let candidate: MediaCandidate
         let context: RequestContext
         let baseName: String
+        let sourcePageURL: String?
         var redirectCount = 0
         var outcome: Outcome?
         var failureOverride: String?
         var checkedCapacity = false
 
-        init(jobID: UUID, candidate: MediaCandidate, context: RequestContext, baseName: String) {
+        init(jobID: UUID, candidate: MediaCandidate, context: RequestContext, baseName: String, sourcePageURL: String? = nil) {
             self.jobID = jobID
             self.candidate = candidate
             self.context = context
             self.baseName = baseName
+            self.sourcePageURL = sourcePageURL
         }
     }
 
@@ -95,7 +97,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let job = DownloadJob(id: UUID(), displayName: name, isHLS: candidate.isHLS,
                               host: candidate.host, state: .preparing)
         jobs.insert(job, at: 0)
-        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name)
+        let cleanPageURL = SourceURLPolicy.sanitize(context.pageURL)
+        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name, sourcePageURL: cleanPageURL)
         transfers[job.id] = transfer
         launch(transfer)
         return job.id
@@ -203,7 +206,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         tasks[transfer.jobID] = task
         observations[transfer.jobID] = observeProgress(of: task, jobID: transfer.jobID)
         pendingHLS[transfer.jobID] = PendingHLSRecord(jobID: transfer.jobID, displayName: transfer.baseName,
-                                                       host: transfer.candidate.host)
+                                                       host: transfer.candidate.host, pageURL: transfer.sourcePageURL)
         persistPendingHLS()
         updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
         task.resume()
@@ -356,8 +359,10 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             finish(id, state: .failed("この配信方式のオフライン保存には対応していません"), name: name)
             return
         }
+        let pageURL = transfers[id]?.sourcePageURL ?? record?.pageURL
         let video = SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
-                               sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location))
+                               sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location),
+                               sourcePageURL: pageURL)
         addSaved(video)
         finish(id, state: .completed, name: name)
         onVideoSaved?(id, video)
@@ -444,7 +449,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 return .failed("保存先を確認できませんでした。")
             }
             return .saved(SavedVideo(id: UUID(), title: transfer.baseName, relativePath: relative, format: format,
-                                     sourceHost: transfer.candidate.url.host, createdAt: Date(), byteSize: size))
+                                     sourceHost: transfer.candidate.url.host, createdAt: Date(), byteSize: size,
+                                     sourcePageURL: transfer.sourcePageURL))
         } catch {
             return .failed(DownloadErrorMessage.forError(error))
         }
@@ -561,7 +567,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                           let relative = SavedVideo.relativePath(for: url) else { continue }
                     let format = SavedVideo.Format(rawValue: item.format.lowercased()) ?? .mp4
                     saved.append(SavedVideo(id: item.id, title: item.title, relativePath: relative, format: format,
-                                            sourceHost: nil, createdAt: item.createdAt, byteSize: nil))
+                                            sourceHost: nil, createdAt: item.createdAt, byteSize: nil, sourcePageURL: nil))
                 }
             }
             defaults.removeObject(forKey: Self.legacyKey)

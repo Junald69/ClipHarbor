@@ -177,3 +177,52 @@ enum DownloadErrorMessage {
         return "保存に失敗しました（\(ns.domain) \(ns.code)）"
     }
 }
+
+// MARK: - 保存元WebページURLのサニタイズポリシー（Step 2-D-A）
+
+/// 保存元WebページURLの記録時に、クレデンシャル漏洩や危険なスキームを防止するポリシー。
+/// - 通信認証に使う RequestContext 自体は変更せず、永続化メタデータのみを対象とする。
+/// - URL文字列のコンソールログ出力は禁止。
+enum SourceURLPolicy {
+    private static let sensitiveQueryKeys: Set<String> = [
+        "token", "access_token", "auth_token", "auth", "signature", "sig",
+        "session", "session_id", "jsessionid", "phpsessid", "aspsessionid",
+        "bearer", "api_key", "apikey", "secret", "jwt", "code"
+    ]
+
+    /// 保存用URLとして安全に正規化・サニタイズする。
+    /// 危険なスキームや認証・ログイン専用URLと判定された場合は nil を返す。
+    static func sanitize(_ rawURL: URL?) -> String? {
+        guard let url = rawURL,
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        // 1. 認証情報（username / password）の完全除去
+        components.user = nil
+        components.password = nil
+
+        // 2. 認証・ログイン専用パスは元ページとして保存しない
+        let lowerPath = components.path.lowercased()
+        if lowerPath.contains("/oauth") || lowerPath.contains("/signin") || lowerPath.contains("/login") {
+            return nil
+        }
+
+        // 3. クエリパラメータからトークン・署名・セッション情報を除去（動画IDパラメータ等は維持）
+        if let queryItems = components.queryItems, !queryItems.isEmpty {
+            let filtered = queryItems.filter { item in
+                !sensitiveQueryKeys.contains(item.name.lowercased())
+            }
+            components.queryItems = filtered.isEmpty ? nil : filtered
+        }
+
+        guard let cleanURL = components.url else { return nil }
+        let cleanString = cleanURL.absoluteString
+        // 長大すぎるURL（バッファ消費防止）は除外
+        guard cleanString.count <= 2048 else { return nil }
+        return cleanString
+    }
+}

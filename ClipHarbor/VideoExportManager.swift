@@ -756,7 +756,8 @@ final class VideoExportManager: ObservableObject {
                     baseName: baseName,
                     targetFolder: targetFolder,
                     sourceHost: sourceHost,
-                    byteSize: summary.byteSize
+                    byteSize: summary.byteSize,
+                    sourcePageURL: SourceURLPolicy.sanitize(context.pageURL)
                 )
 
                 _ = DownloadCenter.shared.registerExportedVideo(savedVideo)
@@ -819,7 +820,8 @@ final class VideoExportManager: ObservableObject {
                     baseName: baseName,
                     targetFolder: targetFolder,
                     sourceHost: sourceHost,
-                    byteSize: summary.byteSize
+                    byteSize: summary.byteSize,
+                    sourcePageURL: SourceURLPolicy.sanitize(context.pageURL)
                 )
 
                 _ = DownloadCenter.shared.registerExportedVideo(savedVideo)
@@ -1330,7 +1332,8 @@ final class VideoExportManager: ObservableObject {
         baseName: String,
         targetFolder: String,
         sourceHost: String?,
-        byteSize: Int64
+        byteSize: Int64,
+        sourcePageURL: String? = nil
     ) throws -> SavedVideo {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let downloadsRoot = documents.appendingPathComponent("Downloads", isDirectory: true)
@@ -1379,7 +1382,8 @@ final class VideoExportManager: ObservableObject {
             format: .mp4,
             sourceHost: sourceHost,
             createdAt: Date(),
-            byteSize: byteSize
+            byteSize: byteSize,
+            sourcePageURL: sourcePageURL
         )
     }
 
