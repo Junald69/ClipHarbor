@@ -142,6 +142,19 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         persistSaved()
     }
 
+    /// VideoExportManager が生成・品質検証を完了したMP4ファイルを保存済み一覧へ登録する。
+    /// - 二重登録を防止し、onVideoSaved による二重ファイル移動を発生させない。
+    @discardableResult
+    func registerExportedVideo(_ video: SavedVideo) -> Bool {
+        guard !video.isHLS, video.fileExists else { return false }
+        guard !saved.contains(where: { $0.id == video.id || $0.relativePath == video.relativePath }) else {
+            return false
+        }
+        addSaved(video)
+        setStatus("MP4として保存しました：\(video.title)")
+        return true
+    }
+
     // MARK: - 開始処理
 
     private func launch(_ transfer: Transfer) {

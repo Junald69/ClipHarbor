@@ -5,6 +5,7 @@ struct BrowserScreen: View {
     @StateObject private var browser = BrowserModel()
     @ObservedObject private var downloads = DownloadCenter.shared
     @ObservedObject private var folderManager = VideoFolderManager.shared
+    @ObservedObject private var exports = VideoExportManager.shared
 
     @State private var savingCandidate: MediaCandidate?
     @State private var showCandidateList = false
@@ -42,9 +43,16 @@ struct BrowserScreen: View {
             browser.isEditingAddress = focused
         }
         .sheet(item: $savingCandidate) { candidate in
-            SaveVideoSheet(candidate: candidate, existingFolders: folderManager.folders) { chosenName, chosenFolder in
-                startDownload(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
-            }
+            SaveVideoSheet(
+                candidate: candidate,
+                existingFolders: folderManager.folders,
+                onConfirm: { chosenName, chosenFolder in
+                    startDownload(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
+                },
+                onStartFMP4ExportPoC: { chosenName, chosenFolder in
+                    startFMP4ExportPoC(candidate: candidate, displayName: chosenName, folderName: chosenFolder)
+                }
+            )
         }
         .sheet(isPresented: $showCandidateList) {
             CandidateListSheet(browser: browser) { candidate in
@@ -255,13 +263,25 @@ struct BrowserScreen: View {
         }
     }
 
+    private func startFMP4ExportPoC(candidate: MediaCandidate, displayName: String, folderName: String) {
+        browser.makeRequestContext { context in
+            _ = exports.startFMP4Export(
+                candidate: candidate,
+                displayName: displayName,
+                targetFolder: folderName,
+                context: context
+            )
+        }
+    }
+
     // MARK: - ステータス表示と下部ツールバー（Safe Area内）
 
     @ViewBuilder
     private var statusBanner: some View {
-        if let notice = browser.notice ?? downloads.statusMessage {
+        if let notice = browser.notice ?? downloads.statusMessage ?? exports.statusMessage {
+            let hasActiveTask = (downloads.activeCount + exports.activeCount) > 0
             HStack(spacing: 8) {
-                if downloads.activeCount > 0 {
+                if hasActiveTask {
                     ProgressView().controlSize(.mini)
                 } else {
                     Image(systemName: "info.circle.fill")
@@ -272,7 +292,7 @@ struct BrowserScreen: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                 Spacer(minLength: 4)
-                if downloads.activeCount > 0 {
+                if hasActiveTask || !exports.exportJobs.isEmpty {
                     Button("詳細") { showDownloads = true }
                         .font(.caption.weight(.semibold))
                 }

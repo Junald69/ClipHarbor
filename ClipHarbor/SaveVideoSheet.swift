@@ -6,6 +6,7 @@ struct SaveVideoSheet: View {
     let candidate: MediaCandidate
     let existingFolders: [String]
     let onConfirm: (String, String) -> Void
+    var onStartFMP4ExportPoC: ((String, String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var videoName: String
@@ -17,11 +18,13 @@ struct SaveVideoSheet: View {
     init(
         candidate: MediaCandidate,
         existingFolders: [String] = [],
-        onConfirm: @escaping (String, String) -> Void
+        onConfirm: @escaping (String, String) -> Void,
+        onStartFMP4ExportPoC: ((String, String) -> Void)? = nil
     ) {
         self.candidate = candidate
         self.existingFolders = existingFolders
         self.onConfirm = onConfirm
+        self.onStartFMP4ExportPoC = onStartFMP4ExportPoC
         _videoName = State(initialValue: candidate.suggestedName)
     }
 
@@ -130,6 +133,28 @@ struct SaveVideoSheet: View {
                     }
                 } footer: {
                     Text("権利者の許可がある動画のみ保存してください。配信元のアクセス制限や有効期限によっては保存できない場合があります。")
+                }
+
+                if candidate.isHLS, let onStartFMP4ExportPoC {
+                    Section {
+                        Button {
+                            let finalName = sanitizedName
+                            let finalFolder = resolvedFolderName
+                            dismiss()
+                            onStartFMP4ExportPoC(finalName, finalFolder)
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Label("fMP4→MP4変換を試す（PoC検証）", systemImage: "film.stack")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer()
+                            }
+                        }
+                    } header: {
+                        Text("MP4変換テスト（第1段階：単一ストリームfMP4）")
+                    } footer: {
+                        Text("非暗号化・単一ストリームfMP4形式のVOD HLSのみMP4へ変換し、品質検証に合格した場合のみDocuments/Downloadsへ保存します。非対応形式（MPEG-TS・分離音声・暗号化HLS）の場合は理由を表示します。通常の確実な保存は上の「ダウンロード」を使用してください。")
+                    }
                 }
             }
             .navigationTitle("動画を保存")

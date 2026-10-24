@@ -10,6 +10,7 @@ files = [
     'SaveVideoSheet.swift',
     'FileManagerView.swift',
     'VideoFolderManager.swift',
+    'VideoExportManager.swift',
     'BrowserModel.swift',
     'MediaScannerScript.swift',
     'TrackedVideo.swift',

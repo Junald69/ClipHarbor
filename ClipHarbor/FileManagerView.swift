@@ -6,6 +6,7 @@ import AVKit
 struct FileManagerView: View {
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var folderManager: VideoFolderManager
+    @ObservedObject private var exports = VideoExportManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedFilter: VideoFolderManager.FolderFilter = .all
@@ -43,8 +44,21 @@ struct FileManagerView: View {
                     }
                 }
 
+                if !exports.exportJobs.isEmpty {
+                    Section("MP4変換テスト状況 (fMP4 PoC)") {
+                        ForEach(exports.exportJobs) { job in
+                            FMP4ExportJobRow(
+                                job: job,
+                                onCancel: { exports.cancelExport(job.id) },
+                                onDismiss: { exports.dismissExportJob(job.id) }
+                            )
+                        }
+                    }
+                }
+
                 foldersSection
                 videosSection
+                pocVerificationSection
             }
             .navigationTitle("フォルダ・動画管理")
             .navigationBarTitleDisplayMode(.inline)
@@ -291,6 +305,36 @@ struct FileManagerView: View {
             }
         }
     }
+    // MARK: - fMP4 → MP4 PoC実機検証セクション（テストA / B / C）
+
+    private var pocVerificationSection: some View {
+        Section {
+            Menu {
+                Button {
+                    _ = exports.startPoCTestA_MuxedFMP4()
+                } label: {
+                    Label("テストA：映像・音声統合型 fMP4（MP4変換成功確認）", systemImage: "checkmark.seal")
+                }
+                Button {
+                    _ = exports.startPoCTestB_AppleSeparateAudioFMP4()
+                } label: {
+                    Label("テストB：Apple公式 分離音声 fMP4（非対応判定確認）", systemImage: "waveform.slash")
+                }
+                Button {
+                    _ = exports.startPoCTestC_MPEGTS()
+                } label: {
+                    Label("テストC：MPEG-TS形式 HLS（非対応判定確認）", systemImage: "film.stack")
+                }
+            } label: {
+                Label("fMP4→MP4 PoC実機テストを実行 (A / B / C)", systemImage: "testtube.2")
+                    .font(.subheadline)
+            }
+        } header: {
+            Text("PoC検証メニュー（第1段階）")
+        } footer: {
+            Text("テストAはApple公式の保存許諾fMP4素材（v2映像avc1＋a1音声mp4a、18秒）から統合fMP4 HLSを構成し、実機のAVAssetExportSessionによるMP4生成・8項目品質検証・Documents/Downloadsへの保存を確認します。テストB・Cは非対応形式が理由付きで拒否されることを確認します。")
+        }
+    }
 }
 
 // MARK: - ダウンロード進捗行（v2.1のシンプルな表示を維持）
@@ -376,6 +420,70 @@ private struct SimpleDownloadJobRow: View {
             return "\(received) / \(total)"
         }
         return received
+    }
+}
+
+// MARK: - fMP4 → MP4 変換テスト進捗・品質検証結果行
+
+private struct FMP4ExportJobRow: View {
+    let job: VideoExportManager.ExportJob
+    let onCancel: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("\(job.displayName).mp4")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Spacer()
+                if job.state.isActive {
+                    Button("キャンセル", role: .destructive, action: onCancel)
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                } else {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("履歴から消す")
+                }
+            }
+
+            switch job.state {
+            case .analyzingPlaylist, .remuxingToMP4, .verifyingMP4:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(job.state.label)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            case .downloadingSegments(_, _, let progress):
+                ProgressView(value: progress)
+                Text(job.state.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .completed(let summary):
+                Label(job.state.label, systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                let sizeStr = ByteCountFormatter.string(fromByteCount: summary.byteSize, countStyle: .file)
+                let audioStr = summary.audioCodec ?? "なし(映像のみ)"
+                Text("映像:\(summary.videoCodec) / 音声:\(audioStr) · Preset:\(summary.exportPresetUsed) · \(sizeStr) · \(summary.segmentCount)セグメント · フレーム検査:\(summary.decodedCheckpoints)/3点合格")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            case .failed(let reason):
+                Label(reason, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            case .cancelled:
+                Label("キャンセルしました", systemImage: "slash.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

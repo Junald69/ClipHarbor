@@ -11,6 +11,7 @@
 		72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */ = {isa = PBXBuildFile; fileRef = F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */; };
 		EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */ = {isa = PBXBuildFile; fileRef = 384D047BB284EC42219250AB /* file FileManagerView.swift */; };
 		D85FC3D5FB559A95F39F7E3D /* build VideoFolderManager.swift */ = {isa = PBXBuildFile; fileRef = D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */; };
+		6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */ = {isa = PBXBuildFile; fileRef = 30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */; };
 		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
 		04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */ = {isa = PBXBuildFile; fileRef = 8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */; };
 		8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */ = {isa = PBXBuildFile; fileRef = 202D892A5D03441EAD0128EC /* file TrackedVideo.swift */; };
@@ -28,6 +29,7 @@
 		F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveVideoSheet.swift; sourceTree = "<group>"; };
 		384D047BB284EC42219250AB /* file FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
 		D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoFolderManager.swift; sourceTree = "<group>"; };
+		30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExportManager.swift; sourceTree = "<group>"; };
 		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
 		8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaScannerScript.swift; sourceTree = "<group>"; };
 		202D892A5D03441EAD0128EC /* file TrackedVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedVideo.swift; sourceTree = "<group>"; };
@@ -54,6 +56,7 @@
 				F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */,
 				384D047BB284EC42219250AB /* file FileManagerView.swift */,
 				D50006A26F06E8CA10390E79 /* file VideoFolderManager.swift */,
+				30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */,
 				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
 				8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */,
 				202D892A5D03441EAD0128EC /* file TrackedVideo.swift */,
@@ -119,6 +122,7 @@
 				72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */,
 				EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */,
 				D85FC3D5FB559A95F39F7E3D /* build VideoFolderManager.swift */,
+				6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */,
 				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
 				04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */,
 				8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */,
