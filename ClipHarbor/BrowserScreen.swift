@@ -713,7 +713,7 @@ struct BrowserMenuSheet: View {
 
     private func toggleBookmark(url: URL, title: String) {
         if bookmarkManager.isBookmarked(url: url) {
-            bookmarkManager.removeBookmark(url: url)
+            bookmarkManager.removeBookmark(for: url)
             browser.showNotice("ブックマークを解除しました")
         } else {
             guard bookmarkManager.canSave else {
