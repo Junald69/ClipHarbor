@@ -95,6 +95,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     private static let savedKey = "clipHarborSavedVideosV2"
     private static let legacyKey = "clipHarborSavedVideosV1"
     private static let pendingHLSKey = "clipHarborPendingHLSV2"
+    private static let guideFileName = "ClipHarbor_保存先案内.txt"
     private static let minimumFreeBytes: Int64 = 100 * 1024 * 1024
     private static let maxRedirects = 10
     /// 進捗UIの更新間隔（秒）。メインスレッドの再描画負荷を抑えるため最大約4回/秒に制限する。
@@ -137,6 +138,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     override init() {
         super.init()
         _ = try? ensureDownloadsDirectory()
+        ensureFilesAppVisibilityGuide()
         loadSaved()
         reloadFolders()
         loadPendingHLS()
@@ -150,7 +152,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
         let cleanFolder = FileNaming.sanitizedFolderName(folderName)
-        if !cleanFolder.isEmpty {
+        // MP4等の直接ファイルの場合のみ、実サブフォルダを事前に作成する（HLSはメタデータ分類のみ）
+        if !cleanFolder.isEmpty && !candidate.isHLS {
             _ = try? ensureSubfolder(named: cleanFolder)
             reloadFolders()
         }
@@ -265,27 +268,55 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         }
     }
 
+    /// 保存済み動画の再生可能性・再生時間を公開APIで検証し、メタデータを更新する（データは削除しない）
+    @MainActor
+    func verifySavedVideo(_ videoID: UUID) async -> PlayabilityVerificationResult? {
+        guard let idx = saved.firstIndex(where: { $0.id == videoID }) else { return nil }
+        let target = saved[idx]
+        let result = await MediaPlayabilityVerifier.verify(url: target.fileURL, isHLS: target.isHLS)
+        guard let updatedIdx = saved.firstIndex(where: { $0.id == videoID }) else { return result }
+        if result.byteSize > 0 {
+            saved[updatedIdx].byteSize = result.byteSize
+        }
+        switch result.evaluation {
+        case .verified(let dur):
+            saved[updatedIdx].verificationState = .verified(durationSeconds: dur)
+        case .indeterminate(let note):
+            saved[updatedIdx].verificationState = .indeterminate(
+                note: note,
+                diagnosticDetail: result.detailedReport
+            )
+        case .failed(let reason):
+            saved[updatedIdx].verificationState = .failed(
+                reason: reason,
+                diagnosticDetail: result.detailedReport
+            )
+        }
+        persistSaved()
+        return result
+    }
+
     // MARK: - 公開操作（フォルダ管理・ファイル管理）
 
     func reloadFolders() {
-        guard let root = try? ensureDownloadsDirectory() else { return }
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
-        var names: Set<String> = []
-        for url in contents {
-            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                let clean = FileNaming.sanitizedFolderName(url.lastPathComponent)
-                if !clean.isEmpty { names.insert(clean) }
-            }
-        }
-        for video in saved where !video.folderName.isEmpty {
-            names.insert(video.folderName)
-        }
-        let sorted = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         onMain {
+            guard let root = try? self.ensureDownloadsDirectory() else { return }
+            let contents = (try? FileManager.default.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            var names: Set<String> = []
+            for url in contents {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    let clean = FileNaming.sanitizedFolderName(url.lastPathComponent)
+                    if !clean.isEmpty { names.insert(clean) }
+                }
+            }
+            for video in self.saved where !video.folderName.isEmpty {
+                names.insert(video.folderName)
+            }
+            let sorted = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             if self.folders != sorted {
                 self.folders = sorted
             }
@@ -332,6 +363,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             }
             for idx in saved.indices where saved[idx].folderName == oldName {
                 saved[idx].folderName = cleanNew
+                // HLS(.movpkg)はApple指定の保存場所から一切移動せず、MP4等の直接ファイルのみ相対パスを更新する
                 if !saved[idx].isHLS {
                     let fileName = (saved[idx].relativePath as NSString).lastPathComponent
                     let updatedURL = newURL.appendingPathComponent(fileName)
@@ -354,7 +386,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let folderURL = root.appendingPathComponent(name, isDirectory: true)
         guard FileNaming.isDirectChild(folderURL, of: root) else { return }
 
-        // フォルダ内の動画が消えないよう、先にDownloads直下へ移動する
+        // フォルダ内の動画が消えないよう、先にDownloads直下（未分類）へ移動する
         let videosInFolder = saved.filter { $0.folderName == name }
         for video in videosInFolder {
             _ = moveVideo(video, toFolder: "")
@@ -375,10 +407,11 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return .failure(.fileSystemError("対象の動画が見つかりません"))
         }
 
+        // HLS（.movpkg）はApple指定場所のパッケージ名を変更せず、表示タイトルのみ変更する
         if item.isHLS {
             saved[idx].title = cleanBase
             persistSaved()
-            setStatus("「\(cleanBase)」に名前を変更しました")
+            setStatus("「\(cleanBase)」に表示名を変更しました")
             return .success(saved[idx])
         }
 
@@ -425,13 +458,13 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return .success(saved[idx])
         }
 
-        // HLS（.movpkg）はApple指定領域に置いたまま、論理フォルダのみ更新する
+        // HLS（.movpkg）はApple指定の保存場所から一切移動せず、メタデータ上の分類フォルダのみ更新する
         if item.isHLS {
             saved[idx].folderName = cleanFolder
             persistSaved()
             reloadFolders()
-            let destLabel = cleanFolder.isEmpty ? "Downloads" : cleanFolder
-            setStatus("「\(item.title)」を「\(destLabel)」へ移動しました")
+            let destLabel = cleanFolder.isEmpty ? "未分類" : cleanFolder
+            setStatus("「\(item.title)」の分類を「\(destLabel)」へ変更しました")
             return .success(saved[idx])
         }
 
@@ -481,6 +514,24 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         reloadFolders()
     }
 
+    /// Info.plist設定と保存先・メタデータの整合性を点検して返す
+    func storageDiagnosticSummary() -> String {
+        let fileSharing = (Bundle.main.object(forInfoDictionaryKey: "UIFileSharingEnabled") as? Bool) ?? false
+        let openInPlace = (Bundle.main.object(forInfoDictionaryKey: "LSSupportsOpeningDocumentsInPlace") as? Bool) ?? false
+        let directVideos = saved.filter { !$0.isHLS }
+        let directExisting = directVideos.filter { $0.fileExists }.count
+        let hlsVideos = saved.filter { $0.isHLS }
+        let hlsExisting = hlsVideos.filter { $0.fileExists }.count
+
+        var lines: [String] = []
+        lines.append("Info.plist UIFileSharingEnabled: \(fileSharing ? "YES (有効)" : "NO")")
+        lines.append("Info.plist LSSupportsOpeningDocumentsInPlace: \(openInPlace ? "YES (有効)" : "NO")")
+        lines.append("MP4/MOV/M4V (Documents/Downloads): 登録 \(directVideos.count)件 / 実ファイル確認 \(directExisting)件")
+        lines.append("オフラインHLS (Library内Apple管理領域): 登録 \(hlsVideos.count)件 / 実パッケージ確認 \(hlsExisting)件")
+        lines.append("※iOSの仕様上、「ファイル」アプリには Documents/Downloads 内のMP4/MOV/M4Vのみが表示され、Library内のオフラインHLS(.movpkg)はファイルアプリには表示されません。")
+        return lines.joined(separator: "\n")
+    }
+
     // MARK: - 開始処理
 
     private func launch(_ transfer: Transfer, resumeData: Data?) {
@@ -507,6 +558,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 $0.canRetry = false
                 $0.canPause = !transfer.candidate.isHLS
                 $0.metrics = nil
+                $0.diagnosticReport = nil
             }
         }
         if let free = availableCapacity(), free < Self.minimumFreeBytes {
@@ -551,10 +603,12 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     private func launchHLS(_ transfer: Transfer) {
         // AVFoundation標準のHLS保存。DRM解除や特別な認証トークンの取得はしない。
+        // RFC 6265（Domain / Path / Secure / 有効期限）に基づき、宛先URLに一致するCookieのみを渡す。
         var options: [String: Any] = [:]
-        let cookies = CookiePolicy.cookies(transfer.context.cookies, matching: transfer.candidate.url)
-        if !cookies.isEmpty { options[AVURLAssetHTTPCookiesKey] = cookies }
+        let matchedCookies = CookiePolicy.cookies(transfer.context.cookies, matching: transfer.candidate.url)
+        if !matchedCookies.isEmpty { options[AVURLAssetHTTPCookiesKey] = matchedCookies }
         if let ua = transfer.context.userAgent, !ua.isEmpty { options[AVURLAssetHTTPUserAgentKey] = ua }
+
         let asset = AVURLAsset(url: transfer.candidate.url, options: options)
         let configuration = AVAssetDownloadConfiguration(asset: asset, title: transfer.baseName)
         let task = hlsSession.makeAssetDownloadTask(downloadConfiguration: configuration)
@@ -752,7 +806,6 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let writeMs = stateLock.withLock { transfer.fileWriteMilliseconds }
         summary.fileWriteMilliseconds = writeMs
 
-        // 2MB以上の転送で、初回応答<1.5秒・ディスク書込<1秒なのに平均速度が0.6MB/s未満の場合はサーバー側の帯域ペーシングを疑う
         let fastSetup = (summary.ttfbMilliseconds ?? 0) < 1500
         let fastDisk = (writeMs ?? 0) < 1000
         if bodyBytes >= 2 * 1024 * 1024 && fastSetup && fastDisk && avgSpeed > 0 && avgSpeed < 600 * 1024 {
@@ -810,16 +863,44 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                     finish(id, state: .cancelled, name: transfer.baseName, metrics: finalMetrics)
                 }
             } else {
-                finish(id, state: .failed(DownloadErrorMessage.forError(error)), name: transfer.baseName, metrics: finalMetrics)
+                finish(id, state: .failed(DownloadErrorMessage.forError(error)), name: transfer.baseName,
+                       metrics: finalMetrics, diagnostic: ErrorChainFormatter.describe(error))
             }
         } else if let outcome = stateLock.withLock({ transfer.outcome }) {
             switch outcome {
-            case .saved(let video):
+            case .saved(var video):
                 onMain {
-                    self.addSaved(video)
-                    self.reloadFolders()
+                    self.updateJob(id) { $0.state = .verifying }
                 }
-                finish(id, state: .completed, name: video.title, metrics: finalMetrics)
+                Task {
+                    let report = await MediaPlayabilityVerifier.verify(url: video.fileURL, isHLS: false)
+                    switch report.evaluation {
+                    case .verified(let dur):
+                        video.verificationState = .verified(durationSeconds: dur)
+                        self.onMain {
+                            self.addSaved(video)
+                            self.reloadFolders()
+                        }
+                        self.finish(id, state: .completed, name: video.title, metrics: finalMetrics)
+                    case .indeterminate(let note):
+                        video.verificationState = .indeterminate(note: note, diagnosticDetail: report.detailedReport)
+                        self.onMain {
+                            self.addSaved(video)
+                            self.reloadFolders()
+                        }
+                        self.finish(id, state: .verificationIndeterminate(note), name: video.title,
+                                    metrics: finalMetrics, diagnostic: report.detailedReport)
+                    case .failed(let reason):
+                        // 検証失敗時もファイルは自動削除せず保持し、「保存データを検証できません」と表示する
+                        video.verificationState = .failed(reason: reason, diagnosticDetail: report.detailedReport)
+                        self.onMain {
+                            self.addSaved(video)
+                            self.reloadFolders()
+                        }
+                        self.finish(id, state: .verificationFailed(reason), name: video.title,
+                                    metrics: finalMetrics, diagnostic: report.detailedReport)
+                    }
+                }
             case .failed(let message):
                 finish(id, state: .failed(message), name: transfer.baseName, metrics: finalMetrics)
             }
@@ -841,59 +922,150 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,
                     willDownloadTo location: URL) {
         guard let id = jobID(for: assetDownloadTask) else { return }
-        hlsLocations[id] = location
+        recordHLSLocation(location, for: id)
     }
 
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,
                     didFinishDownloadingTo location: URL) {
         guard let id = jobID(for: assetDownloadTask) else { return }
+        recordHLSLocation(location, for: id)
+    }
+
+    /// AVFoundationから通知されたローカルURL（.movpkg）をメモリおよび永続レコード（PendingHLSRecord）に保持する。
+    /// これにより、バックグラウンドダウンロード中にアプリが再起動した場合でも保存先URLを復元できる。
+    private func recordHLSLocation(_ location: URL, for id: UUID) {
         hlsLocations[id] = location
+        let rel = SavedVideo.relativePath(for: location)
+        let bookmark = try? location.bookmarkData()
+        onMain {
+            if var record = self.pendingHLS[id] {
+                if let rel = rel { record.relativePath = rel }
+                if let bookmark = bookmark { record.bookmarkData = bookmark }
+                self.pendingHLS[id] = record
+                self.persistPendingHLS()
+            }
+        }
     }
 
     private func completeHLS(jobID id: UUID, error: Error?) {
-        let location = hlsLocations.removeValue(forKey: id)
         let record = pendingHLS.removeValue(forKey: id)
         persistPendingHLS()
+        let location = hlsLocations.removeValue(forKey: id) ?? record?.restoredLocationURL
         let transfer = stateLock.withLock { transfers[id] }
         let name = transfer?.baseName ?? record?.displayName ?? "HLS動画"
         let host = transfer?.candidate.host ?? record?.host
         let folderName = transfer?.targetFolder ?? record?.folderName ?? ""
 
         if let error = error {
-            if let location = location { try? FileManager.default.removeItem(at: location) }
             let ns = error as NSError
             if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
+                if let location = location { try? FileManager.default.removeItem(at: location) }
                 finish(id, state: .cancelled, name: name)
-            } else {
-                finish(id, state: .failed(Self.hlsMessage(for: error)), name: name)
+                return
+            }
+
+            let errorChain = ErrorChainFormatter.describe(error)
+            let userMessage = Self.hlsMessage(for: error)
+            finish(id, state: .failed(userMessage), name: name, diagnostic: "エラー詳細: \(errorChain)\n原因を調査中…")
+
+            // メモリ上にTransfer情報がある場合は、プレイリスト応答・セグメント有効性を非同期診断する
+            if let transfer = transfer {
+                let candidateURL = transfer.candidate.url
+                let context = transfer.context
+                let probeSession = self.fileSession
+                Task {
+                    let report = await HLSDiagnosticProbe.diagnose(
+                        error: error,
+                        candidateURL: candidateURL,
+                        context: context,
+                        session: probeSession
+                    )
+                    self.onMain {
+                        self.updateJob(id) {
+                            $0.diagnosticReport = report.summaryText
+                        }
+                    }
+                }
             }
             return
         }
+
         guard let location = location else {
-            finish(id, state: .failed("HLSの保存先を取得できませんでした"), name: name)
+            finish(id, state: .failed("HLSの保存先URLをデリゲートから取得できませんでした"), name: name)
             return
         }
-        let asset = AVURLAsset(url: location)
-        guard asset.assetCache?.isPlayableOffline == true,
-              let relative = SavedVideo.relativePath(for: location) else {
-            try? FileManager.default.removeItem(at: location)
-            finish(id, state: .failed("この配信方式のオフライン保存には対応していません"), name: name)
+
+        guard let relative = SavedVideo.relativePath(for: location) ?? record?.relativePath else {
+            finish(id, state: .verificationFailed("保存先パスを解決できませんでした"), name: name)
             return
         }
-        addSaved(SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
-                            sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location),
-                            folderName: folderName))
-        reloadFolders()
-        finish(id, state: .completed, name: name)
+
+        // Apple推奨のブックマークデータを生成（.movpkg のディレクトリ参照をアプリ再起動後も維持）
+        let bookmark = (try? location.bookmarkData()) ?? record?.bookmarkData
+
+        updateJob(id) {
+            $0.state = .verifying
+        }
+
+        Task {
+            let report = await MediaPlayabilityVerifier.verify(url: location, isHLS: true)
+            let verificationState: VideoVerificationState
+            let finishedState: DownloadState
+            switch report.evaluation {
+            case .verified(let dur):
+                verificationState = .verified(durationSeconds: dur)
+                finishedState = .completed
+            case .indeterminate(let note):
+                verificationState = .indeterminate(
+                    note: note,
+                    diagnosticDetail: report.detailedReport
+                )
+                finishedState = .verificationIndeterminate(note)
+            case .failed(let reason):
+                verificationState = .failed(
+                    reason: reason,
+                    diagnosticDetail: report.detailedReport
+                )
+                finishedState = .verificationFailed(reason)
+            }
+
+            // 検証結果にかかわらず保存データは自動削除せず保持する
+            let video = SavedVideo(
+                id: UUID(),
+                title: name,
+                relativePath: relative,
+                format: .hls,
+                sourceHost: host,
+                createdAt: Date(),
+                byteSize: report.byteSize > 0 ? report.byteSize : Self.directorySize(location),
+                folderName: folderName,
+                bookmarkData: bookmark,
+                verificationState: verificationState
+            )
+
+            self.onMain {
+                self.addSaved(video)
+                self.reloadFolders()
+                self.finish(
+                    id,
+                    state: finishedState,
+                    name: name,
+                    diagnostic: report.detailedReport
+                )
+            }
+        }
     }
 
     private static func hlsMessage(for error: Error) -> String {
         let ns = error as NSError
+        if let meaning = ErrorChainFormatter.knownCodeMeaning(domain: ns.domain, code: ns.code) {
+            return "\(meaning)（\(ns.domain) \(ns.code)）"
+        }
         if ns.domain == AVFoundationErrorDomain {
             if ns.code == AVError.Code.contentIsProtected.rawValue || ns.code == AVError.Code.contentIsNotAuthorized.rawValue {
-                return "保護されたコンテンツは保存できません"
+                return "保護されたコンテンツは保存できません（\(ns.domain) \(ns.code)）"
             }
-            return "この配信方式のオフライン保存には対応していません（コード \(ns.code)）"
+            return "この配信方式のオフライン保存には対応していません（\(ns.domain) \(ns.code)）"
         }
         return DownloadErrorMessage.forError(error)
     }
@@ -907,6 +1079,9 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                           let record = self.pendingHLS[id],
                           self.stateLock.withLock({ self.tasks[id] == nil }) else { continue }
                     self.stateLock.withLock { self.tasks[id] = task }
+                    if self.hlsLocations[id] == nil, let restoredURL = record.restoredLocationURL {
+                        self.hlsLocations[id] = restoredURL
+                    }
                     self.observations[id] = self.observeProgress(of: task, jobID: id)
                     if !self.jobs.contains(where: { $0.id == id }) {
                         self.jobs.append(DownloadJob(id: id, displayName: record.displayName,
@@ -995,6 +1170,26 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         return folder
     }
 
+    /// iOSの「ファイル」アプリ（「このiPhone内」→「ClipHarbor」→「Downloads」）が空フォルダ時に非表示にならないよう案内ファイルを配置する
+    private func ensureFilesAppVisibilityGuide() {
+        guard let root = try? ensureDownloadsDirectory() else { return }
+        let guideURL = root.appendingPathComponent(Self.guideFileName)
+        guard !FileManager.default.fileExists(atPath: guideURL.path) else { return }
+        let text = """
+        ClipHarbor 保存先フォルダのご案内
+        ================================
+
+        1. MP4 / MOV / M4V 動画
+           この「Downloads」フォルダ（および作成したサブフォルダ）に実ファイルとして保存されます。
+           iOSの「ファイル」アプリから直接再生・移動・共有できます。
+
+        2. オフラインHLS動画（.movpkg）
+           AppleのAVFoundation仕様により、アプリ内部のシステム管理領域（Library）に保存されます。
+           「ファイル」アプリ上には表示されませんが、ClipHarborアプリ内の「ファイル管理」画面から一覧表示・フォルダ分類・オフライン再生が可能です。
+        """
+        try? text.write(to: guideURL, atomically: true, encoding: .utf8)
+    }
+
     private func ensureSubfolder(named folderName: String) throws -> URL {
         let root = try ensureDownloadsDirectory()
         let clean = FileNaming.sanitizedFolderName(folderName)
@@ -1041,7 +1236,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if job != jobs[index] { jobs[index] = job }
     }
 
-    private func finish(_ id: UUID, state: DownloadState, name: String, metrics: DownloadMetricsSummary? = nil) {
+    private func finish(_ id: UUID, state: DownloadState, name: String,
+                        metrics: DownloadMetricsSummary? = nil, diagnostic: String? = nil) {
         onMain {
             let hasTransfer = self.stateLock.withLock { self.transfers[id] != nil }
             switch state {
@@ -1054,8 +1250,32 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                     $0.canRetry = false
                     $0.canPause = false
                     if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
                 }
-                self.setStatus("保存しました：\(name)")
+                self.setStatus("保存・初期検証が完了しました：\(name)")
+            case .verificationIndeterminate(let note):
+                self.stateLock.withLock { self.transfers[id] = nil }
+                self.updateJob(id) {
+                    $0.state = .verificationIndeterminate(note)
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = false
+                    $0.canPause = false
+                    if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
+                }
+                self.setStatus("「\(name)」保存完了（非同期読み込み未確定）：\(note)")
+            case .verificationFailed(let reason):
+                self.updateJob(id) {
+                    $0.state = .verificationFailed(reason)
+                    $0.currentSpeedBytesPerSec = 0
+                    $0.estimatedRemainingSeconds = nil
+                    $0.canRetry = hasTransfer
+                    $0.canPause = false
+                    if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
+                }
+                self.setStatus("「\(name)」保存データを検証できません：\(reason)")
             case .failed(let message):
                 self.updateJob(id) {
                     $0.state = state
@@ -1063,6 +1283,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                     $0.estimatedRemainingSeconds = nil
                     $0.canRetry = hasTransfer
                     if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
                 }
                 self.setStatus("「\(name)」\(message)")
             case .cancelled:
@@ -1072,12 +1293,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                     $0.estimatedRemainingSeconds = nil
                     $0.canRetry = hasTransfer
                     if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
                 }
                 self.setStatus("「\(name)」のダウンロードをキャンセルしました")
             default:
                 self.updateJob(id) {
                     $0.state = state
                     if let m = metrics { $0.metrics = m }
+                    if let d = diagnostic { $0.diagnosticReport = d }
                 }
             }
             self.updateBackgroundTask()

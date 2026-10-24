@@ -22,11 +22,27 @@ struct SavedVideo: Identifiable, Codable, Equatable {
     let sourceHost: String?
     let createdAt: Date
     var byteSize: Int64?
-    /// Downloads配下のサブフォルダ名（空文字はDownloads直下）
+    /// アプリ内でのフォルダ分類名（空文字は未分類 / Downloads直下）
+    /// - MP4/MOV/M4V: Documents/Downloads/<folderName> の実サブフォルダと対応
+    /// - HLS(.movpkg): Apple指定の保存場所を維持したまま、メタデータ上の論理フォルダとして分類
     var folderName: String
+    /// AVAssetDownloadDelegateから受け取った .movpkg URL のブックマークデータ（Apple推奨の参照保持方式）
+    var bookmarkData: Data?
+    /// 再生可能性・再生時間の検証状態
+    var verificationState: VideoVerificationState
 
-    init(id: UUID, title: String, relativePath: String, format: Format,
-         sourceHost: String?, createdAt: Date, byteSize: Int64?, folderName: String = "") {
+    init(
+        id: UUID,
+        title: String,
+        relativePath: String,
+        format: Format,
+        sourceHost: String?,
+        createdAt: Date,
+        byteSize: Int64?,
+        folderName: String = "",
+        bookmarkData: Data? = nil,
+        verificationState: VideoVerificationState = .unverified
+    ) {
         self.id = id
         self.title = title
         self.relativePath = relativePath
@@ -35,10 +51,12 @@ struct SavedVideo: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         self.byteSize = byteSize
         self.folderName = folderName
+        self.bookmarkData = bookmarkData
+        self.verificationState = verificationState
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, relativePath, format, sourceHost, createdAt, byteSize, folderName
+        case id, title, relativePath, format, sourceHost, createdAt, byteSize, folderName, bookmarkData, verificationState
     }
 
     init(from decoder: Decoder) throws {
@@ -52,13 +70,50 @@ struct SavedVideo: Identifiable, Codable, Equatable {
         byteSize = try c.decodeIfPresent(Int64.self, forKey: .byteSize)
         folderName = try c.decodeIfPresent(String.self, forKey: .folderName)
             ?? Self.inferredFolderName(fromRelativePath: relativePath)
+        bookmarkData = try c.decodeIfPresent(Data.self, forKey: .bookmarkData)
+        verificationState = try c.decodeIfPresent(VideoVerificationState.self, forKey: .verificationState)
+            ?? .unverified
     }
 
-    var fileURL: URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(relativePath)
-    }
     var isHLS: Bool { format == .hls }
-    var fileExists: Bool { FileManager.default.fileExists(atPath: fileURL.path) }
+
+    /// 再生・参照用の実ファイルURL。
+    /// HLS(.movpkg)の場合はブックマーク解決を優先し、フォールバック時もディレクトリURL(isDirectory: true)として構築する。
+    var fileURL: URL {
+        if let data = bookmarkData {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &isStale),
+               FileManager.default.fileExists(atPath: resolved.path) {
+                if isHLS && !resolved.hasDirectoryPath {
+                    return URL(fileURLWithPath: resolved.path, isDirectory: true)
+                }
+                return resolved
+            }
+        }
+        return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(relativePath, isDirectory: isHLS)
+    }
+
+    var fileExists: Bool {
+        FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    /// ユーザー向けの保存場所表示（ファイルアプリで見えるかどうかを明確に区別する）
+    var storageLocationLabel: String {
+        if isHLS {
+            if folderName.isEmpty {
+                return "アプリ内HLS領域（ファイルアプリ非表示）"
+            } else {
+                return "アプリ内HLS領域 · 分類: \(folderName)"
+            }
+        } else {
+            if folderName.isEmpty {
+                return "ファイルアプリ: ClipHarbor/Downloads"
+            } else {
+                return "ファイルアプリ: Downloads/\(folderName)"
+            }
+        }
+    }
 
     /// Documents/Downloads/サブフォルダ/ファイル.mp4 からサブフォルダ名を推定する
     static func inferredFolderName(fromRelativePath relative: String) -> String {
@@ -131,7 +186,10 @@ enum DownloadState: Equatable {
     case preparing
     case downloading(progress: Double?)
     case paused(progress: Double?)
+    case verifying
     case completed
+    case verificationIndeterminate(String)
+    case verificationFailed(String)
     case failed(String)
     case cancelled
 
@@ -144,15 +202,24 @@ enum DownloadState: Equatable {
         case .paused(let p):
             if let p = p { return "一時停止中 \(Int(p * 100))%" }
             return "一時停止中"
-        case .completed: return "保存完了"
-        case .failed(let message): return "保存失敗：\(message)"
-        case .cancelled: return "キャンセルしました"
+        case .verifying:
+            return "保存データを初期検証中…"
+        case .completed:
+            return "保存完了（初期検証済）"
+        case .verificationIndeterminate(let note):
+            return "保存済（非同期読み込み未完了）：\(note)"
+        case .verificationFailed(let reason):
+            return "保存データを検証できません：\(reason)"
+        case .failed(let message):
+            return "保存失敗：\(message)"
+        case .cancelled:
+            return "キャンセルしました"
         }
     }
 
     var isActive: Bool {
         switch self {
-        case .preparing, .downloading: return true
+        case .preparing, .downloading, .verifying: return true
         default: return false
         }
     }
@@ -179,6 +246,8 @@ struct DownloadJob: Identifiable, Equatable {
     var canRetry: Bool = false
     var canPause: Bool = false
     var metrics: DownloadMetricsSummary?
+    /// エラー詳細やHLSプレイリスト・セグメント診断結果（URLは含まない）
+    var diagnosticReport: String?
 
     static func formatSpeed(_ bytesPerSec: Double) -> String {
         guard bytesPerSec > 0 else { return "計測中…" }
@@ -200,22 +269,33 @@ struct DownloadJob: Identifiable, Equatable {
     }
 }
 
-/// アプリ再起動後もHLSのバックグラウンドダウンロードを表示するための情報（URLは含まない）
+/// アプリ再起動後もHLSのバックグラウンドダウンロードとローカル保存先URLを復元するための情報（配信元URLは含まない）
 struct PendingHLSRecord: Codable {
     let jobID: UUID
     let displayName: String
     let host: String
     var folderName: String
+    var relativePath: String?
+    var bookmarkData: Data?
 
-    init(jobID: UUID, displayName: String, host: String, folderName: String = "") {
+    init(
+        jobID: UUID,
+        displayName: String,
+        host: String,
+        folderName: String = "",
+        relativePath: String? = nil,
+        bookmarkData: Data? = nil
+    ) {
         self.jobID = jobID
         self.displayName = displayName
         self.host = host
         self.folderName = folderName
+        self.relativePath = relativePath
+        self.bookmarkData = bookmarkData
     }
 
     enum CodingKeys: String, CodingKey {
-        case jobID, displayName, host, folderName
+        case jobID, displayName, host, folderName, relativePath, bookmarkData
     }
 
     init(from decoder: Decoder) throws {
@@ -224,6 +304,23 @@ struct PendingHLSRecord: Codable {
         displayName = try c.decode(String.self, forKey: .displayName)
         host = try c.decode(String.self, forKey: .host)
         folderName = try c.decodeIfPresent(String.self, forKey: .folderName) ?? ""
+        relativePath = try c.decodeIfPresent(String.self, forKey: .relativePath)
+        bookmarkData = try c.decodeIfPresent(Data.self, forKey: .bookmarkData)
+    }
+
+    var restoredLocationURL: URL? {
+        if let data = bookmarkData {
+            var isStale = false
+            if let resolved = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &isStale),
+               FileManager.default.fileExists(atPath: resolved.path) {
+                return resolved.hasDirectoryPath ? resolved : URL(fileURLWithPath: resolved.path, isDirectory: true)
+            }
+        }
+        if let rel = relativePath, !rel.isEmpty {
+            return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(rel, isDirectory: true)
+        }
+        return nil
     }
 }
 

@@ -32,7 +32,8 @@ final class VideoThumbnailGenerator {
         if let existingTask = inFlight[key] {
             return await existingTask.value
         }
-        guard video.fileExists else { return nil }
+        // HLS(.movpkg)はAVAssetImageGeneratorで開くと再生・検証処理と競合する場合があるため、直接ファイル(MP4等)のみサムネイル生成する
+        guard !video.isHLS, video.fileExists else { return nil }
         let fileURL = video.fileURL
 
         let task = Task.detached(priority: .utility) { () -> UIImage? in

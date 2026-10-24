@@ -49,6 +49,10 @@ jobs:
           set -euo pipefail
           APP="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/ClipHarbor.app"
           test -d "$APP"
+          echo "=== Inspecting generated Info.plist ==="
+          plutil -p "$APP/Info.plist"
+          plutil -p "$APP/Info.plist" | grep -E '"UIFileSharingEnabled" => (1|true)'
+          plutil -p "$APP/Info.plist" | grep -E '"LSSupportsOpeningDocumentsInPlace" => (1|true)'
           STAGE="$RUNNER_TEMP/ClipHarborIPA"
           mkdir -p "$STAGE/Payload"
           ditto "$APP" "$STAGE/Payload/ClipHarbor.app"

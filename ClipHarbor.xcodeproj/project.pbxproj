@@ -11,6 +11,7 @@
 		72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */ = {isa = PBXBuildFile; fileRef = F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */; };
 		EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */ = {isa = PBXBuildFile; fileRef = 384D047BB284EC42219250AB /* file FileManagerView.swift */; };
 		F805ED2B2FEB4525E3367A12 /* build VideoThumbnailGenerator.swift */ = {isa = PBXBuildFile; fileRef = E22B37A8B6A6B2B8FFF083DF /* file VideoThumbnailGenerator.swift */; };
+		CC239AACFBB4B874EECEAD2F /* build MediaVerification.swift */ = {isa = PBXBuildFile; fileRef = EA36DD5A93E7F21103829F70 /* file MediaVerification.swift */; };
 		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
 		04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */ = {isa = PBXBuildFile; fileRef = 8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */; };
 		8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */ = {isa = PBXBuildFile; fileRef = 202D892A5D03441EAD0128EC /* file TrackedVideo.swift */; };
@@ -27,6 +28,7 @@
 		F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveVideoSheet.swift; sourceTree = "<group>"; };
 		384D047BB284EC42219250AB /* file FileManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerView.swift; sourceTree = "<group>"; };
 		E22B37A8B6A6B2B8FFF083DF /* file VideoThumbnailGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailGenerator.swift; sourceTree = "<group>"; };
+		EA36DD5A93E7F21103829F70 /* file MediaVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaVerification.swift; sourceTree = "<group>"; };
 		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
 		8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaScannerScript.swift; sourceTree = "<group>"; };
 		202D892A5D03441EAD0128EC /* file TrackedVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackedVideo.swift; sourceTree = "<group>"; };
@@ -52,6 +54,7 @@
 				F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */,
 				384D047BB284EC42219250AB /* file FileManagerView.swift */,
 				E22B37A8B6A6B2B8FFF083DF /* file VideoThumbnailGenerator.swift */,
+				EA36DD5A93E7F21103829F70 /* file MediaVerification.swift */,
 				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
 				8A08C40D03C5427F57C3AFF6 /* file MediaScannerScript.swift */,
 				202D892A5D03441EAD0128EC /* file TrackedVideo.swift */,
@@ -117,6 +120,7 @@
 				72E8BA7CA31EFEDB4EFA7598 /* build SaveVideoSheet.swift */,
 				EBBC44F4D228BED81CBC297E /* build FileManagerView.swift */,
 				F805ED2B2FEB4525E3367A12 /* build VideoThumbnailGenerator.swift */,
+				CC239AACFBB4B874EECEAD2F /* build MediaVerification.swift */,
 				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
 				04F440C811D43AB3996FF1BD /* build MediaScannerScript.swift */,
 				8752FEA3B54DC85149949B02 /* build TrackedVideo.swift */,
@@ -161,8 +165,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				MARKETING_VERSION = 2.2;
+				CURRENT_PROJECT_VERSION = 4;
+				MARKETING_VERSION = 2.2.1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -186,8 +190,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
-				MARKETING_VERSION = 2.2;
+				CURRENT_PROJECT_VERSION = 4;
+				MARKETING_VERSION = 2.2.1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;

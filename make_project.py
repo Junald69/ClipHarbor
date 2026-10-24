@@ -10,6 +10,7 @@ files = [
     'SaveVideoSheet.swift',
     'FileManagerView.swift',
     'VideoThumbnailGenerator.swift',
+    'MediaVerification.swift',
     'BrowserModel.swift',
     'MediaScannerScript.swift',
     'TrackedVideo.swift',
@@ -98,7 +99,7 @@ for kind in ['Debug','Release']:
 for kind in ['Debug','Release']:
     o = 'target '+kind
     settings = {'CODE_SIGN_STYLE':'Automatic',
-                'CURRENT_PROJECT_VERSION':'3','MARKETING_VERSION':'2.2',
+                'CURRENT_PROJECT_VERSION':'4','MARKETING_VERSION':'2.2.1',
                 'GENERATE_INFOPLIST_FILE':'YES',
                 'INFOPLIST_KEY_CFBundleDisplayName':'ClipHarbor',
                 'INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace':'YES',

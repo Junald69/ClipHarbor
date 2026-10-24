@@ -23,6 +23,8 @@ struct SaveVideoSheet: View {
         self.downloads = downloads
         self.onConfirm = onConfirm
         _videoName = State(initialValue: candidate.suggestedName)
+        // HLS配信ではWebViewの一時停止でストリームのトークン更新等が止まる場合があるため、直接ファイル(MP4等)のみ標準でONにする
+        _pauseWebPlayback = State(initialValue: !candidate.isHLS)
     }
 
     private var sanitizedName: String {
@@ -40,12 +42,12 @@ struct SaveVideoSheet: View {
     private var destinationDescription: String {
         if candidate.isHLS {
             return selectedFolder.isEmpty
-                ? "ClipHarbor内（オフラインHLS）"
-                : "ClipHarbor内（オフラインHLS · フォルダ: \(selectedFolder)）"
+                ? "アプリ内HLS領域（ファイルアプリ非表示）"
+                : "アプリ内HLS領域（アプリ内分類: \(selectedFolder)）"
         }
         return selectedFolder.isEmpty
-            ? "ClipHarbor / Documents / Downloads"
-            : "ClipHarbor / Documents / Downloads / \(selectedFolder)"
+            ? "このiPhone内 / ClipHarbor / Downloads"
+            : "このiPhone内 / ClipHarbor / Downloads / \(selectedFolder)"
     }
 
     var body: some View {
@@ -72,11 +74,11 @@ struct SaveVideoSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("保存先フォルダ") {
-                    Picker("フォルダ", selection: $selectedFolder) {
+                Section {
+                    Picker(candidate.isHLS ? "アプリ内フォルダ分類" : "保存先フォルダ", selection: $selectedFolder) {
                         Text("Downloads（標準）").tag("")
                         ForEach(downloads.folders, id: \.self) { folder in
-                            Text("Downloads / \(folder)").tag(folder)
+                            Text(candidate.isHLS ? folder : "Downloads / \(folder)").tag(folder)
                         }
                     }
                     Button {
@@ -86,13 +88,23 @@ struct SaveVideoSheet: View {
                         Label("新しいフォルダを作成…", systemImage: "folder.badge.plus")
                             .font(.subheadline)
                     }
+                } header: {
+                    Text("保存先フォルダ")
+                } footer: {
+                    if candidate.isHLS {
+                        Text("オフラインHLS（.movpkg）はApple指定の管理領域に保存されます。選んだフォルダはClipHarbor内の整理用として記録され、実パッケージは移動しません。")
+                    } else {
+                        Text("iPhoneの「ファイル」アプリ →「このiPhone内」→「ClipHarbor」→「Downloads」から直接アクセスできます。")
+                    }
                 }
 
-                Section("高速化オプション") {
-                    Toggle("保存開始時にページの再生を一時停止", isOn: $pauseWebPlayback)
-                    Text("再生中の動画ストリームによる帯域・接続枠の競合を防ぎ、ダウンロード速度を優先します。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if !candidate.isHLS {
+                    Section("高速化オプション") {
+                        Toggle("保存開始時にページの再生を一時停止", isOn: $pauseWebPlayback)
+                        Text("再生中の動画ストリームによる帯域・接続枠の競合を防ぎ、ダウンロード速度を優先します。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("保存情報") {

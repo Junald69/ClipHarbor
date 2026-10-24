@@ -1,7 +1,8 @@
 import SwiftUI
 import AVKit
+import AVFoundation
 
-/// Aloha風のローカルファイル管理＆ダウンロード進捗・速度計測シート。
+/// Aloha風のローカルファイル管理＆ダウンロード進捗・速度計測・再生検証シート。
 struct FileManagerView: View {
     @ObservedObject var downloads: DownloadCenter
     @Environment(\.dismiss) private var dismiss
@@ -44,6 +45,9 @@ struct FileManagerView: View {
     @State private var renameVideoInput = ""
     @State private var movingVideo: SavedVideo?
 
+    // 検証・診断表示状態
+    @State private var verifyingVideoIDs: Set<UUID> = []
+    @State private var showStorageDiagnostics = false
     @State private var alertMessage: String?
 
     private var filteredVideos: [SavedVideo] {
@@ -107,6 +111,16 @@ struct FileManagerView: View {
                         } label: {
                             Label("新規フォルダを作成", systemImage: "folder.badge.plus")
                         }
+                        Button {
+                            verifyAllSavedVideos()
+                        } label: {
+                            Label("保存済み動画をすべて検証", systemImage: "checkmark.shield")
+                        }
+                        Button {
+                            showStorageDiagnostics.toggle()
+                        } label: {
+                            Label("保存先・Info.plist診断を表示", systemImage: "stethoscope")
+                        }
                     } label: {
                         Label("整理", systemImage: "arrow.up.arrow.down.circle")
                     }
@@ -116,7 +130,7 @@ struct FileManagerView: View {
                 }
             }
             .fullScreenCover(item: $playingVideo) { video in
-                OfflineVideoPlayerSheet(video: video)
+                OfflineVideoPlayerSheet(video: video, downloads: downloads)
             }
             .sheet(item: $movingVideo) { video in
                 MoveVideoFolderSheet(
@@ -204,6 +218,26 @@ struct FileManagerView: View {
                 Button("OK", role: .cancel) { alertMessage = nil }
             } message: {
                 Text(alertMessage ?? "")
+            }
+        }
+    }
+
+    private func verifySingleVideo(_ video: SavedVideo) {
+        guard !verifyingVideoIDs.contains(video.id) else { return }
+        verifyingVideoIDs.insert(video.id)
+        Task { @MainActor in
+            _ = await downloads.verifySavedVideo(video.id)
+            verifyingVideoIDs.remove(video.id)
+        }
+    }
+
+    private func verifyAllSavedVideos() {
+        let ids = downloads.saved.map(\.id)
+        for id in ids { verifyingVideoIDs.insert(id) }
+        Task { @MainActor in
+            for id in ids {
+                _ = await downloads.verifySavedVideo(id)
+                verifyingVideoIDs.remove(id)
             }
         }
     }
@@ -350,8 +384,9 @@ struct FileManagerView: View {
                 ForEach(items) { video in
                     SavedVideoRow(
                         video: video,
-                        showFolderBadge: selectedFilter == .all,
+                        isVerifying: verifyingVideoIDs.contains(video.id),
                         onPlay: { playingVideo = video },
+                        onVerify: { verifySingleVideo(video) },
                         onRename: {
                             renameVideoInput = video.title
                             renamingVideo = video
@@ -394,20 +429,51 @@ struct FileManagerView: View {
     }
 
     private var filesAppGuidanceSection: some View {
-        Section {
-            Label {
-                Text("MP4 / MOV / M4V 動画は、iOSの「ファイル」アプリ →「このiPhone内」→「ClipHarbor」→「Downloads」から直接開いたりPCへコピーしたりできます。")
-                    .font(.caption)
+        Section("保存場所のご案内と診断") {
+            VStack(alignment: .leading, spacing: 6) {
+                Label {
+                    Text("MP4 / MOV / M4V 動画：iOSの「ファイル」アプリ →「このiPhone内」→「ClipHarbor」→「Downloads」に保存され、直接参照・共有できます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "folder.fill")
+                        .foregroundStyle(.blue)
+                }
+
+                Label {
+                    Text("オフラインHLS（.movpkg）：AppleのAVFoundation仕様によりアプリ内の管理領域（Library）に保存されます。「ファイル」アプリには表示されませんが、この画面からフォルダ分類・再生・検証が可能です。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "play.square.stack.fill")
+                        .foregroundStyle(.indigo)
+                }
+            }
+            .padding(.vertical, 2)
+
+            Button {
+                showStorageDiagnostics.toggle()
+            } label: {
+                Label(
+                    showStorageDiagnostics ? "保存先・Info.plist 診断を隠す" : "保存先・Info.plist 診断を表示",
+                    systemImage: "stethoscope"
+                )
+                .font(.caption.weight(.semibold))
+            }
+
+            if showStorageDiagnostics {
+                Text(downloads.storageDiagnosticSummary())
+                    .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
-            } icon: {
-                Image(systemName: "folder.badge.person.crop")
-                    .foregroundStyle(.blue)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
 }
 
-// MARK: - ダウンロード行（現在速度・平均速度・残り時間・一時停止/再開・メトリクス内訳）
+// MARK: - ダウンロード行（現在速度・平均速度・残り時間・一時停止/再開・メトリクス・エラー診断）
 
 private struct DownloadJobRow: View {
     let job: DownloadJob
@@ -425,8 +491,12 @@ private struct DownloadJobRow: View {
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                     HStack(spacing: 6) {
-                        Label(job.targetFolder.isEmpty ? "Downloads" : "Downloads/\(job.targetFolder)",
-                              systemImage: "folder")
+                        Label(
+                            job.isHLS
+                                ? (job.targetFolder.isEmpty ? "アプリ内HLS領域" : "アプリ内HLS · \(job.targetFolder)")
+                                : (job.targetFolder.isEmpty ? "Downloads" : "Downloads/\(job.targetFolder)"),
+                            systemImage: job.isHLS ? "play.square.stack" : "folder"
+                        )
                         Text("· \(job.host)")
                     }
                     .font(.caption2)
@@ -496,9 +566,17 @@ private struct DownloadJobRow: View {
                 }
                 .font(.caption)
 
+            case .verifying:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("公開API（AVURLAsset / AVPlayerItem）で初期検証中…")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
+
             case .completed:
                 HStack {
-                    Label("保存完了", systemImage: "checkmark.circle.fill")
+                    Label("保存完了（初期検証済）", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                     Spacer()
                     if job.receivedBytes > 0 {
@@ -507,6 +585,16 @@ private struct DownloadJobRow: View {
                     }
                 }
                 .font(.caption)
+
+            case .verificationIndeterminate(let note):
+                Label("保存完了（非同期読み込み未確定）：\(note)", systemImage: "clock.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+
+            case .verificationFailed(let reason):
+                Label("保存データを検証できません：\(reason)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
 
             case .failed(let message):
                 Label(message, systemImage: "exclamationmark.triangle.fill")
@@ -533,6 +621,20 @@ private struct DownloadJobRow: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            if let diag = job.diagnosticReport, !diag.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("通信・検証診断レポート", systemImage: "doc.text.magnifyingglass")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(diag)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding(.vertical, 4)
@@ -587,94 +689,189 @@ private struct DownloadJobRow: View {
     }
 }
 
-// MARK: - 保存済み動画行（サムネイル・メタ情報・操作メニュー）
+// MARK: - 保存済み動画行（サムネイル・保存場所・検証状態・操作メニュー）
 
 private struct SavedVideoRow: View {
     let video: SavedVideo
-    let showFolderBadge: Bool
+    let isVerifying: Bool
     let onPlay: () -> Void
+    let onVerify: () -> Void
     let onRename: () -> Void
     let onMove: () -> Void
     let onDelete: () -> Void
 
+    @State private var showDiagnosticDetail = false
+
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button(action: onPlay) {
-                SavedVideoThumbnailView(video: video)
-            }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(video.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    if showFolderBadge {
-                        Label(video.folderName.isEmpty ? "Downloads" : video.folderName,
-                              systemImage: "folder")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.12), in: Capsule())
-                            .foregroundStyle(.blue)
-                    }
-                    if let size = video.byteSize, size > 0 {
-                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                    }
-                    if let host = video.sourceHost, !host.isEmpty {
-                        Text("· \(host)")
-                            .lineLimit(1)
-                    }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 12) {
+                Button(action: onPlay) {
+                    SavedVideoThumbnailView(video: video)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .buttonStyle(.plain)
 
-                Text(video.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(video.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+
+                    // 保存場所と実ファイル有無の明示
+                    HStack(spacing: 6) {
+                        Label(
+                            video.storageLocationLabel,
+                            systemImage: video.isHLS ? "internaldrive" : "folder.fill"
+                        )
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background((video.isHLS ? Color.indigo : Color.blue).opacity(0.12), in: Capsule())
+                        .foregroundStyle(video.isHLS ? .indigo : .blue)
+
+                        if !video.fileExists {
+                            Label("実データなし", systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    // 検証ステータスバッジ・サイズ・配信元
+                    HStack(spacing: 6) {
+                        verificationBadge
+
+                        if let size = video.byteSize, size > 0 {
+                            Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                        }
+                        if let host = video.sourceHost, !host.isEmpty {
+                            Text("· \(host)")
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
-                HStack(spacing: 16) {
-                    Button(action: onPlay) {
-                        Label("再生", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderless)
+                    Text(video.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
 
-                    Button(action: onMove) {
-                        Label("移動", systemImage: "folder")
-                    }
-                    .buttonStyle(.borderless)
+                    HStack(spacing: 14) {
+                        Button(action: onPlay) {
+                            Label("再生", systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderless)
 
-                    if !video.isHLS && video.fileExists {
-                        ShareLink(item: video.fileURL) {
-                            Label("共有", systemImage: "square.and.arrow.up")
+                        Button(action: onVerify) {
+                            if isVerifying {
+                                HStack(spacing: 4) {
+                                    ProgressView().controlSize(.mini)
+                                    Text("検証中")
+                                }
+                            } else {
+                                Label("検証", systemImage: "checkmark.shield")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isVerifying)
+
+                        Button(action: onMove) {
+                            Label("分類/移動", systemImage: "folder")
+                        }
+                        .buttonStyle(.borderless)
+
+                        if !video.isHLS && video.fileExists {
+                            ShareLink(item: video.fileURL) {
+                                Label("共有", systemImage: "square.and.arrow.up")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        Menu {
+                            Button(action: onPlay) {
+                                Label("再生（プレイヤーを開く）", systemImage: "play.fill")
+                            }
+                            Button(action: onVerify) {
+                                Label("再生可能性・時間を再検証", systemImage: "checkmark.shield")
+                            }
+                            switch video.verificationState {
+                            case .failed, .indeterminate:
+                                Button {
+                                    showDiagnosticDetail.toggle()
+                                } label: {
+                                    Label(showDiagnosticDetail ? "検証詳細を隠す" : "検証詳細を表示",
+                                          systemImage: "doc.text.magnifyingglass")
+                                }
+                            case .unverified, .verified:
+                                EmptyView()
+                            }
+                            Divider()
+                            Button(action: onRename) {
+                                Label(video.isHLS ? "表示名を変更" : "ファイル名を変更", systemImage: "pencil")
+                            }
+                            Button(action: onMove) {
+                                Label(video.isHLS ? "アプリ内フォルダ分類を変更" : "保存先フォルダへ移動", systemImage: "folder")
+                            }
+                            if !video.isHLS && video.fileExists {
+                                ShareLink(item: video.fileURL) {
+                                    Label("共有・ファイルへ書き出す", systemImage: "square.and.arrow.up")
+                                }
+                            }
+                            Divider()
+                            Button(role: .destructive, action: onDelete) {
+                                Label("削除", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
                         }
                         .buttonStyle(.borderless)
                     }
-
-                    Menu {
-                        Button(action: onRename) {
-                            Label("名前を変更", systemImage: "pencil")
-                        }
-                        Button(action: onMove) {
-                            Label("フォルダへ移動", systemImage: "folder")
-                        }
-                        if !video.isHLS && video.fileExists {
-                            ShareLink(item: video.fileURL) {
-                                Label("共有・ファイルへ書き出す", systemImage: "square.and.arrow.up")
-                            }
-                        }
-                        Divider()
-                        Button(role: .destructive, action: onDelete) {
-                            Label("削除", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .buttonStyle(.borderless)
+                    .font(.caption.weight(.medium))
+                    .padding(.top, 2)
                 }
-                .font(.caption.weight(.medium))
-                .padding(.top, 2)
+            }
+
+            if case .failed(let reason, let detail) = video.verificationState {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Label("保存データを検証できません：\(reason)", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Spacer()
+                        Button(showDiagnosticDetail ? "閉じる" : "詳細") {
+                            showDiagnosticDetail.toggle()
+                        }
+                        .font(.caption2)
+                        .buttonStyle(.borderless)
+                    }
+                    if showDiagnosticDetail {
+                        Text(detail)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+            } else if case .indeterminate(let note, let detail) = video.verificationState {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Label("非同期読み込み未確定：\(note)", systemImage: "clock.badge.exclamationmark")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.blue)
+                        Spacer()
+                        Button(showDiagnosticDetail ? "閉じる" : "詳細") {
+                            showDiagnosticDetail.toggle()
+                        }
+                        .font(.caption2)
+                        .buttonStyle(.borderless)
+                    }
+                    if showDiagnosticDetail {
+                        Text(detail)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             }
         }
         .padding(.vertical, 4)
@@ -682,11 +879,14 @@ private struct SavedVideoRow: View {
             Button(action: onPlay) {
                 Label("再生", systemImage: "play.fill")
             }
+            Button(action: onVerify) {
+                Label("再生可能性を再検証", systemImage: "checkmark.shield")
+            }
             Button(action: onRename) {
-                Label("名前を変更", systemImage: "pencil")
+                Label(video.isHLS ? "表示名を変更" : "名前を変更", systemImage: "pencil")
             }
             Button(action: onMove) {
-                Label("フォルダへ移動", systemImage: "folder")
+                Label(video.isHLS ? "フォルダ分類を変更" : "フォルダへ移動", systemImage: "folder")
             }
             if !video.isHLS && video.fileExists {
                 ShareLink(item: video.fileURL) {
@@ -697,6 +897,28 @@ private struct SavedVideoRow: View {
             Button(role: .destructive, action: onDelete) {
                 Label("削除", systemImage: "trash")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var verificationBadge: some View {
+        switch video.verificationState {
+        case .verified(let sec):
+            Label("初期検証済 \(VideoVerificationState.formatDuration(sec))", systemImage: "checkmark.circle.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.green)
+        case .indeterminate:
+            Label("読込未確定", systemImage: "clock.badge.exclamationmark")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.blue)
+        case .unverified:
+            Label("未検証", systemImage: "questionmark.circle")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        case .failed:
+            Label("検証エラー", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.orange)
         }
     }
 }
@@ -715,13 +937,13 @@ private struct MoveVideoFolderSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("移動先フォルダを選択") {
+                Section {
                     Button {
                         dismiss()
                         onMove("")
                     } label: {
                         HStack {
-                            Label("Downloads（標準）", systemImage: "folder")
+                            Label(video.isHLS ? "未分類（標準）" : "Downloads（標準）", systemImage: "folder")
                             Spacer()
                             if video.folderName.isEmpty {
                                 Image(systemName: "checkmark")
@@ -736,7 +958,7 @@ private struct MoveVideoFolderSheet: View {
                             onMove(folder)
                         } label: {
                             HStack {
-                                Label("Downloads / \(folder)", systemImage: "folder.fill")
+                                Label(video.isHLS ? folder : "Downloads / \(folder)", systemImage: "folder.fill")
                                 Spacer()
                                 if video.folderName == folder {
                                     Image(systemName: "checkmark")
@@ -744,6 +966,14 @@ private struct MoveVideoFolderSheet: View {
                                 }
                             }
                         }
+                    }
+                } header: {
+                    Text(video.isHLS ? "アプリ内の分類フォルダを選択" : "移動先フォルダを選択")
+                } footer: {
+                    if video.isHLS {
+                        Text("オフラインHLSパッケージ（.movpkg）はApple指定場所から移動せず、アプリ内の分類メタデータのみ変更します。")
+                    } else {
+                        Text("選択した Documents / Downloads 配下のフォルダへ実ファイルを移動します。")
                     }
                 }
 
@@ -771,33 +1001,65 @@ private struct MoveVideoFolderSheet: View {
     }
 }
 
-/// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生用）。
+/// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生＆リアルタイム診断用）。
 struct OfflineVideoPlayerSheet: View {
     let video: SavedVideo
+    @ObservedObject var downloads: DownloadCenter
     @Environment(\.dismiss) private var dismiss
+
     @State private var player: AVPlayer?
+    @State private var statusObservation: NSKeyValueObservation?
+    @State private var playerDiagnostic: String?
+    @State private var isRunningDeepVerify = false
+    @State private var showDiagnosticsPanel = false
 
     var body: some View {
         NavigationStack {
-            Group {
+            VStack(spacing: 0) {
                 if video.fileExists {
                     VideoPlayer(player: player)
-                        .ignoresSafeArea(edges: .bottom)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
                         .onAppear {
-                            let avPlayer = AVPlayer(url: video.fileURL)
-                            player = avPlayer
-                            avPlayer.play()
+                            startPlaybackAndMonitor()
                         }
                         .onDisappear {
-                            player?.pause()
-                            player = nil
+                            cleanupPlayer()
                         }
                 } else {
                     ContentUnavailableView(
                         "ファイルがありません",
                         systemImage: "exclamationmark.triangle",
-                        description: Text("保存場所が変更されたか、OSによって消去された可能性があります。")
+                        description: Text("保存場所が変更されたか、OSによって消去された可能性があります。\n想定パス: \(video.relativePath)")
                     )
+                }
+
+                if let diag = playerDiagnostic, showDiagnosticsPanel {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Label("再生・アセット検証診断（黒画面 / --:-- 解析）",
+                                      systemImage: "exclamationmark.triangle.fill")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.orange)
+                                Spacer()
+                                if isRunningDeepVerify {
+                                    ProgressView().controlSize(.mini)
+                                }
+                                Button("閉じる") {
+                                    showDiagnosticsPanel = false
+                                }
+                                .font(.caption)
+                            }
+                            Text(diag)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(12)
+                    }
+                    .frame(maxHeight: 220)
+                    .background(.regularMaterial)
                 }
             }
             .navigationTitle(video.title)
@@ -806,8 +1068,13 @@ struct OfflineVideoPlayerSheet: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("閉じる") { dismiss() }
                 }
-                if !video.isHLS && video.fileExists {
-                    ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        runDeepVerification()
+                    } label: {
+                        Label("再生検証", systemImage: "stethoscope")
+                    }
+                    if !video.isHLS && video.fileExists {
                         ShareLink(item: video.fileURL) {
                             Image(systemName: "square.and.arrow.up")
                         }
@@ -815,5 +1082,83 @@ struct OfflineVideoPlayerSheet: View {
                 }
             }
         }
+    }
+
+    private func startPlaybackAndMonitor() {
+        let targetURL = video.fileURL
+        let asset = AVURLAsset(url: targetURL)
+        let item = AVPlayerItem(asset: asset)
+        let avPlayer = AVPlayer(playerItem: item)
+        player = avPlayer
+
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { observedItem, _ in
+            DispatchQueue.main.async {
+                switch observedItem.status {
+                case .readyToPlay:
+                    let dur = observedItem.duration
+                    if !dur.isNumeric || dur.isIndefinite || dur.seconds <= 0 {
+                        self.runDeepVerification()
+                    }
+                case .failed:
+                    let errText = observedItem.error.map { ErrorChainFormatter.describe($0) } ?? "不明な再生エラー"
+                    let logText = MediaPlayabilityVerifier.summarizeErrorLog(observedItem.errorLog())
+                    var msg = "AVPlayerItem.status = .failed\nエラー: \(errText)"
+                    if let logText = logText {
+                        msg += "\nErrorLog: \(logText)"
+                    }
+                    self.playerDiagnostic = msg
+                    self.showDiagnosticsPanel = true
+                    self.runDeepVerification()
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        }
+
+        avPlayer.play()
+
+        // 以前「検証エラー / 読込未確定」だった動画や、2.5秒経過しても再生時間が不明(--:--)の場合は自動的に詳細診断を実行する
+        switch video.verificationState {
+        case .failed(_, let detail), .indeterminate(_, let detail):
+            playerDiagnostic = detail
+            showDiagnosticsPanel = true
+        case .unverified, .verified:
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                guard let currentItem = player?.currentItem else { return }
+                let dur = currentItem.duration
+                if currentItem.status != .readyToPlay || !dur.isNumeric || dur.isIndefinite || dur.seconds <= 0 {
+                    runDeepVerification()
+                }
+            }
+        }
+    }
+
+    private func runDeepVerification() {
+        guard !isRunningDeepVerify else { return }
+        isRunningDeepVerify = true
+        showDiagnosticsPanel = true
+        if playerDiagnostic == nil {
+            playerDiagnostic = "アセットの再生可能性（isPlayable / duration / tracks / ErrorLog）を検査しています…"
+        }
+        Task { @MainActor in
+            if let result = await downloads.verifySavedVideo(video.id) {
+                playerDiagnostic = result.detailedReport
+                if !result.isVerifiedPlayable {
+                    showDiagnosticsPanel = true
+                }
+            }
+            isRunningDeepVerify = false
+        }
+    }
+
+    private func cleanupPlayer() {
+        statusObservation?.invalidate()
+        statusObservation = nil
+        player?.pause()
+        player?.replaceCurrentItem(with: nil)
+        player = nil
     }
 }
