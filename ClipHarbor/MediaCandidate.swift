@@ -1,31 +1,117 @@
 import Foundation
 
+/// 保存候補（メモリ上のみで扱う）。URLには期限付きトークン等が含まれ得るため、永続化・ログ出力しない。
 struct MediaCandidate: Identifiable, Hashable {
-    enum MediaKind: String {
-        case videoFile = "動画ファイル"
-        case hls = "HLS配信"
+    enum FileType: String {
+        case mp4, m4v, mov, webm
+        /// video要素のsrcだが拡張子から形式を判定できない。ダウンロード後に中身で判定する。
+        case unknown
+    }
+
+    enum Kind: Hashable {
+        case file(FileType)
+        case hls
     }
 
     let url: URL
-    let kind: MediaKind
+    let kind: Kind
+    /// 動画自体のタイトル（title/aria-label属性など）。なければ空。
+    let videoTitle: String
+    /// ページタイトル
     let pageTitle: String
+    let posterURL: URL?
+    /// 対応するvideo要素の一時ID（Performance APIから見つけたURLはnil）
+    let videoID: String?
+
     var id: String { url.absoluteString }
-    var shortDescription: String {
-        "\(kind.rawValue) · \(url.host ?? "不明なホスト")"
+    var host: String { url.host ?? "不明なホスト" }
+
+    var isHLS: Bool { if case .hls = kind { return true } else { return false } }
+
+    /// 保存シートの初期ファイル名：動画タイトル → ページタイトル → "Video"
+    var suggestedName: String {
+        let video = videoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !video.isEmpty { return video }
+        let page = pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return page.isEmpty ? "Video" : page
     }
 
-    static func from(urlString: String, pageTitle: String) -> MediaCandidate? {
-        guard let url = URL(string: urlString),
-              ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
-        let lower = url.path.lowercased()
-        let kind: MediaKind
-        if lower.hasSuffix(".m3u8") {
-            kind = .hls
-        } else if [".mp4", ".m4v", ".mov", ".webm"].contains(where: lower.hasSuffix) {
-            kind = .videoFile
-        } else {
+    /// 形式の短い表示名
+    var formatLabel: String {
+        switch kind {
+        case .hls: return "オフラインHLS"
+        case .file(let type):
+            switch type {
+            case .mp4: return "MP4"
+            case .m4v: return "M4V"
+            case .mov: return "MOV"
+            case .webm: return "WebM"
+            case .unknown: return "動画ファイル（形式は保存時に確認）"
+            }
+        }
+    }
+
+    /// 形式についての注意書き。HLSをMP4に変換できると誤認させない。
+    var formatNote: String? {
+        switch kind {
+        case .hls:
+            return "HLSはMP4に変換されません。Apple標準のオフライン形式で保存され、ClipHarbor内でのみ再生できます。対応していない配信やDRM保護された配信は保存できません。"
+        case .file(.webm):
+            return "WebMはiPhoneで再生できない場合があります。"
+        case .file(.unknown):
+            return "ダウンロード後にファイルの中身を確認し、MP4/MOVなどの動画ファイルであれば保存します。Webページ等が返された場合は保存しません。"
+        default:
             return nil
         }
-        return MediaCandidate(url: url, kind: kind, pageTitle: pageTitle)
+    }
+
+    /// 予定される拡張子（不明な場合はnil）
+    var expectedExtension: String? {
+        switch kind {
+        case .hls: return nil
+        case .file(let type): return type == .unknown ? nil : type.rawValue
+        }
+    }
+
+    static func == (lhs: MediaCandidate, rhs: MediaCandidate) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// JavaScriptから届いたURL文字列（非信頼入力）を分類する。
+enum MediaClassifier {
+    static let maxURLLength = 4096
+
+    enum Result {
+        case supported(URL, MediaCandidate.Kind)
+        case unsupported(String)
+    }
+
+    /// - Parameter allowUnknownExtension: video要素のsrcなど「動画であることが確実なURL」の場合のみtrue。
+    static func classify(_ raw: String, allowUnknownExtension: Bool) -> Result {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return .unsupported("動画のURLを取得できません。")
+        }
+        let lowerPrefix = trimmed.prefix(12).lowercased()
+        if lowerPrefix.hasPrefix("blob:") {
+            return .unsupported("この動画はblob/MSE方式で再生されているため、保存用のURLを取得できません。")
+        }
+        if lowerPrefix.hasPrefix("mediastream:") || lowerPrefix.hasPrefix("data:") {
+            return .unsupported("この再生方式の動画は保存できません。")
+        }
+        guard trimmed.count <= maxURLLength,
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else {
+            return .unsupported("この配信方式のURLには対応していません。")
+        }
+        let path = url.path.lowercased()
+        if path.hasSuffix(".m3u8") { return .supported(url, .hls) }
+        if path.hasSuffix(".mp4") { return .supported(url, .file(.mp4)) }
+        if path.hasSuffix(".m4v") { return .supported(url, .file(.m4v)) }
+        if path.hasSuffix(".mov") { return .supported(url, .file(.mov)) }
+        if path.hasSuffix(".webm") { return .supported(url, .file(.webm)) }
+        if allowUnknownExtension { return .supported(url, .file(.unknown)) }
+        return .unsupported("動画ファイルとして判定できないURLです。")
     }
 }

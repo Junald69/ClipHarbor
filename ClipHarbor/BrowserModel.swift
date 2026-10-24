@@ -1,34 +1,108 @@
 import SwiftUI
 import WebKit
 
-/// WebKitでブラウズし、Webページ内のHTMLVideoElementから再生イベントとURLを受け取ります。
-/// 暗号化/DRMの解除、通信内容の強制傍受、保護されたAPIへのアクセスは行いません。
+/// WKWebViewのブラウズと、ページ内のHTML5動画の状態管理を担当する。
+/// 暗号化/DRMの解除、通信内容の強制傍受、保護されたAPIへのアクセスは行わない。
+@MainActor
 final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
-    @Published var address = "https://example.com"
+    static let homeURL = URL(string: "https://www.google.com/")!
+
+    @Published var address = BrowserModel.homeURL.absoluteString
     @Published var pageTitle = "ClipHarbor"
-    @Published var hasPlayingVideo = false
-    @Published var candidates: [MediaCandidate] = []
     @Published var canGoBack = false
     @Published var canGoForward = false
     @Published var isLoading = false
+    @Published var loadingProgress: Double = 0
+    /// ページ内で検出した動画（キーは一時ID）
+    @Published private(set) var videos: [String: TrackedVideo] = [:]
+    /// Performance API等で見つけたメディアURL（video要素との対応は不明）
+    @Published private(set) var resourceCandidates: [MediaCandidate] = []
+    /// 画面下部に一時的に表示する案内
+    @Published var notice: String?
+
+    var isEditingAddress = false
+    private var noticeTask: Task<Void, Never>?
+    private var progressObservation: NSKeyValueObservation?
+    private static let maxVideos = 50
+    private static let maxResources = 50
 
     lazy var webView: WKWebView = {
         let controller = WKUserContentController()
-        controller.add(self, name: "clipHarborMedia")
-        controller.addUserScript(WKUserScript(source: Self.mediaScannerScript,
-                                             injectionTime: .atDocumentEnd,
-                                             forMainFrameOnly: false))
+        // ページのJavaScriptから隔離されたワールドで監視する（ページ側が偽のメッセージを送れない）
+        controller.add(self, contentWorld: .defaultClient, name: MediaScannerScript.handlerName)
+        controller.addUserScript(WKUserScript(source: MediaScannerScript.source,
+                                              injectionTime: .atDocumentEnd,
+                                              forMainFrameOnly: false,
+                                              in: .defaultClient))
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         configuration.allowsInlineMediaPlayback = true
+        configuration.allowsPictureInPictureMediaPlayback = true
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
-        view.load(URLRequest(url: URL(string: address)!))
+        // SwiftUI側でSafe Area内に配置するため、WebView内で二重に余白を取らない
+        view.scrollView.contentInsetAdjustmentBehavior = .never
+        progressObservation = view.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
+            let value = webView.estimatedProgress
+            Task { @MainActor in self?.loadingProgress = value }
+        }
+        view.load(URLRequest(url: Self.homeURL))
         return view
     }()
+
+    // MARK: - 動画の選択
+
+    var selection: VideoSelection.Result {
+        VideoSelection.select(from: Array(videos.values))
+    }
+
+    /// 候補一覧（フォールバック）用の行
+    struct CandidateRow: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let posterURL: URL?
+        let stateLabel: String?
+        let isPlaying: Bool
+        let candidate: MediaCandidate?
+        let reason: String?
+    }
+
+    var candidateRows: [CandidateRow] {
+        let sortedVideos = videos.values.sorted {
+            if $0.isPlaying != $1.isPlaying { return $0.isPlaying }
+            return max($0.lastPlayAt, $0.lastInteractionAt) > max($1.lastPlayAt, $1.lastInteractionAt)
+        }
+        var rows: [CandidateRow] = []
+        var usedURLs = Set<String>()
+        for video in sortedVideos {
+            if let c = video.candidate { usedURLs.insert(c.id) }
+            let detail: String
+            if let c = video.candidate {
+                detail = "\(c.formatLabel) · \(c.host)"
+            } else {
+                detail = video.isMainFrame ? "ページ内の動画" : "埋め込み（iframe）内の動画"
+            }
+            rows.append(CandidateRow(id: "video-\(video.id)", title: video.displayTitle, detail: detail,
+                                     posterURL: video.posterURL, stateLabel: video.stateLabel,
+                                     isPlaying: video.isPlaying, candidate: video.candidate,
+                                     reason: video.unsupportedReason))
+        }
+        for c in resourceCandidates where !usedURLs.contains(c.id) {
+            rows.append(CandidateRow(id: "res-\(c.id)", title: c.suggestedName,
+                                     detail: "\(c.formatLabel) · \(c.host)（ページ内の通信から検出）",
+                                     posterURL: nil, stateLabel: nil, isPlaying: false,
+                                     candidate: c, reason: nil))
+        }
+        return rows
+    }
+
+    var hasAnyMedia: Bool { !videos.isEmpty || !resourceCandidates.isEmpty }
+
+    // MARK: - ナビゲーション
 
     func navigate(to input: String) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -36,7 +110,7 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         let target: URL?
         if let url = URL(string: trimmed), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             target = url
-        } else if !trimmed.contains(" "), trimmed.contains(".") {
+        } else if !trimmed.contains(" "), trimmed.contains("."), !trimmed.contains("://") {
             target = URL(string: "https://" + trimmed)
         } else {
             var components = URLComponents(string: "https://www.google.com/search")
@@ -50,23 +124,67 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
     func goBack() { if webView.canGoBack { webView.goBack() } }
     func goForward() { if webView.canGoForward { webView.goForward() } }
     func reload() { webView.reload() }
+    func goHome() { webView.load(URLRequest(url: Self.homeURL)) }
+
+    /// ダウンロード時に使う、ページの最小限の通信情報（メモリ上のみ）
+    func makeRequestContext(completion: @escaping (RequestContext) -> Void) {
+        let pageURL = webView.url
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        Task { @MainActor [weak self] in
+            let cookies = await store.allCookies()
+            var userAgent: String?
+            if let webView = self?.webView {
+                let result: Any? = try? await webView.evaluateJavaScript("navigator.userAgent")
+                userAgent = result as? String
+            }
+            completion(RequestContext(cookies: cookies, userAgent: userAgent, pageURL: pageURL))
+        }
+    }
+
+    func showNotice(_ text: String, seconds: Double = 5) {
+        notice = text
+        noticeTask?.cancel()
+        noticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.notice = nil
+        }
+    }
+
+    private func resetPageState() {
+        videos.removeAll()
+        resourceCandidates.removeAll()
+    }
 
     private func updateNavigation(_ webView: WKWebView) {
         canGoBack = webView.canGoBack
         canGoForward = webView.canGoForward
-        address = webView.url?.absoluteString ?? address
+        if !isEditingAddress { address = webView.url?.absoluteString ?? address }
+        if let title = webView.title, !title.isEmpty { pageTitle = title }
+    }
+
+    // MARK: - WKNavigationDelegate
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
+        // 想定外のスキーム（アプリ起動URL等）への遷移はブロックする
+        return ["http", "https", "about", "blob", "data"].contains(scheme) ? .allow : .cancel
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        hasPlayingVideo = false
-        candidates.removeAll()
+        resetPageState()
         isLoading = true
+        updateNavigation(webView)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // 旧ページから遅れて届いた情報を確実に破棄する
+        resetPageState()
         updateNavigation(webView)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isLoading = false
-        pageTitle = webView.title ?? "動画"
         updateNavigation(webView)
     }
 
@@ -86,76 +204,113 @@ final class BrowserModel: NSObject, ObservableObject, WKNavigationDelegate, WKUI
         return nil
     }
 
+    // MARK: - WKScriptMessageHandler
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "clipHarborMedia",
+        guard message.name == MediaScannerScript.handlerName,
               let body = message.body as? [String: Any],
               let type = body["type"] as? String else { return }
+        let isMainFrame = message.frameInfo.isMainFrame
 
-        if type == "playing" {
-            hasPlayingVideo = true
-        } else if type == "media", let raw = body["url"] as? String {
-            let title = (body["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? pageTitle
-            guard let candidate = MediaCandidate.from(urlString: raw, pageTitle: title) else { return }
-            // 同じURLは一度だけ候補に追加。多く検出された場合は最新の20件まで。
-            if !candidates.contains(where: { $0.id == candidate.id }) {
-                candidates.insert(candidate, at: 0)
-                if candidates.count > 20 { candidates.removeLast() }
+        switch type {
+        case "video":
+            handleVideoMessage(body, isMainFrame: isMainFrame)
+        case "removed":
+            if let id = Self.validID(body["id"]) { videos[id] = nil }
+        case "resource":
+            handleResourceMessage(body)
+        case "navigated":
+            if isMainFrame {
+                resetPageState()
+                updateNavigation(webView)
             }
+        default:
+            break
         }
     }
 
-    /// 再生開始イベント・video/sourceタグ・リソースURLを検出する。
-    /// blob:, DRM, WebSocket, MSE内部の断片などをファイルURLだと誤認しないようにする。
-    private static let mediaScannerScript = #"""
-    (() => {
-      if (window.__clipHarborInstalled) return;
-      window.__clipHarborInstalled = true;
-      const send = (type, url = "") => {
-        try { window.webkit.messageHandlers.clipHarborMedia.postMessage({ type, url, title: document.title }); }
-        catch (_) { }
-      };
-      const supported = /\.(mp4|m4v|mov|webm|m3u8)(?:$|[?#])/i;
-      const found = new Set();
-      const report = (url) => {
-        if (!url || !supported.test(url)) return;
-        let absolute;
-        try { absolute = new URL(url, document.baseURI).href; } catch (_) { return; }
-        if (!/^https?:\/\//i.test(absolute) || found.has(absolute)) return;
-        found.add(absolute);
-        send("media", absolute);
-      };
-      const scan = () => {
-        document.querySelectorAll("video").forEach(video => {
-          report(video.currentSrc); report(video.src);
-          video.querySelectorAll("source").forEach(source => report(source.src));
-          if (!video.paused && !video.ended) send("playing");
-        });
-      };
-      document.addEventListener("play", e => {
-        if (e.target && e.target.tagName === "VIDEO") {
-          send("playing");
-          report(e.target.currentSrc); report(e.target.src);
+    private func handleVideoMessage(_ body: [String: Any], isMainFrame: Bool) {
+        guard let id = Self.validID(body["id"]) else { return }
+        if videos[id] == nil && videos.count >= Self.maxVideos { return }
+        let event = Self.string(body["event"], max: 40)
+
+        var video = TrackedVideo(
+            id: id,
+            isMainFrame: isMainFrame,
+            sourceURL: Self.string(body["src"], max: MediaClassifier.maxURLLength),
+            sourceList: (body["sources"] as? [Any] ?? []).prefix(8).map { Self.string($0, max: MediaClassifier.maxURLLength) }
+                .filter { !$0.isEmpty },
+            posterURL: Self.httpURL(Self.string(body["poster"], max: MediaClassifier.maxURLLength)),
+            title: Self.string(body["title"], max: 200),
+            frameTitle: Self.string(body["frameTitle"], max: 200),
+            isPlaying: Self.bool(body["playing"]),
+            hasPlayed: Self.bool(body["played"]),
+            hasEnded: Self.bool(body["ended"]),
+            isMuted: Self.bool(body["muted"]),
+            isProtected: Self.bool(body["protected"]),
+            isFullscreen: Self.bool(body["fullscreen"]),
+            duration: Self.number(body["duration"]) ?? -1,
+            visibleRatio: min(max(Self.number(body["visible"]) ?? 0, 0), 1),
+            lastPlayAt: Self.number(body["lastPlay"]) ?? 0,
+            lastInteractionAt: Self.number(body["interacted"]) ?? 0,
+            rectInCSS: nil,
+            viewportCSSWidth: Self.number(body["vw"]) ?? 0,
+            candidate: nil,
+            unsupportedReason: nil)
+
+        if Self.bool(body["hasRect"]),
+           let x = Self.number(body["x"]), let y = Self.number(body["y"]),
+           let w = Self.number(body["w"]), let h = Self.number(body["h"]),
+           w > 0, h > 0, video.viewportCSSWidth > 0 {
+            video.rectInCSS = CGRect(x: x, y: y, width: w, height: h)
         }
-      }, true);
-      document.addEventListener("loadedmetadata", e => {
-        if (e.target && e.target.tagName === "VIDEO") {
-          report(e.target.currentSrc); report(e.target.src);
+        let title = webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? pageTitle
+        video.resolveCandidate(pageTitle: title)
+
+        let previous = videos[id]
+        if previous != video { videos[id] = video }
+
+        if event == "webkitbeginfullscreen" {
+            showNotice("全画面表示中は保存ボタンを表示できません。全画面を閉じると↓ボタンから保存できます。", seconds: 6)
         }
-      }, true);
-      const scanPerformance = () => {
-        try { performance.getEntriesByType("resource").forEach(item => report(item.name)); }
-        catch (_) { }
-      };
-      try {
-        const observer = new MutationObserver(() => scan());
-        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true,
-          attributeFilter: ["src"] });
-      } catch (_) { }
-      try {
-        new PerformanceObserver(list => list.getEntries().forEach(item => report(item.name)))
-          .observe({ type: "resource", buffered: true });
-      } catch (_) { }
-      scan(); scanPerformance();
-    })();
-    """#
+    }
+
+    private func handleResourceMessage(_ body: [String: Any]) {
+        guard resourceCandidates.count < Self.maxResources else { return }
+        let raw = Self.string(body["url"], max: MediaClassifier.maxURLLength)
+        guard case .supported(let url, let kind) = MediaClassifier.classify(raw, allowUnknownExtension: false) else { return }
+        let title = webView.title.flatMap { $0.isEmpty ? nil : $0 } ?? pageTitle
+        let candidate = MediaCandidate(url: url, kind: kind, videoTitle: "", pageTitle: title,
+                                       posterURL: nil, videoID: nil)
+        if !resourceCandidates.contains(candidate) { resourceCandidates.append(candidate) }
+    }
+
+    // MARK: - 非信頼入力の検証
+
+    private static func validID(_ value: Any?) -> String? {
+        guard let s = value as? String, !s.isEmpty, s.count <= 64,
+              s.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) || $0 == "-" }) else { return nil }
+        return s
+    }
+
+    private static func string(_ value: Any?, max: Int) -> String {
+        guard let s = value as? String, s.count <= max else { return "" }
+        return s
+    }
+
+    private static func bool(_ value: Any?) -> Bool {
+        (value as? NSNumber)?.boolValue ?? false
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        guard let n = value as? NSNumber else { return nil }
+        let d = n.doubleValue
+        return d.isFinite ? d : nil
+    }
+
+    private static func httpURL(_ raw: String) -> URL? {
+        guard !raw.isEmpty, let url = URL(string: raw),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
+    }
 }

@@ -1,193 +1,424 @@
 import Foundation
-import WebKit
 import AVFoundation
+import UIKit
 
-struct SavedVideo: Identifiable, Codable {
-    let id: UUID
-    let title: String
-    let fileURLString: String
-    let sourceURLString: String
-    let format: String
-    let createdAt: Date
-
-    var fileURL: URL? { URL(string: fileURLString) }
-    var isHLS: Bool { format == "HLS" }
-}
-
-/// ユーザーが保存操作をした動画のみダウンロードする。回数・件数によるアプリ内制限はない。
-/// MP4等はDocuments/Downloadsへ、HLSはAppleが指定したオフライン保存先へ格納する。
+/// ユーザーが保存操作をした動画のみダウンロードする。回数・件数によるアプリ内制限はない（DL-03）。
+/// - MP4等の直接ファイル: Documents/Downloads へ保存（ファイルアプリから参照可能）
+/// - HLS: AVFoundationのオフライン形式（.movpkg）でApple指定の領域へ保存。MP4には変換しない。
+/// - 元の動画URL・Cookieはメモリ上のみで扱い、永続化・ログ出力しない（DL-04）。
 final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelegate, AVAssetDownloadDelegate {
+    static let shared = DownloadCenter()
+
     @Published private(set) var saved: [SavedVideo] = []
-    @Published private(set) var activeCount = 0
+    @Published private(set) var jobs: [DownloadJob] = []
     @Published var statusMessage: String?
 
-    private struct Pending {
-        let candidate: MediaCandidate
-        var hlsDestination: URL?
-    }
-    private var pending: [String: Pending] = [:]
-    private static let storageKey = "clipHarborSavedVideosV1"
+    var activeCount: Int { jobs.filter { $0.state.isActive }.count }
+    /// AppDelegateから渡される、バックグラウンドURLSession完了時のハンドラー
+    var backgroundCompletionHandler: (() -> Void)?
 
+    private final class Transfer {
+        let jobID: UUID
+        let candidate: MediaCandidate
+        let context: RequestContext
+        let baseName: String
+        var redirectCount = 0
+        var outcome: Outcome?
+        var failureOverride: String?
+        var checkedCapacity = false
+
+        init(jobID: UUID, candidate: MediaCandidate, context: RequestContext, baseName: String) {
+            self.jobID = jobID
+            self.candidate = candidate
+            self.context = context
+            self.baseName = baseName
+        }
+    }
+
+    private enum Outcome {
+        case saved(SavedVideo)
+        case failed(String)
+    }
+
+    private var transfers: [UUID: Transfer] = [:]
+    private var tasks: [UUID: URLSessionTask] = [:]
+    private var observations: [UUID: NSKeyValueObservation] = [:]
+    private var hlsLocations: [UUID: URL] = [:]
+    private var pendingHLS: [UUID: PendingHLSRecord] = [:]
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var statusClearWork: DispatchWorkItem?
+
+    private static let savedKey = "clipHarborSavedVideosV2"
+    private static let legacyKey = "clipHarborSavedVideosV1"
+    private static let pendingHLSKey = "clipHarborPendingHLSV2"
+    private static let minimumFreeBytes: Int64 = 100 * 1024 * 1024
+    private static let maxRedirects = 10
+
+    /// 直接ファイル用。Cookieは自動保存・自動送信せず、リダイレクトごとに宛先を検証する。
     private lazy var fileSession: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.waitsForConnectivity = true
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 6 * 60 * 60
         return URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }()
 
+    /// HLS用。AVAssetDownloadURLSessionはバックグラウンド構成が必須。
     private lazy var hlsSession: AVAssetDownloadURLSession = {
         let id = (Bundle.main.bundleIdentifier ?? "ClipHarbor") + ".HLS"
         let config = URLSessionConfiguration.background(withIdentifier: id)
         config.isDiscretionary = false
+        config.sessionSendsLaunchEvents = true
         return AVAssetDownloadURLSession(configuration: config, assetDownloadDelegate: self, delegateQueue: .main)
     }()
 
     override init() {
         super.init()
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let items = try? JSONDecoder().decode([SavedVideo].self, from: data) {
-            saved = items
-        }
+        loadSaved()
+        loadPendingHLS()
+        restoreHLSTasks()
     }
 
-    func start(_ candidate: MediaCandidate, from webView: WKWebView) {
-        statusMessage = "ダウンロードを準備しています…"
-        if candidate.kind == .hls {
-            // AVFoundationによる標準HLS保存。DRM解除や特別な認証トークンの取得はしない。
-            let asset = AVURLAsset(url: candidate.url)
-            let configuration = AVAssetDownloadConfiguration(asset: asset, title: candidate.pageTitle)
-            let task = hlsSession.makeAssetDownloadTask(downloadConfiguration: configuration)
-            pending["hls-\(task.taskIdentifier)"] = Pending(candidate: candidate)
-            activeCount += 1
-            statusMessage = "HLSの保存を開始しました（対応する配信のみ）"
-            task.resume()
+    // MARK: - 公開操作
+
+    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) {
+        var name = FileNaming.sanitizedBaseName(displayName)
+        if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
+        if name.isEmpty { name = "Video" }
+        let job = DownloadJob(id: UUID(), displayName: name, isHLS: candidate.isHLS,
+                              host: candidate.host, state: .preparing)
+        jobs.insert(job, at: 0)
+        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name)
+        transfers[job.id] = transfer
+        launch(transfer)
+    }
+
+    func cancel(_ jobID: UUID) {
+        if let task = tasks[jobID] {
+            task.cancel()
         } else {
-            // WebViewでログインした一般的なサイト向けに、対象ドメインのCookieとRefererを引き継ぐ。
-            let pageURL = webView.url
-            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self, weak webView] cookies in
-                guard let self = self else { return }
-                webView?.evaluateJavaScript("navigator.userAgent") { result, _ in
-                    self.startDirectFile(candidate, pageURL: pageURL, cookies: cookies,
-                                         userAgent: result as? String)
-                }
-                if webView == nil {
-                    self.startDirectFile(candidate, pageURL: pageURL, cookies: cookies, userAgent: nil)
-                }
-            }
+            updateJob(jobID) { $0.state = .cancelled }
         }
     }
 
-    private func startDirectFile(_ candidate: MediaCandidate, pageURL: URL?,
-                                 cookies: [HTTPCookie], userAgent: String?) {
-        var request = URLRequest(url: candidate.url)
-        request.timeoutInterval = 90
-        if let pageURL = pageURL { request.setValue(pageURL.absoluteString, forHTTPHeaderField: "Referer") }
-        if let userAgent = userAgent { request.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
-        if let host = candidate.url.host?.lowercased() {
-            let matching = cookies.filter { cookie in
-                let domain = cookie.domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                return (host == domain || host.hasSuffix("." + domain))
-                    && candidate.url.path.hasPrefix(cookie.path)
-                    && (!cookie.isSecure || candidate.url.scheme == "https")
-            }
-            for (key, value) in HTTPCookie.requestHeaderFields(with: matching) {
-                request.setValue(value, forHTTPHeaderField: key)
+    func retry(_ jobID: UUID) {
+        guard let transfer = transfers[jobID],
+              let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
+        launch(transfer)
+    }
+
+    func dismissJob(_ jobID: UUID) {
+        guard let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
+        jobs.removeAll { $0.id == jobID }
+        transfers[jobID] = nil
+    }
+
+    func delete(_ item: SavedVideo) {
+        if item.fileExists {
+            do {
+                try FileManager.default.removeItem(at: item.fileURL)
+            } catch {
+                setStatus("ファイルを削除できませんでした")
+                return
             }
         }
+        saved.removeAll { $0.id == item.id }
+        persistSaved()
+    }
+
+    // MARK: - 開始処理
+
+    private func launch(_ transfer: Transfer) {
+        transfer.outcome = nil
+        transfer.failureOverride = nil
+        transfer.checkedCapacity = false
+        transfer.redirectCount = 0
+        updateJob(transfer.jobID) {
+            $0.state = .preparing
+            $0.receivedBytes = 0
+            $0.expectedBytes = 0
+            $0.canRetry = false
+        }
+        if let free = availableCapacity(), free < Self.minimumFreeBytes {
+            finish(transfer.jobID, state: .failed("iPhoneの空き容量が不足しています"), name: transfer.baseName)
+            return
+        }
+        if transfer.candidate.isHLS {
+            launchHLS(transfer)
+        } else {
+            launchFile(transfer)
+        }
+        setStatus("「\(transfer.baseName)」のダウンロードを開始しました")
+        updateBackgroundTask()
+    }
+
+    private func launchFile(_ transfer: Transfer) {
+        let request = transfer.context.makeRequest(for: transfer.candidate.url)
         let task = fileSession.downloadTask(with: request)
-        pending["file-\(task.taskIdentifier)"] = Pending(candidate: candidate)
-        activeCount += 1
-        statusMessage = "動画ファイルの保存を開始しました"
+        task.taskDescription = transfer.jobID.uuidString
+        tasks[transfer.jobID] = task
+        updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
         task.resume()
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {
-        let key = "file-\(downloadTask.taskIdentifier)"
-        guard let transfer = pending[key] else { return }
-        if let response = downloadTask.response as? HTTPURLResponse,
-           !(200...299).contains(response.statusCode) {
-            statusMessage = "保存できませんでした（HTTP \(response.statusCode)）"
-            return
-        }
-        if let mime = downloadTask.response?.mimeType?.lowercased(),
-           mime.contains("text/html") || mime.contains("application/json") {
-            statusMessage = "動画ではなくWebページ/JSONが返されました。認証や期限をご確認ください。"
-            return
-        }
+    private func launchHLS(_ transfer: Transfer) {
+        // AVFoundation標準のHLS保存。DRM解除や特別な認証トークンの取得はしない。
+        var options: [String: Any] = [:]
+        let cookies = CookiePolicy.cookies(transfer.context.cookies, matching: transfer.candidate.url)
+        if !cookies.isEmpty { options[AVURLAssetHTTPCookiesKey] = cookies }
+        if let ua = transfer.context.userAgent, !ua.isEmpty { options[AVURLAssetHTTPUserAgentKey] = ua }
+        let asset = AVURLAsset(url: transfer.candidate.url, options: options)
+        let configuration = AVAssetDownloadConfiguration(asset: asset, title: transfer.baseName)
+        let task = hlsSession.makeAssetDownloadTask(downloadConfiguration: configuration)
+        task.taskDescription = transfer.jobID.uuidString
+        tasks[transfer.jobID] = task
+        observations[transfer.jobID] = observeProgress(of: task, jobID: transfer.jobID)
+        pendingHLS[transfer.jobID] = PendingHLSRecord(jobID: transfer.jobID, displayName: transfer.baseName,
+                                                       host: transfer.candidate.host)
+        persistPendingHLS()
+        updateJob(transfer.jobID) { $0.state = .downloading(progress: nil) }
+        task.resume()
+    }
 
-        do {
-            let folder = try ensureDownloadsDirectory()
-            let fileExtension = transfer.candidate.url.pathExtension.isEmpty
-                ? "mp4" : transfer.candidate.url.pathExtension.lowercased()
-            let filename = uniqueFilename(title: transfer.candidate.pageTitle, extension: fileExtension)
-            let destination = folder.appendingPathComponent(filename)
-            try FileManager.default.moveItem(at: location, to: destination)
-            addSaved(url: destination, candidate: transfer.candidate, format: fileExtension.uppercased())
-            statusMessage = "保存しました：\(filename)"
-        } catch {
-            statusMessage = "ファイルの保存に失敗しました：\(error.localizedDescription)"
+    private func observeProgress(of task: URLSessionTask, jobID: UUID) -> NSKeyValueObservation {
+        task.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+            let value = progress.fractionCompleted
+            DispatchQueue.main.async {
+                self?.updateJob(jobID) { job in
+                    if job.state.isActive { job.state = .downloading(progress: min(max(value, 0), 1)) }
+                }
+            }
         }
+    }
+
+    // MARK: - URLSessionDelegate（直接ファイル）
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        guard let id = jobID(for: task), let transfer = transfers[id] else {
+            completionHandler(nil)
+            return
+        }
+        transfer.redirectCount += 1
+        guard transfer.redirectCount <= Self.maxRedirects else {
+            transfer.failureOverride = "リダイレクトが多すぎるため中止しました。"
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        // 前の宛先のCookie/Authorizationを外し、新しい宛先に一致するCookieだけを付け直す
+        guard let next = transfer.context.redirectedRequest(request, from: task.currentRequest?.url) else {
+            transfer.failureOverride = "安全でない転送先のため中止しました。"
+            completionHandler(nil)
+            task.cancel()
+            return
+        }
+        completionHandler(next)
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        // プログレスバーを追加する場合はこのコールバックを利用する。
+        guard let id = jobID(for: downloadTask), let transfer = transfers[id] else { return }
+        let expected = max(totalBytesExpectedToWrite, 0)
+        if !transfer.checkedCapacity && expected > 0 {
+            transfer.checkedCapacity = true
+            if let free = availableCapacity(), expected + Self.minimumFreeBytes > free {
+                transfer.failureOverride = "iPhoneの空き容量が不足しています"
+                downloadTask.cancel()
+                return
+            }
+        }
+        updateJob(id) {
+            $0.receivedBytes = totalBytesWritten
+            $0.expectedBytes = expected
+            $0.state = .downloading(progress: expected > 0 ? min(Double(totalBytesWritten) / Double(expected), 1) : nil)
+        }
     }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        // このメソッドから戻ると一時ファイルは削除されるため、ここで検証・移動する
+        guard let id = jobID(for: downloadTask), let transfer = transfers[id] else { return }
+        transfer.outcome = processDownloadedFile(at: location, response: downloadTask.response, transfer: transfer)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let id = jobID(for: task) else { return }
+        tasks[id] = nil
+        observations[id] = nil
+
+        if task is AVAssetDownloadTask {
+            completeHLS(jobID: id, error: error)
+            return
+        }
+        guard let transfer = transfers[id] else { return }
+        if let message = transfer.failureOverride {
+            finish(id, state: .failed(message), name: transfer.baseName)
+        } else if let error = error {
+            if (error as NSError).code == NSURLErrorCancelled && (error as NSError).domain == NSURLErrorDomain {
+                finish(id, state: .cancelled, name: transfer.baseName)
+            } else {
+                finish(id, state: .failed(DownloadErrorMessage.forError(error)), name: transfer.baseName)
+            }
+        } else if let outcome = transfer.outcome {
+            switch outcome {
+            case .saved(let video):
+                addSaved(video)
+                finish(id, state: .completed, name: video.title)
+            case .failed(let message):
+                finish(id, state: .failed(message), name: transfer.baseName)
+            }
+        } else {
+            finish(id, state: .failed("保存できませんでした"), name: transfer.baseName)
+        }
+    }
+
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        DispatchQueue.main.async {
+            let handler = self.backgroundCompletionHandler
+            self.backgroundCompletionHandler = nil
+            handler?()
+        }
+    }
+
+    // MARK: - AVAssetDownloadDelegate（HLS）
 
     func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,
                     willDownloadTo location: URL) {
-        let key = "hls-\(assetDownloadTask.taskIdentifier)"
-        pending[key]?.hlsDestination = location
+        guard let id = jobID(for: assetDownloadTask) else { return }
+        hlsLocations[id] = location
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    didCompleteWithError error: Error?) {
-        let isHLS = task is AVAssetDownloadTask
-        let key = "\(isHLS ? "hls" : "file")-\(task.taskIdentifier)"
-        guard let transfer = pending.removeValue(forKey: key) else { return }
-        activeCount = max(0, activeCount - 1)
+    func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        guard let id = jobID(for: assetDownloadTask) else { return }
+        hlsLocations[id] = location
+    }
+
+    private func completeHLS(jobID id: UUID, error: Error?) {
+        let location = hlsLocations.removeValue(forKey: id)
+        let record = pendingHLS.removeValue(forKey: id)
+        persistPendingHLS()
+        let name = transfers[id]?.baseName ?? record?.displayName ?? "HLS動画"
+        let host = transfers[id]?.candidate.host ?? record?.host
 
         if let error = error {
-            statusMessage = "保存に失敗しました：\(error.localizedDescription)"
+            if let location = location { try? FileManager.default.removeItem(at: location) }
+            let ns = error as NSError
+            if ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled {
+                finish(id, state: .cancelled, name: name)
+            } else {
+                finish(id, state: .failed(Self.hlsMessage(for: error)), name: name)
+            }
             return
         }
-        if isHLS {
-            guard let location = transfer.hlsDestination else {
-                statusMessage = "HLSの保存先を取得できませんでした"
-                return
+        guard let location = location else {
+            finish(id, state: .failed("HLSの保存先を取得できませんでした"), name: name)
+            return
+        }
+        let asset = AVURLAsset(url: location)
+        guard asset.assetCache?.isPlayableOffline == true,
+              let relative = SavedVideo.relativePath(for: location) else {
+            try? FileManager.default.removeItem(at: location)
+            finish(id, state: .failed("この配信方式のオフライン保存には対応していません"), name: name)
+            return
+        }
+        addSaved(SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
+                            sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location)))
+        finish(id, state: .completed, name: name)
+    }
+
+    private static func hlsMessage(for error: Error) -> String {
+        let ns = error as NSError
+        if ns.domain == AVFoundationErrorDomain {
+            if ns.code == AVError.Code.contentIsProtected.rawValue || ns.code == AVError.Code.contentIsNotAuthorized.rawValue {
+                return "保護されたコンテンツは保存できません"
             }
-            // HLSパッケージはApple指定のディレクトリから移動しない。
-            addSaved(url: location, candidate: transfer.candidate, format: "HLS")
-            statusMessage = "HLS動画をオフライン保存しました"
+            return "この配信方式のオフライン保存には対応していません（コード \(ns.code)）"
+        }
+        return DownloadErrorMessage.forError(error)
+    }
+
+    private func restoreHLSTasks() {
+        hlsSession.getAllTasks { [weak self] sessionTasks in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                for task in sessionTasks {
+                    guard let desc = task.taskDescription, let id = UUID(uuidString: desc),
+                          let record = self.pendingHLS[id], self.tasks[id] == nil else { continue }
+                    self.tasks[id] = task
+                    self.observations[id] = self.observeProgress(of: task, jobID: id)
+                    if !self.jobs.contains(where: { $0.id == id }) {
+                        self.jobs.append(DownloadJob(id: id, displayName: record.displayName, isHLS: true,
+                                                     host: record.host, state: .downloading(progress: nil)))
+                    }
+                }
+            }
         }
     }
 
-    func delete(_ item: SavedVideo) {
-        // AppleのHLSサンプルに従い、HLSパッケージも保存場所で削除する。
-        if let url = item.fileURL {
-            do {
-                try FileManager.default.removeItem(at: url)
-            } catch {
-                statusMessage = "ファイルを削除できませんでした：\(error.localizedDescription)"
-                return
+    // MARK: - ファイル処理
+
+    private func processDownloadedFile(at location: URL, response: URLResponse?, transfer: Transfer) -> Outcome {
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            return .failed(DownloadErrorMessage.forHTTPStatus(http.statusCode))
+        }
+        let mime = response?.mimeType?.lowercased() ?? ""
+        let format: SavedVideo.Format
+        switch MediaSniffer.sniff(fileAt: location) {
+        case .mp4: format = .mp4
+        case .m4v: format = .m4v
+        case .mov: format = .mov
+        case .webm: format = .webm
+        case .hlsPlaylist:
+            return .failed("このURLはHLS配信でした。候補一覧に「オフラインHLS」がある場合はそちらから保存してください。")
+        case .textOrHTML:
+            return .failed("動画ではなくWebページ等が返されました。ログイン状態やURLの有効期限を確認してください。")
+        case .unknown:
+            if mime.hasPrefix("video/"), let ext = transfer.candidate.expectedExtension,
+               let f = SavedVideo.Format(rawValue: ext) {
+                format = f
+            } else {
+                return .failed("動画ファイルとして確認できませんでした。")
             }
         }
-        saved.removeAll { $0.id == item.id }
-        persist()
-    }
 
-    private func addSaved(url: URL, candidate: MediaCandidate, format: String) {
-        saved.insert(SavedVideo(id: UUID(), title: candidate.pageTitle,
-                                fileURLString: url.absoluteString,
-                                sourceURLString: candidate.url.absoluteString,
-                                format: format, createdAt: Date()), at: 0)
-        persist()
-    }
-
-    private func persist() {
-        if let data = try? JSONEncoder().encode(saved) {
-            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        do {
+            let folder = try ensureDownloadsDirectory()
+            var destination: URL?
+            for _ in 0..<5 {
+                let candidateURL = FileNaming.uniqueDestination(in: folder, baseName: transfer.baseName,
+                                                                fileExtension: format.rawValue)
+                guard FileNaming.isDirectChild(candidateURL, of: folder) else {
+                    return .failed("ファイル名が不正です。別の名前で保存してください。")
+                }
+                do {
+                    try FileManager.default.moveItem(at: location, to: candidateURL)
+                    destination = candidateURL
+                    break
+                } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                    continue
+                }
+            }
+            guard let saved = destination else { return .failed("同名のファイルが多すぎるため保存できませんでした。") }
+            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                                                   ofItemAtPath: saved.path)
+            let size = (try? FileManager.default.attributesOfItem(atPath: saved.path)[.size] as? NSNumber)?.int64Value
+            guard let relative = SavedVideo.relativePath(for: saved) else {
+                try? FileManager.default.removeItem(at: saved)
+                return .failed("保存先を確認できませんでした。")
+            }
+            return .saved(SavedVideo(id: UUID(), title: transfer.baseName, relativePath: relative, format: format,
+                                     sourceHost: transfer.candidate.url.host, createdAt: Date(), byteSize: size))
+        } catch {
+            return .failed(DownloadErrorMessage.forError(error))
         }
     }
 
@@ -198,11 +429,127 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         return folder
     }
 
-    private func uniqueFilename(title: String, extension ext: String) -> String {
-        let sanitized = title.replacingOccurrences(of: #"[/\\:*?\"<>|\n\r]"#,
-                                                   with: "_", options: .regularExpression)
-        let base = String(sanitized.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeBase = base.isEmpty ? "Video" : base
-        return "\(safeBase)_\(UUID().uuidString.prefix(8)).\(ext)"
+    private func availableCapacity() -> Int64? {
+        let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    private static func directorySize(_ url: URL) -> Int64? {
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return nil }
+        var total: Int64 = 0
+        for case let file as URL in enumerator {
+            total += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
+    }
+
+    // MARK: - 状態管理
+
+    private func jobID(for task: URLSessionTask) -> UUID? {
+        task.taskDescription.flatMap(UUID.init(uuidString:))
+    }
+
+    private func updateJob(_ id: UUID, _ change: (inout DownloadJob) -> Void) {
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        var job = jobs[index]
+        change(&job)
+        if job != jobs[index] { jobs[index] = job }
+    }
+
+    private func finish(_ id: UUID, state: DownloadState, name: String) {
+        switch state {
+        case .completed:
+            jobs.removeAll { $0.id == id }
+            transfers[id] = nil
+            setStatus("保存しました：\(name)")
+        case .failed(let message):
+            updateJob(id) { $0.state = state; $0.canRetry = true }
+            setStatus("「\(name)」\(message)")
+        case .cancelled:
+            updateJob(id) { $0.state = state; $0.canRetry = true }
+            setStatus("「\(name)」のダウンロードをキャンセルしました")
+        default:
+            updateJob(id) { $0.state = state }
+        }
+        if transfers[id] == nil { updateJob(id) { $0.canRetry = false } }
+        updateBackgroundTask()
+    }
+
+    private func setStatus(_ text: String) {
+        statusMessage = text
+        statusClearWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.statusMessage = nil }
+        statusClearWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: work)
+    }
+
+    /// 直接ファイルのダウンロード中にアプリが背面へ移動しても、OSが許す範囲で処理を続ける
+    private func updateBackgroundTask() {
+        let hasActiveFile = jobs.contains { $0.state.isActive && !$0.isHLS }
+        MainActor.assumeIsolated {
+            if hasActiveFile && backgroundTaskID == .invalid {
+                backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ClipHarborDownload") { [weak self] in
+                    self?.endBackgroundTask()
+                }
+            } else if !hasActiveFile {
+                endBackgroundTask()
+            }
+        }
+    }
+
+    private func endBackgroundTask() {
+        MainActor.assumeIsolated {
+            guard backgroundTaskID != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+    }
+
+    // MARK: - 永続化（URLを含まないメタデータのみ）
+
+    private func addSaved(_ video: SavedVideo) {
+        saved.insert(video, at: 0)
+        persistSaved()
+    }
+
+    private func persistSaved() {
+        if let data = try? JSONEncoder().encode(saved) {
+            UserDefaults.standard.set(data, forKey: Self.savedKey)
+        }
+    }
+
+    private func loadSaved() {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: Self.savedKey),
+           let items = try? JSONDecoder().decode([SavedVideo].self, from: data) {
+            saved = items
+        }
+        // v1形式からの移行。元URL（sourceURLString）は読み込まずにデータごと削除する。
+        if let legacy = defaults.data(forKey: Self.legacyKey) {
+            if let old = try? JSONDecoder().decode([LegacySavedVideoV1].self, from: legacy) {
+                for item in old where !saved.contains(where: { $0.id == item.id }) {
+                    guard let url = URL(string: item.fileURLString), url.isFileURL,
+                          let relative = SavedVideo.relativePath(for: url) else { continue }
+                    let format = SavedVideo.Format(rawValue: item.format.lowercased()) ?? .mp4
+                    saved.append(SavedVideo(id: item.id, title: item.title, relativePath: relative, format: format,
+                                            sourceHost: nil, createdAt: item.createdAt, byteSize: nil))
+                }
+            }
+            defaults.removeObject(forKey: Self.legacyKey)
+            persistSaved()
+        }
+    }
+
+    private func loadPendingHLS() {
+        guard let data = UserDefaults.standard.data(forKey: Self.pendingHLSKey),
+              let records = try? JSONDecoder().decode([PendingHLSRecord].self, from: data) else { return }
+        for record in records { pendingHLS[record.jobID] = record }
+    }
+
+    private func persistPendingHLS() {
+        if let data = try? JSONEncoder().encode(Array(pendingHLS.values)) {
+            UserDefaults.standard.set(data, forKey: Self.pendingHLSKey)
+        }
     }
 }

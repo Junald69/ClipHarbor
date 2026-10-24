@@ -4,7 +4,19 @@ from hashlib import sha1
 root = Path(__file__).parent
 proj = root/'ClipHarbor.xcodeproj'
 proj.mkdir(exist_ok=True)
-files = ['ClipHarborApp.swift','BrowserScreen.swift','BrowserModel.swift','MediaCandidate.swift','DownloadCenter.swift']
+files = [
+    'ClipHarborApp.swift',
+    'BrowserScreen.swift',
+    'SaveVideoSheet.swift',
+    'BrowserModel.swift',
+    'MediaScannerScript.swift',
+    'TrackedVideo.swift',
+    'MediaCandidate.swift',
+    'DownloadModels.swift',
+    'DownloadCenter.swift',
+    'RequestSecurity.swift',
+    'FileNaming.swift',
+]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()
 def e(s): return f'{ident(s)} /* {s} */'
@@ -84,11 +96,15 @@ for kind in ['Debug','Release']:
 for kind in ['Debug','Release']:
     o = 'target '+kind
     settings = {'CODE_SIGN_STYLE':'Automatic',
-                'CURRENT_PROJECT_VERSION':'1','MARKETING_VERSION':'1.0',
+                'CURRENT_PROJECT_VERSION':'2','MARKETING_VERSION':'2.1',
                 'GENERATE_INFOPLIST_FILE':'YES',
                 'INFOPLIST_KEY_CFBundleDisplayName':'ClipHarbor',
                 'INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace':'YES',
                 'INFOPLIST_KEY_UIFileSharingEnabled':'YES',
+                'INFOPLIST_KEY_UILaunchScreen_Generation':'YES',
+                'INFOPLIST_KEY_UIApplicationSceneManifest_Generation':'YES',
+                'INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents':'YES',
+                'INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone':'"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"',
                 'IPHONEOS_DEPLOYMENT_TARGET':'17.0',
                 'SWIFT_VERSION':'5.0',
                 'TARGETED_DEVICE_FAMILY':'"1"',
