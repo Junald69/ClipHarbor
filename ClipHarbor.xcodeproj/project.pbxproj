@@ -23,6 +23,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		9CCF2942FF4C46194B9CAAB8 /* file Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipHarborApp.swift; sourceTree = "<group>"; };
 		0D047473E568AC548C5292BF /* file BrowserScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserScreen.swift; sourceTree = "<group>"; };
 		F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SaveVideoSheet.swift; sourceTree = "<group>"; };
@@ -49,6 +50,7 @@
 		500A096B8A0044C96F4B0E55 /* source group */ = {
 			isa = PBXGroup;
 			children = (
+				9CCF2942FF4C46194B9CAAB8 /* file Info.plist */,
 				6C3513480EB005A72E2CC3DF /* file ClipHarborApp.swift */,
 				0D047473E568AC548C5292BF /* file BrowserScreen.swift */,
 				F55864F6EF7C635649728617 /* file SaveVideoSheet.swift */,
@@ -168,9 +170,8 @@
 				CURRENT_PROJECT_VERSION = 4;
 				MARKETING_VERSION = 2.2.1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClipHarbor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -193,9 +194,8 @@
 				CURRENT_PROJECT_VERSION = 4;
 				MARKETING_VERSION = 2.2.1;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClipHarbor/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = ClipHarbor;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
-				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

@@ -30,6 +30,7 @@ for name in files:
     out.append(f'\t\t{e("build "+name)} = {{isa = PBXBuildFile; fileRef = {e("file "+name)}; }};')
 out.append('/* End PBXBuildFile section */\n')
 out.append('/* Begin PBXFileReference section */')
+out.append(f'\t\t{e("file Info.plist")} = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; }};')
 for name in files:
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
 out.append(f'\t\t{e("product app")} = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; }};')
@@ -43,7 +44,8 @@ out.extend([
  '\t\t};',
  f'\t\t{e("source group")} = {{',
  '\t\t\tisa = PBXGroup;',
- '\t\t\tchildren = ('
+ '\t\t\tchildren = (',
+ f'\t\t\t\t{e("file Info.plist")},',
 ])
 for name in files:out.append(f'\t\t\t\t{e("file "+name)},')
 out.extend(['\t\t\t);','\t\t\tpath = ClipHarbor;','\t\t\tsourceTree = "<group>";','\t\t};',
@@ -101,9 +103,8 @@ for kind in ['Debug','Release']:
     settings = {'CODE_SIGN_STYLE':'Automatic',
                 'CURRENT_PROJECT_VERSION':'4','MARKETING_VERSION':'2.2.1',
                 'GENERATE_INFOPLIST_FILE':'YES',
+                'INFOPLIST_FILE':'ClipHarbor/Info.plist',
                 'INFOPLIST_KEY_CFBundleDisplayName':'ClipHarbor',
-                'INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace':'YES',
-                'INFOPLIST_KEY_UIFileSharingEnabled':'YES',
                 'INFOPLIST_KEY_UILaunchScreen_Generation':'YES',
                 'INFOPLIST_KEY_UIApplicationSceneManifest_Generation':'YES',
                 'INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents':'YES',

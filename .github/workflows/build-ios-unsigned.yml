@@ -51,8 +51,20 @@ jobs:
           test -d "$APP"
           echo "=== Inspecting generated Info.plist ==="
           plutil -p "$APP/Info.plist"
-          plutil -p "$APP/Info.plist" | grep -E '"UIFileSharingEnabled" => (1|true)'
-          plutil -p "$APP/Info.plist" | grep -E '"LSSupportsOpeningDocumentsInPlace" => (1|true)'
+          python3 - "$APP/Info.plist" << 'EOF'
+          import plistlib, sys
+          plist_path = sys.argv[1]
+          with open(plist_path, "rb") as f:
+              info = plistlib.load(f)
+          for key in ("UIFileSharingEnabled", "LSSupportsOpeningDocumentsInPlace"):
+              val = info.get(key)
+              print(f"Verified {key} = {val!r} (type: {type(val).__name__})")
+              if val is not True:
+                  sys.exit(f"ERROR: {key} must be Boolean True in Info.plist, got {val!r}")
+          if "UILaunchScreen" not in info:
+              sys.exit("ERROR: UILaunchScreen is missing from Info.plist")
+          print("Info.plist verification passed successfully.")
+          EOF
           STAGE="$RUNNER_TEMP/ClipHarborIPA"
           mkdir -p "$STAGE/Payload"
           ditto "$APP" "$STAGE/Payload/ClipHarbor.app"
