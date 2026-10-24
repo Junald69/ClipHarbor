@@ -25,7 +25,10 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     /// メモリ内にのみ保持する最新ページのサムネイル（ディスク永続化なし）
     @Published private(set) var snapshot: UIImage?
 
-    var isEditingAddress = false
+    /// 下部フローティングツールバーの非表示フラグ（スクロール連動）
+    @Published var isToolbarHidden = false
+    /// URL入力・編集中フラグ（編集中はツールバーを常時表示）
+    @Published var isEditingAddress = false
     /// プライベートブラウズモード（将来のプライベートタブ用。trueの場合、閲覧履歴は一切記録されない）
     var isPrivate: Bool = false
     /// ナビゲーション完了時（通常遷移およびSPA遷移）の通知コールバック（TabManager等のセッション同期用）
@@ -34,6 +37,10 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     private(set) var isTornDown = false
     private var noticeTask: Task<Void, Never>?
     private var progressObservation: NSKeyValueObservation?
+    private var scrollObservation: NSKeyValueObservation?
+    private var lastScrollY: CGFloat = 0
+    private var accumulatedDownwardScroll: CGFloat = 0
+    private var accumulatedUpwardScroll: CGFloat = 0
     private static let maxVideos = 50
     private static let maxResources = 50
 
@@ -43,6 +50,22 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
             return url
         }
         return initialURL
+    }
+
+    /// フローティングツールバー上段で表示するドメインまたはURL
+    var displayDomainOrURL: String {
+        if let host = currentURL.host, !host.isEmpty {
+            return host
+        }
+        if !pageTitle.isEmpty && pageTitle != "ClipHarbor" {
+            return pageTitle
+        }
+        return address.isEmpty ? "検索またはURLを入力" : address
+    }
+
+    /// 現在のURLがHTTPS接続か判定
+    var isSecurePage: Bool {
+        currentURL.scheme?.lowercased() == "https"
     }
 
     init(id: UUID = UUID(), initialURL: URL = BrowserModel.homeURL, initialTitle: String = "") {
@@ -73,9 +96,24 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         view.allowsBackForwardNavigationGestures = true
         // SwiftUI側でSafe Area内に配置するため、WebView内で二重に余白を取らない
         view.scrollView.contentInsetAdjustmentBehavior = .never
+        // 下部フローティングツールバーとWeb最下部コンテンツが重なるのを防ぐインセット
+        view.scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)
+        view.scrollView.scrollIndicatorInsets = UIEdgeInsets(top: 0, left: 0, bottom: 100, right: 0)
         progressObservation = view.observe(\.estimatedProgress, options: [.new]) { [weak self] webView, _ in
             let value = webView.estimatedProgress
             Task { @MainActor in self?.loadingProgress = value }
+        }
+        scrollObservation = view.scrollView.observe(\.contentOffset, options: [.old, .new]) { [weak self] scrollView, change in
+            guard let self = self else { return }
+            let currentY = scrollView.contentOffset.y
+            let oldY = change.oldValue?.y ?? currentY
+            if Thread.isMainThread {
+                self.handleScroll(currentY: currentY, oldY: oldY, in: scrollView)
+            } else {
+                Task { @MainActor in
+                    self.handleScroll(currentY: currentY, oldY: oldY, in: scrollView)
+                }
+            }
         }
         view.load(URLRequest(url: initialURL))
         return view
@@ -130,9 +168,92 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
 
     var hasAnyMedia: Bool { !videos.isEmpty || !resourceCandidates.isEmpty }
 
+    // MARK: - フローティングツールバー表示制御 & スクロール監視
+
+    /// ツールバーを即時またはアニメーションで再表示
+    func showToolbar() {
+        if isToolbarHidden {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isToolbarHidden = false
+            }
+        }
+        accumulatedDownwardScroll = 0
+        accumulatedUpwardScroll = 0
+    }
+
+    /// ツールバーをアニメーションで非表示
+    func hideToolbar() {
+        guard !isEditingAddress else { return }
+        if !isToolbarHidden {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isToolbarHidden = true
+            }
+        }
+        accumulatedDownwardScroll = 0
+        accumulatedUpwardScroll = 0
+    }
+
+    private func handleScroll(currentY: CGFloat, oldY: CGFloat, in scrollView: UIScrollView) {
+        // 1. URL編集中は常に表示を維持
+        if isEditingAddress {
+            if isToolbarHidden { showToolbar() }
+            return
+        }
+
+        // 2. ページ最上部（または上端バウンス中）は常に表示
+        if currentY <= 0 {
+            showToolbar()
+            lastScrollY = currentY
+            return
+        }
+
+        // 3. コンテンツ全体の高さと画面高さを取得
+        let effectiveContentHeight = scrollView.contentSize.height + scrollView.contentInset.bottom
+        let visibleHeight = scrollView.bounds.height
+        let maxOffsetY = effectiveContentHeight - visibleHeight
+
+        // 4. コンテンツ全体の高さが画面以下の場合は常に表示
+        if maxOffsetY <= 0 {
+            showToolbar()
+            lastScrollY = currentY
+            return
+        }
+
+        // 5. ページ下端バウンス（rubber-band）の無視
+        if currentY >= maxOffsetY {
+            lastScrollY = currentY
+            return
+        }
+
+        let delta = currentY - oldY
+        lastScrollY = currentY
+
+        // 6. 非常に小さな揺れ（0.5pt未満）は無視
+        if abs(delta) < 0.5 {
+            return
+        }
+
+        if delta > 0 {
+            // 下方向へスクロール（コンテンツが上へ移動：delta > 0）
+            accumulatedUpwardScroll = 0
+            accumulatedDownwardScroll += delta
+            if accumulatedDownwardScroll >= 24 {
+                hideToolbar()
+            }
+        } else {
+            // 上方向へスクロール（コンテンツが下へ移動：delta < 0）
+            accumulatedDownwardScroll = 0
+            accumulatedUpwardScroll += abs(delta)
+            if accumulatedUpwardScroll >= 12 {
+                showToolbar()
+            }
+        }
+    }
+
     // MARK: - ナビゲーション
 
     func navigate(to input: String) {
+        showToolbar()
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let target: URL?
@@ -149,10 +270,25 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         webView.load(URLRequest(url: target))
     }
 
-    func goBack() { if webView.canGoBack { webView.goBack() } }
-    func goForward() { if webView.canGoForward { webView.goForward() } }
-    func reload() { webView.reload() }
-    func goHome() { webView.load(URLRequest(url: Self.homeURL)) }
+    func goBack() {
+        showToolbar()
+        if webView.canGoBack { webView.goBack() }
+    }
+
+    func goForward() {
+        showToolbar()
+        if webView.canGoForward { webView.goForward() }
+    }
+
+    func reload() {
+        showToolbar()
+        webView.reload()
+    }
+
+    func goHome() {
+        showToolbar()
+        webView.load(URLRequest(url: Self.homeURL))
+    }
 
     /// ダウンロード時に使う、ページの最小限の通信情報（メモリ上のみ）
     func makeRequestContext(completion: @escaping (RequestContext) -> Void) {
@@ -219,6 +355,9 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         progressObservation?.invalidate()
         progressObservation = nil
 
+        scrollObservation?.invalidate()
+        scrollObservation = nil
+
         guard isWebViewCreated else { return }
 
         webView.stopLoading()
@@ -259,6 +398,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        showToolbar()
         resetPageState()
         isLoading = true
         updateNavigation(webView)
@@ -271,6 +411,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        showToolbar()
         isLoading = false
         updateNavigation(webView)
         recordHistoryIfEligible()

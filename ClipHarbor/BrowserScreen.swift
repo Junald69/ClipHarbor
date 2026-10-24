@@ -40,34 +40,56 @@ private struct ActiveBrowserContainer: View {
     @FocusState private var addressFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            addressBar
-
-            if browser.isLoading {
-                ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
-                    .progressViewStyle(.linear)
-                    .tint(.blue)
-            }
-
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    BrowserWebView(browser: browser)
-                        .id(browser.id)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-
-                    videoDownloadOverlay(in: geo.size)
+        ZStack(alignment: .bottom) {
+            // 1. 全画面 Webビュー + ローディングバー
+            VStack(spacing: 0) {
+                if browser.isLoading {
+                    ProgressView(value: max(0.05, min(browser.loadingProgress, 1.0)))
+                        .progressViewStyle(.linear)
+                        .tint(.blue)
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            statusBanner
-            bottomToolbar
+                GeometryReader { geo in
+                    ZStack(alignment: .topLeading) {
+                        BrowserWebView(browser: browser)
+                            .id(browser.id)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .ignoresSafeArea(.keyboard, edges: .bottom)
+
+                        videoDownloadOverlay(in: geo.size)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            // 2. URL編集中にWebビュー領域タップで編集をキャンセルする透明レイヤー
+            if browser.isEditingAddress {
+                Color.black.opacity(0.001)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        addressFocused = false
+                        browser.isEditingAddress = false
+                        browser.address = browser.currentURL.absoluteString
+                    }
+            }
+
+            // 3. 下部フローティング通知 & ツールバー（Safe Area内）
+            VStack(spacing: 6) {
+                statusBanner
+                floatingToolbar
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
         .onChange(of: addressFocused) { _, focused in
             browser.isEditingAddress = focused
+            if focused {
+                browser.showToolbar()
+            }
+        }
+        .onChange(of: browser.id) { _, _ in
+            browser.showToolbar()
         }
         .sheet(item: $savingCandidate) { candidate in
             SaveVideoSheet(
@@ -86,6 +108,7 @@ private struct ActiveBrowserContainer: View {
             }
         }
         .sheet(isPresented: $showDownloads, onDismiss: {
+            browser.showToolbar()
             if let url = pendingSourceURL {
                 pendingSourceURL = nil
                 handleOpenURLInNewTab(url)
@@ -100,6 +123,7 @@ private struct ActiveBrowserContainer: View {
             )
         }
         .sheet(isPresented: $showMenu, onDismiss: {
+            browser.showToolbar()
             if let action = pendingMenuAction {
                 pendingMenuAction = nil
                 action()
@@ -128,6 +152,7 @@ private struct ActiveBrowserContainer: View {
             )
         }
         .sheet(isPresented: $showHistory, onDismiss: {
+            browser.showToolbar()
             if let action = pendingHistoryAction {
                 pendingHistoryAction = nil
                 handleHistoryNavigation(action)
@@ -144,6 +169,7 @@ private struct ActiveBrowserContainer: View {
             )
         }
         .sheet(isPresented: $showBookmarks, onDismiss: {
+            browser.showToolbar()
             if let action = pendingBookmarkAction {
                 pendingBookmarkAction = nil
                 handleHistoryNavigation(action)
@@ -159,7 +185,9 @@ private struct ActiveBrowserContainer: View {
                 }
             )
         }
-        .sheet(isPresented: $showTabSwitcher) {
+        .sheet(isPresented: $showTabSwitcher, onDismiss: {
+            browser.showToolbar()
+        }) {
             TabSwitcherView(tabManager: tabManager)
         }
         .alert(
@@ -181,46 +209,119 @@ private struct ActiveBrowserContainer: View {
         }
     }
 
-    // MARK: - 上部URLバー（Safe Area内）
+    // MARK: - フローティングツールバー（Aloha風・画面下部・スクロール連動）
 
-    private var addressBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "globe")
-                .foregroundStyle(.secondary)
-            TextField("URL または検索語を入力", text: $browser.address)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .focused($addressFocused)
-                .onSubmit {
-                    browser.navigate(to: browser.address)
-                    addressFocused = false
+    private var floatingToolbar: some View {
+        VStack(spacing: 6) {
+            addressBarUpperTier
+            if !browser.isEditingAddress {
+                navigationBarLowerTier
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, browser.isEditingAddress ? 6 : 4)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
+        .offset(y: browser.isToolbarHidden ? 160 : 0)
+        .opacity(browser.isToolbarHidden ? 0 : 1)
+        .allowsHitTesting(!browser.isToolbarHidden)
+        .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
+        .animation(.easeInOut(duration: 0.2), value: browser.isEditingAddress)
+    }
+
+    @ViewBuilder
+    private var addressBarUpperTier: some View {
+        if browser.isEditingAddress {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextField("検索またはURLを入力", text: $browser.address)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .focused($addressFocused)
+                    .onSubmit {
+                        browser.navigate(to: browser.address)
+                        addressFocused = false
+                        browser.isEditingAddress = false
+                    }
+
+                if !browser.address.isEmpty {
+                    Button {
+                        browser.address = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("入力をクリア")
                 }
-            if addressFocused && !browser.address.isEmpty {
+
+                Button("キャンセル") {
+                    addressFocused = false
+                    browser.isEditingAddress = false
+                    browser.address = browser.currentURL.absoluteString
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.blue)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: browser.isSecurePage ? "lock.fill" : "globe")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text(browser.displayDomainOrURL)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 4)
+
                 Button {
-                    browser.address = ""
+                    browser.reload()
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("URLをクリア")
+                .accessibilityLabel("再読み込み")
             }
-            Button {
-                browser.reload()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .frame(width: 28, height: 28)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                let currentURLString = browser.currentURL.absoluteString
+                if !currentURLString.isEmpty && currentURLString != "about:blank" {
+                    browser.address = currentURLString
+                }
+                browser.isEditingAddress = true
+                addressFocused = true
             }
-            .accessibilityLabel("再読み込み")
         }
-        .font(.subheadline)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     // MARK: - Aloha風 動画ダウンロードボタン（オーバーレイ）
@@ -238,12 +339,16 @@ private struct ActiveBrowserContainer: View {
                 alohaDownloadButton(for: activeVideo, compact: false)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(16)
+                    .padding(.bottom, browser.isToolbarHidden ? 0 : 96)
+                    .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
             }
         } else if currentSelection.isAmbiguous || browser.hasAnyMedia {
             // 複数動画が同時再生されている場合、またはリソース候補のみ検出されている場合
             fallbackOverlayButton
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .padding(16)
+                .padding(.bottom, browser.isToolbarHidden ? 0 : 96)
+                .animation(.easeInOut(duration: 0.2), value: browser.isToolbarHidden)
         }
     }
 
@@ -433,7 +538,7 @@ private struct ActiveBrowserContainer: View {
         return await exports.probeMP4Compatibility(candidate: candidate, context: context)
     }
 
-    // MARK: - ステータス表示と下部ツールバー（Safe Area内）
+    // MARK: - ステータス表示と下部ナビゲーションバー（下段）
 
     @ViewBuilder
     private var statusBanner: some View {
@@ -458,11 +563,21 @@ private struct ActiveBrowserContainer: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .background(.ultraThinMaterial)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+            )
+            .padding(.horizontal, 16)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
-    private var bottomToolbar: some View {
+    private var navigationBarLowerTier: some View {
         HStack {
             // 1. 戻る（chevron.left）
             Button {
@@ -544,9 +659,7 @@ private struct ActiveBrowserContainer: View {
         }
         .font(.title3)
         .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
-        .background(.bar)
+        .padding(.horizontal, 12)
     }
 }
 
