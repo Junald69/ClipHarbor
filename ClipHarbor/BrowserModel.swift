@@ -29,8 +29,10 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     @Published var isToolbarHidden = false
     /// URL入力・編集中フラグ（編集中はツールバーを常時表示）
     @Published var isEditingAddress = false
-    /// プライベートブラウズモード（将来のプライベートタブ用。trueの場合、閲覧履歴は一切記録されない）
-    var isPrivate: Bool = false
+    /// プライベートブラウズモード（trueの場合、閲覧履歴・Cookie・セッションは永続化されない）
+    let isPrivate: Bool
+    /// プライベートタブ用の非永続WKWebsiteDataStore（通常タブはnil、WKWebsiteDataStore.default()を使用）
+    private let customWebsiteDataStore: WKWebsiteDataStore?
     /// ナビゲーション完了時（通常遷移およびSPA遷移）の通知コールバック（TabManager等のセッション同期用）
     var onNavigationFinished: (() -> Void)? = nil
     private(set) var isWebViewCreated = false
@@ -68,11 +70,19 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         currentURL.scheme?.lowercased() == "https"
     }
 
-    init(id: UUID = UUID(), initialURL: URL = BrowserModel.homeURL, initialTitle: String = "") {
+    init(
+        id: UUID = UUID(),
+        initialURL: URL = BrowserModel.homeURL,
+        initialTitle: String = "",
+        isPrivate: Bool = false,
+        websiteDataStore: WKWebsiteDataStore? = nil
+    ) {
         self.id = id
         self.initialURL = initialURL
         self.address = initialURL.absoluteString
         self.pageTitle = initialTitle
+        self.isPrivate = isPrivate
+        self.customWebsiteDataStore = websiteDataStore
         super.init()
     }
 
@@ -89,6 +99,15 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         configuration.userContentController = controller
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true
+
+        // Webサイトデータ（Cookie・キャッシュ・LocalStorage等）の分離設定
+        if isPrivate {
+            // プライベートモード: 注入された非永続ストアを使用（未指定時も安全にnonPersistent()を生成し、default()へのフォールバックを絶対防止）
+            configuration.websiteDataStore = customWebsiteDataStore ?? WKWebsiteDataStore.nonPersistent()
+        } else {
+            // 通常モード: 永続ストアを使用
+            configuration.websiteDataStore = WKWebsiteDataStore.default()
+        }
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self

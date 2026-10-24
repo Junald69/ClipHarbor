@@ -69,13 +69,21 @@ enum TabURLPolicy {
 /// - 非アクティブタブは lazy var webView により遅延ロードされ、起動時の過剰なメモリ・通信消費を防ぐ。
 @MainActor
 final class TabManager: ObservableObject {
-    /// 安全のためのタブ上限数（過剰なメモリ消費を防止）
+    /// 安全のための通常タブ上限数（過剰なメモリ消費を防止）
     static let maxTabs: Int = 20
+    /// プライベートタブ上限数（メモリ保護のため同等に設定）
+    static let maxPrivateTabs: Int = 20
 
-    /// 管理中の全通常タブ（最低1つを維持）
+    /// 管理中の全通常タブ（最低1つを維持、tabs.jsonに永続化）
     @Published private(set) var tabs: [BrowserModel] = []
 
-    /// 現在画面に表示中のアクティブタブID
+    /// 管理中の全プライベートタブ（非永続、アプリ終了・全閉鎖で完全に破棄）
+    @Published private(set) var privateTabs: [BrowserModel] = []
+
+    /// 現在のブラウズモード（false: 通常モード, true: 🕶️プライベートモード）
+    @Published var isPrivateMode: Bool = false
+
+    /// 現在画面に表示中の通常アクティブタブID
     @Published var activeTabID: UUID {
         didSet {
             if oldValue != activeTabID {
@@ -85,8 +93,27 @@ final class TabManager: ObservableObject {
         }
     }
 
-    /// 現在のアクティブタブ（常に有効なインスタンスを返す）
+    /// 現在画面に表示中のプライベートアクティブタブID
+    @Published var activePrivateTabID: UUID?
+
+    /// プライベートセッション用の非永続WKWebsiteDataStore（プライベートタブ間でCookie等を共有）
+    private(set) var privateDataStore: WKWebsiteDataStore = WKWebsiteDataStore.nonPersistent()
+
+    /// 現在のアクティブタブ（現在のモードに応じた有効なBrowserModelを返す純粋ゲッター。副作用なし）
     var activeTab: BrowserModel {
+        if isPrivateMode {
+            if let id = activePrivateTabID, let current = privateTabs.first(where: { $0.id == id }) {
+                return current
+            }
+            if let first = privateTabs.first {
+                return first
+            }
+        }
+        return activeRegularTab
+    }
+
+    /// 通常アクティブタブ（常に有効なインスタンスを返す）
+    private var activeRegularTab: BrowserModel {
         if let current = tabs.first(where: { $0.id == activeTabID }) {
             return current
         }
@@ -101,14 +128,24 @@ final class TabManager: ObservableObject {
         return fallback
     }
 
-    /// 新規タブが作成可能か
+    /// 通常タブの新規作成が可能か
     var canCreateNewTab: Bool {
         tabs.count < Self.maxTabs
     }
 
-    /// タブ数
+    /// プライベートタブの新規作成が可能か
+    var canCreateNewPrivateTab: Bool {
+        privateTabs.count < Self.maxPrivateTabs
+    }
+
+    /// 通常タブ数
     var count: Int {
         tabs.count
+    }
+
+    /// プライベートタブ数
+    var privateCount: Int {
+        privateTabs.count
     }
 
     /// 非同期保存用直列キュー（FIFO実行により順序を保証）
@@ -202,11 +239,112 @@ final class TabManager: ObservableObject {
         scheduleSave()
     }
 
+    // MARK: - プライベートタブ操作API
+
+    /// 新しいプライベートタブを作成し、アクティブにする
+    @discardableResult
+    func createPrivateTab(url: URL = BrowserModel.homeURL) -> BrowserModel? {
+        guard canCreateNewPrivateTab else { return nil }
+        activeTab.captureSnapshot()
+        let newTab = BrowserModel(
+            initialURL: url,
+            isPrivate: true,
+            websiteDataStore: privateDataStore
+        )
+        setupTab(newTab)
+        privateTabs.append(newTab)
+        activePrivateTabID = newTab.id
+        return newTab
+    }
+
+    /// 指定IDのプライベートタブをアクティブにする
+    func selectPrivateTab(id: UUID) {
+        guard privateTabs.contains(where: { $0.id == id }) else { return }
+        guard activePrivateTabID != id else { return }
+        activeTab.captureSnapshot()
+        activePrivateTabID = id
+    }
+
+    /// 指定IDのプライベートタブを明示的に閉じる
+    /// - 最後のプライベートタブを閉じた場合は、旧ストアのデータを非同期消去し、通常モードへ安全に復帰する。
+    func closePrivateTab(id: UUID) {
+        guard let index = privateTabs.firstIndex(where: { $0.id == id }) else { return }
+        let closingTab = privateTabs[index]
+
+        // 閉じる対象がアクティブタブの場合、削除前に新しいアクティブタブを決定
+        if activePrivateTabID == id {
+            if privateTabs.count > 1 {
+                let nextIndex = index > 0 ? index - 1 : index + 1
+                activePrivateTabID = privateTabs[nextIndex].id
+            } else {
+                activePrivateTabID = nil
+            }
+        }
+
+        privateTabs.remove(at: index)
+
+        // WebKit強参照循環およびKVO・delegateを安全に解除
+        closingTab.teardown()
+
+        // 最後のプライベートタブが閉じられた場合
+        if privateTabs.isEmpty {
+            activePrivateTabID = nil
+            resetPrivateSessionStore()
+            if isPrivateMode {
+                isPrivateMode = false
+            }
+        }
+    }
+
+    /// すべてのプライベートタブを一括で閉じ、セッションデータを破棄して通常モードに復帰する
+    func closeAllPrivateTabs() {
+        for tab in privateTabs {
+            tab.teardown()
+        }
+        privateTabs.removeAll()
+        activePrivateTabID = nil
+        resetPrivateSessionStore()
+        if isPrivateMode {
+            isPrivateMode = false
+        }
+    }
+
+    /// ブラウズモードを切り替える（通常モード ⇔ 🕶️プライベートモード）
+    /// - プライベートモード切替時にタブが0件の場合は明示的に1つ作成。作成失敗時はモード切替を安全に中止する。
+    @discardableResult
+    func switchBrowsingMode(toPrivate: Bool) -> Bool {
+        guard isPrivateMode != toPrivate else { return true }
+        if toPrivate {
+            if privateTabs.isEmpty {
+                guard createPrivateTab() != nil else {
+                    return false
+                }
+            }
+        }
+        activeTab.captureSnapshot()
+        isPrivateMode = toPrivate
+        return true
+    }
+
+    /// プライベートセッション用ストアを安全に再生成し、旧ストアを非同期消去する
+    private func resetPrivateSessionStore() {
+        let oldStore = self.privateDataStore
+        // 即座に新規ストアを割り当て、直後に新規タブが開かれても旧ストアの消去に巻き込まれないようにする
+        self.privateDataStore = WKWebsiteDataStore.nonPersistent()
+        // 旧ストアのデータを全消去（通常ストアdefault()には一切影響なし）
+        oldStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {
+            // 非同期消去完了
+        }
+    }
+
     // MARK: - 内部処理と永続化
 
     private func setupTab(_ tab: BrowserModel) {
         tab.onNavigationFinished = { [weak self] in
-            self?.scheduleSave()
+            guard let self = self else { return }
+            if !tab.isPrivate {
+                self.scheduleSave()
+            }
         }
     }
 
