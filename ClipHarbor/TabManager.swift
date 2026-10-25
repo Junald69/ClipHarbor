@@ -169,7 +169,6 @@ final class TabManager: ObservableObject {
     }
 
     init() {
-        Self.shared = self
         let restored = Self.loadSessionFromDisk()
         if let (restoredTabs, restoredActiveID) = restored, !restoredTabs.isEmpty {
             self.tabs = restoredTabs
@@ -179,6 +178,8 @@ final class TabManager: ObservableObject {
             self.tabs = [initialTab]
             self.activeTabID = initialTab.id
         }
+
+        Self.shared = self
 
         for tab in self.tabs {
             setupTab(tab)
