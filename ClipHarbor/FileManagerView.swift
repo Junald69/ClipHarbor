@@ -69,11 +69,19 @@ struct FileManagerView: View {
     // MARK: - ソート順列挙型
 
     enum SortOption: String, CaseIterable, Identifiable {
-        case dateDescending = "日付順 (新しい順)"
-        case nameAscending = "名前順"
-        case sizeDescending = "サイズ順 (大きい順)"
+        case dateDescending = "dateDescending"
+        case nameAscending = "nameAscending"
+        case sizeDescending = "sizeDescending"
 
         var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .dateDescending: return NSLocalizedString("Date (Newest)", comment: "")
+            case .nameAscending: return NSLocalizedString("Name", comment: "")
+            case .sizeDescending: return NSLocalizedString("Size (Largest)", comment: "")
+            }
+        }
     }
 
     // MARK: - デザインカラー
@@ -165,7 +173,7 @@ struct FileManagerView: View {
                         Image(systemName: "lock.shield.fill")
                             .font(.system(size: 56))
                             .foregroundStyle(.indigo)
-                        Text("Private Vault 保護中")
+                        Text("Private Vault Protected")
                             .font(.headline)
                     }
                 }
@@ -188,7 +196,7 @@ struct FileManagerView: View {
                 privacyShieldOverlay
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
-            .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
+            .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count) : NSLocalizedString("Files", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 rootToolbarContent
@@ -240,7 +248,7 @@ struct FileManagerView: View {
                             downloads: downloads,
                             folderManager: folderManager
                         )
-                        copyNotice = "\(succeeded) 件の動画をPrivate Vaultへ移動しました"
+                        copyNotice = String(format: NSLocalizedString("Moved %lld videos to Private Vault", comment: ""), succeeded)
                     }
                 }
             }
@@ -251,10 +259,10 @@ struct FileManagerView: View {
     private var rootToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             if isSelecting {
-                Text("\(selectedVideoIDs.count) 件選択中")
+                Text(String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count))
                     .font(.headline)
             } else if navigationPath.isEmpty {
-                Text("ファイル")
+                Text("Files")
                     .font(.headline)
                     .contentShape(Rectangle())
                     .onLongPressGesture(minimumDuration: 2.0) {
@@ -262,7 +270,7 @@ struct FileManagerView: View {
                         generator.impactOccurred()
                         showPrivateVaultSheet = true
                     }
-                    .accessibilityAction(named: "保管庫を開く") {
+                    .accessibilityAction(named: Text("Open Vault")) {
                         showPrivateVaultSheet = true
                     }
             }
@@ -270,7 +278,7 @@ struct FileManagerView: View {
 
         ToolbarItem(placement: .topBarLeading) {
             if isSelecting {
-                Button("キャンセル") {
+                Button("Cancel") {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSelecting = false
                         selectedVideoIDs.removeAll()
@@ -290,7 +298,7 @@ struct FileManagerView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             if isSelecting {
-                Button("完了") {
+                Button("Done") {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSelecting = false
                         selectedVideoIDs.removeAll()
@@ -305,14 +313,14 @@ struct FileManagerView: View {
                             selectedVideoIDs.removeAll()
                         }
                     } label: {
-                        Label("選択", systemImage: "checkmark.circle")
+                        Label("Select", systemImage: "checkmark.circle")
                     }
                     .disabled(downloads.saved.isEmpty)
 
                     Button {
                         showSettingsSheet = true
                     } label: {
-                        Label("設定", systemImage: "gearshape")
+                        Label("Settings", systemImage: "gearshape")
                     }
 
                     Button {
@@ -326,7 +334,7 @@ struct FileManagerView: View {
                     Button {
                         showTrashSheet = true
                     } label: {
-                        Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
+                        Label(String(format: NSLocalizedString("Trash (%lld)", comment: ""), trashManager.items.count), systemImage: "trash")
                     }
 
                     Divider()
@@ -334,23 +342,23 @@ struct FileManagerView: View {
                     Button {
                         showPhotosPicker = true
                     } label: {
-                        Label("写真をインポート", systemImage: "photo.on.rectangle")
+                        Label("Import Photos", systemImage: "photo.on.rectangle")
                     }
                     Button {
                         showFileImporter = true
                     } label: {
-                        Label("ファイルからインポート", systemImage: "doc.badge.plus")
+                        Label("Import from Files", systemImage: "doc.badge.plus")
                     }
                     Button {
                         newFolderName = ""
                         showNewFolderAlert = true
                     } label: {
-                        Label("新規フォルダ作成", systemImage: "folder.badge.plus")
+                        Label("New Folder", systemImage: "folder.badge.plus")
                     }
                     Button {
                         folderManager.syncWithFileSystemAndSavedVideos()
                     } label: {
-                        Label("表示を更新", systemImage: "arrow.clockwise")
+                        Label("Refresh", systemImage: "arrow.clockwise")
                     }
                     Divider()
                     pocVerificationMenu
@@ -413,18 +421,18 @@ struct FileManagerView: View {
     @ViewBuilder
     private func applyAlerts(to content: some View) -> some View {
         content
-            .alert("選択した動画をゴミ箱へ移動", isPresented: $showBatchDeleteAlert) {
-                Button("キャンセル", role: .cancel) { }
-                Button("ゴミ箱へ移動", role: .destructive) {
+            .alert(NSLocalizedString("Move Selected Videos to Trash", comment: ""), isPresented: $showBatchDeleteAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Move to Trash", role: .destructive) {
                     handleBatchMoveToTrash(videos: downloads.saved)
                 }
             } message: {
-                Text("選択した \(selectedVideoIDs.count) 件の動画をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
+                Text(String(format: NSLocalizedString("Are you sure you want to move %lld selected videos to Trash?\n(Permanently deleted after 3 days)", comment: ""), selectedVideoIDs.count))
             }
-            .alert("新規フォルダを作成", isPresented: $showNewFolderAlert) {
-                TextField("フォルダ名", text: $newFolderName)
-                Button("キャンセル", role: .cancel) { }
-                Button("作成") {
+            .alert(NSLocalizedString("New Folder", comment: ""), isPresented: $showNewFolderAlert) {
+                TextField("Folder Name", text: $newFolderName)
+                Button("Cancel", role: .cancel) { }
+                Button("Create") {
                     switch folderManager.createFolder(name: newFolderName) {
                     case .success(let created):
                         navigationPath.append(.folder(created))
@@ -433,18 +441,18 @@ struct FileManagerView: View {
                     }
                 }
             } message: {
-                Text("動画を整理するための新しいフォルダを作成します。")
+                Text("Create a new folder to organize videos.")
             }
             .alert(
-                "フォルダ名を変更",
+                NSLocalizedString("Rename Folder", comment: ""),
                 isPresented: Binding(
                     get: { renamingFolder != nil },
                     set: { if !$0 { renamingFolder = nil } }
                 )
             ) {
-                TextField("新しいフォルダ名", text: $renameFolderInput)
-                Button("キャンセル", role: .cancel) { renamingFolder = nil }
-                Button("変更") {
+                TextField("New Folder Name", text: $renameFolderInput)
+                Button("Cancel", role: .cancel) { renamingFolder = nil }
+                Button("Change") {
                     if let old = renamingFolder {
                         switch folderManager.renameFolder(from: old, to: renameFolderInput) {
                         case .success(let updated):
@@ -459,14 +467,14 @@ struct FileManagerView: View {
                 }
             }
             .alert(
-                "フォルダを削除",
+                NSLocalizedString("Delete Folder", comment: ""),
                 isPresented: Binding(
                     get: { deletingFolder != nil },
                     set: { if !$0 { deletingFolder = nil } }
                 )
             ) {
-                Button("キャンセル", role: .cancel) { deletingFolder = nil }
-                Button("フォルダを削除", role: .destructive) {
+                Button("Cancel", role: .cancel) { deletingFolder = nil }
+                Button(NSLocalizedString("Delete Folder", comment: ""), role: .destructive) {
                     if let target = deletingFolder {
                         navigationPath.removeAll { $0 == .folder(target) }
                         folderManager.deleteFolder(name: target)
@@ -475,19 +483,19 @@ struct FileManagerView: View {
                 }
             } message: {
                 if let target = deletingFolder {
-                    Text("フォルダ「\(target)」を削除しますか？\nフォルダ内の動画は削除されず、未分類へ戻ります。")
+                    Text(String(format: NSLocalizedString("Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Uncategorized.", comment: ""), target))
                 }
             }
             .alert(
-                "動画の名前を変更",
+                NSLocalizedString("Change Video Name", comment: ""),
                 isPresented: Binding(
                     get: { renamingVideo != nil },
                     set: { if !$0 { renamingVideo = nil } }
                 )
             ) {
-                TextField("新しい動画名", text: $renameVideoInput)
-                Button("キャンセル", role: .cancel) { renamingVideo = nil }
-                Button("変更") {
+                TextField("New Video Name", text: $renameVideoInput)
+                Button("Cancel", role: .cancel) { renamingVideo = nil }
+                Button("Change") {
                     if let target = renamingVideo {
                         VideoThumbnailManager.shared.invalidateCache(for: target)
                         if case .failure(let err) = folderManager.renameVideo(target, to: renameVideoInput) {
@@ -498,29 +506,29 @@ struct FileManagerView: View {
                 }
             }
             .confirmationDialog(
-                "動画をゴミ箱へ移動",
+                NSLocalizedString("Move Video to Trash", comment: ""),
                 isPresented: Binding(
                     get: { deletingVideo != nil && navigationPath.isEmpty && searchText.isEmpty },
                     set: { if !$0 { deletingVideo = nil } }
                 ),
                 titleVisibility: .visible
             ) {
-                Button("ゴミ箱へ移動", role: .destructive) {
+                Button("Move to Trash", role: .destructive) {
                     if let target = deletingVideo {
                         handleMoveToTrash(video: target)
                     }
                     deletingVideo = nil
                 }
-                Button("キャンセル", role: .cancel) {
+                Button("Cancel", role: .cancel) {
                     deletingVideo = nil
                 }
             } message: {
                 if let target = deletingVideo {
-                    Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
+                    Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
                 }
             }
             .alert(
-                "操作できませんでした",
+                NSLocalizedString("Could not perform operation", comment: ""),
                 isPresented: Binding(
                     get: { errorMessage != nil },
                     set: { if !$0 { errorMessage = nil } }
@@ -549,7 +557,7 @@ struct FileManagerView: View {
                 // 未分類フォルダカード（未分類動画がある、またはフォルダが作成されている場合に表示）
                 if hasUncategorized || hasFolders {
                     folderCard(
-                        title: "未分類の動画",
+                        title: NSLocalizedString("Uncategorized Videos", comment: ""),
                         itemCount: uncategorizedVideos.count,
                         videos: uncategorizedVideos,
                         filter: .uncategorized,
@@ -607,7 +615,7 @@ struct FileManagerView: View {
                                     .foregroundStyle(.indigo)
                             }
 
-                            Text(vaultManager.isUnlocked ? "ロック解除中" : "暗号化保護")
+                            Text(vaultManager.isUnlocked ? NSLocalizedString("Unlocked", comment: "") : NSLocalizedString("Encrypted", comment: ""))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.indigo)
                                 .padding(.horizontal, 8)
@@ -627,14 +635,14 @@ struct FileManagerView: View {
                     Button {
                         showPrivateVaultSheet = true
                     } label: {
-                        Label("保管庫を開く", systemImage: "lock.shield")
+                        Label("Open Vault", systemImage: "lock.shield")
                     }
 
                     if vaultManager.isUnlocked {
                         Button(role: .destructive) {
                             vaultManager.lock()
                         } label: {
-                            Label("今すぐロック", systemImage: "lock.fill")
+                            Label("Lock Now", systemImage: "lock.fill")
                         }
                     }
                 } label: {
@@ -666,7 +674,7 @@ struct FileManagerView: View {
                     }
                     .frame(height: folderTitleHeight, alignment: .leading)
 
-                    Text(vaultManager.isUnlocked ? "\(vaultManager.items.count) 件の動画" : "非公開保管庫")
+                    Text(vaultManager.isUnlocked ? String(format: NSLocalizedString("%lld videos", comment: ""), vaultManager.items.count) : NSLocalizedString("Private Vault", comment: ""))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(height: folderSubtitleHeight, alignment: .leading)
@@ -718,7 +726,7 @@ struct FileManagerView: View {
                     Button {
                         navigationPath.append(filter)
                     } label: {
-                        Label("開く", systemImage: "folder")
+                        Label("Open", systemImage: "folder")
                     }
 
                     if isCustomFolder {
@@ -726,7 +734,7 @@ struct FileManagerView: View {
                             renameFolderInput = title
                             renamingFolder = title
                         } label: {
-                            Label("フォルダ名を変更", systemImage: "pencil")
+                            Label(NSLocalizedString("Rename Folder", comment: ""), systemImage: "pencil")
                         }
 
                         Divider()
@@ -734,7 +742,7 @@ struct FileManagerView: View {
                         Button(role: .destructive) {
                             deletingFolder = title
                         } label: {
-                            Label("フォルダを削除", systemImage: "trash")
+                            Label(NSLocalizedString("Delete Folder", comment: ""), systemImage: "trash")
                         }
                     }
                 } label: {
@@ -760,7 +768,7 @@ struct FileManagerView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .frame(height: folderTitleHeight, alignment: .topLeading)
-                    Text("\(itemCount) アイテム")
+                    Text(String(format: NSLocalizedString("%lld items", comment: ""), itemCount))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(height: folderSubtitleHeight, alignment: .leading)
@@ -833,12 +841,12 @@ struct FileManagerView: View {
                 floatingBottomBar(isRoot: false)
             }
         }
-        .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : filter.title)
+        .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count) : filter.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if isSelecting {
-                    Button("完了") {
+                    Button("Done") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSelecting = false
                             selectedVideoIDs.removeAll()
@@ -853,14 +861,14 @@ struct FileManagerView: View {
                                 selectedVideoIDs.removeAll()
                             }
                         } label: {
-                            Label("選択", systemImage: "checkmark.circle")
+                            Label("Select", systemImage: "checkmark.circle")
                         }
                         .disabled(filteredVideos.isEmpty)
 
                         Button {
                             showSettingsSheet = true
                         } label: {
-                            Label("設定", systemImage: "gearshape")
+                            Label("Settings", systemImage: "gearshape")
                         }
 
                         Divider()
@@ -868,7 +876,7 @@ struct FileManagerView: View {
                         Button {
                             showTrashSheet = true
                         } label: {
-                            Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
+                            Label(String(format: NSLocalizedString("Trash (%lld)", comment: ""), trashManager.items.count), systemImage: "trash")
                         }
 
                         if case .folder(let folderName) = filter {
@@ -877,12 +885,12 @@ struct FileManagerView: View {
                                 renameFolderInput = folderName
                                 renamingFolder = folderName
                             } label: {
-                                Label("フォルダ名を変更", systemImage: "pencil")
+                                Label(NSLocalizedString("Rename Folder", comment: ""), systemImage: "pencil")
                             }
                             Button(role: .destructive) {
                                 deletingFolder = folderName
                             } label: {
-                                Label("フォルダを削除", systemImage: "trash")
+                                Label(NSLocalizedString("Delete Folder", comment: ""), systemImage: "trash")
                             }
                         }
                     } label: {
@@ -897,25 +905,25 @@ struct FileManagerView: View {
         }
         // 遷移先画面自身に確認ダイアログを接続することで確実に表示されるよう修正
         .confirmationDialog(
-            "動画をゴミ箱へ移動",
+            NSLocalizedString("Move Video to Trash", comment: ""),
             isPresented: Binding(
                 get: { deletingVideo != nil },
                 set: { if !$0 { deletingVideo = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("ゴミ箱へ移動", role: .destructive) {
+            Button("Move to Trash", role: .destructive) {
                 if let target = deletingVideo {
                     handleMoveToTrash(video: target)
                 }
                 deletingVideo = nil
             }
-            Button("キャンセル", role: .cancel) {
+            Button("Cancel", role: .cancel) {
                 deletingVideo = nil
             }
         } message: {
             if let target = deletingVideo {
-                Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
+                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
             }
         }
     }
@@ -937,7 +945,7 @@ struct FileManagerView: View {
             } else {
                 if !matchedFolders.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("一致したフォルダ")
+                        Text("Matching Folders")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                         LazyVGrid(columns: gridColumns, spacing: 14) {
@@ -957,7 +965,7 @@ struct FileManagerView: View {
 
                 if !matchedVideos.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("一致した動画 (\(matchedVideos.count)件)")
+                        Text(String(format: NSLocalizedString("Matching Videos (%lld)", comment: ""), matchedVideos.count))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                         LazyVGrid(columns: gridColumns, spacing: 14) {
@@ -998,25 +1006,25 @@ struct FileManagerView: View {
             }
         }
         .confirmationDialog(
-            "動画をゴミ箱へ移動",
+            NSLocalizedString("Move Video to Trash", comment: ""),
             isPresented: Binding(
                 get: { deletingVideo != nil && !searchText.isEmpty },
                 set: { if !$0 { deletingVideo = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("ゴミ箱へ移動", role: .destructive) {
+            Button("Move to Trash", role: .destructive) {
                 if let target = deletingVideo {
                     handleMoveToTrash(video: target)
                 }
                 deletingVideo = nil
             }
-            Button("キャンセル", role: .cancel) {
+            Button("Cancel", role: .cancel) {
                 deletingVideo = nil
             }
         } message: {
             if let target = deletingVideo {
-                Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
+                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
             }
         }
     }
@@ -1030,7 +1038,7 @@ struct FileManagerView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                TextField("検索", text: $searchText)
+                TextField("Search", text: $searchText)
                     .font(.subheadline)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -1058,7 +1066,7 @@ struct FileManagerView: View {
                             sortOption = opt
                         } label: {
                             HStack {
-                                Text(opt.rawValue)
+                                Text(opt.title)
                                 if sortOption == opt {
                                     Image(systemName: "checkmark")
                                 }
@@ -1086,29 +1094,29 @@ struct FileManagerView: View {
                     Button {
                         showPhotosPicker = true
                     } label: {
-                        Label("写真をインポート", systemImage: "photo.on.rectangle")
+                        Label("Import Photos", systemImage: "photo.on.rectangle")
                     }
                     Button {
                         showFileImporter = true
                     } label: {
-                        Label("ファイルからインポート", systemImage: "doc.badge.plus")
+                        Label("Import from Files", systemImage: "doc.badge.plus")
                     }
                     Divider()
                     Button {
                         newFolderName = ""
                         showNewFolderAlert = true
                     } label: {
-                        Label("新規フォルダを作成", systemImage: "folder.badge.plus")
+                        Label("New Folder", systemImage: "folder.badge.plus")
                     }
                     Button {
                         showTrashSheet = true
                     } label: {
-                        Label("ゴミ箱を開く (\(trashManager.items.count))", systemImage: "trash")
+                        Label(String(format: NSLocalizedString("Open Trash (%lld)", comment: ""), trashManager.items.count), systemImage: "trash")
                     }
                     Button {
                         showSettingsSheet = true
                     } label: {
-                        Label("設定を開く", systemImage: "gearshape")
+                        Label("Open Settings", systemImage: "gearshape")
                     }
                 } label: {
                     Image(systemName: "plus")
@@ -1139,7 +1147,7 @@ struct FileManagerView: View {
                     selectedVideoIDs = Set(currentVideos.map { $0.id })
                 }
             } label: {
-                Text(selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty ? "選択解除" : "全選択")
+                Text(selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty ? NSLocalizedString("Deselect All", comment: "") : NSLocalizedString("Select All", comment: ""))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 12)
@@ -1150,7 +1158,7 @@ struct FileManagerView: View {
             Spacer()
 
             // 選択件数
-            Text("\(selectedVideoIDs.count) 件選択中")
+            Text(String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
@@ -1218,8 +1226,8 @@ struct FileManagerView: View {
             isSelecting = false
             selectedVideoIDs.removeAll()
         }
-        let destName = targetFolder.isEmpty ? "Downloads（未分類）" : "「\(targetFolder)」"
-        showToast("\(successCount) 件の動画を \(destName) へ移動しました")
+        let destName = targetFolder.isEmpty ? NSLocalizedString("Downloads (Uncategorized)", comment: "") : "「\(targetFolder)」"
+        showToast(String(format: NSLocalizedString("Moved %lld videos to %@", comment: ""), successCount, destName))
     }
 
     private func handleBatchMoveToTrash(videos: [SavedVideo]) {
@@ -1243,7 +1251,7 @@ struct FileManagerView: View {
                     isSelecting = false
                     selectedVideoIDs.removeAll()
                 }
-                showToast("\(successCount) 件の動画をゴミ箱へ移動しました")
+                showToast(String(format: NSLocalizedString("Moved %lld videos to Trash", comment: ""), successCount))
             }
         }
     }
@@ -1265,7 +1273,7 @@ struct FileManagerView: View {
                         downloads: downloads,
                         folderManager: folderManager
                     )
-                    showToast("「\(video.title)」をPrivate Vaultへ移動しました")
+                    showToast(String(format: NSLocalizedString("Moved \"%@\" to Private Vault", comment: ""), video.title))
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -1279,7 +1287,7 @@ struct FileManagerView: View {
 
         let validTargets = targets.filter { $0.format.isVideo && !$0.isHLS }
         if validTargets.isEmpty {
-            errorMessage = "選択された項目に取り込み可能な動画がありません（HLS形式や画像ファイルは非対応です）。"
+            errorMessage = NSLocalizedString("None of the selected items can be imported (HLS format and image files are not supported).", comment: "")
             return
         }
 
@@ -1298,7 +1306,7 @@ struct FileManagerView: View {
                         isSelecting = false
                         selectedVideoIDs.removeAll()
                     }
-                    showToast("\(succeeded) 件の動画をPrivate Vaultへ移動しました")
+                    showToast(String(format: NSLocalizedString("Moved %lld videos to Private Vault", comment: ""), succeeded))
                 }
             }
         }
@@ -1308,8 +1316,8 @@ struct FileManagerView: View {
 
     private func folderTitle(for filter: VideoFolderManager.FolderFilter) -> String {
         switch filter {
-        case .all: return "すべてのファイル"
-        case .uncategorized: return "未分類"
+        case .all: return NSLocalizedString("All Files", comment: "")
+        case .uncategorized: return NSLocalizedString("Uncategorized", comment: "")
         case .folder(let name): return name
         }
     }
@@ -1345,7 +1353,7 @@ struct FileManagerView: View {
                 }
             }
         case .failure(let err):
-            errorMessage = "ファイルの読み込みに失敗しました: \(err.localizedDescription)"
+            errorMessage = String(format: NSLocalizedString("Failed to load file: %@", comment: ""), err.localizedDescription)
         }
     }
 
@@ -1423,11 +1431,11 @@ struct FileManagerView: View {
                 if case .folder(let name) = currentFilter {
                     folderManager.setFolderName(name, for: savedItem)
                 }
-                showToast("「\(savedItem.title)」を取り込みました")
+                showToast(String(format: NSLocalizedString("Imported \"%@\"", comment: ""), savedItem.title))
             }
         } catch {
             await MainActor.run {
-                errorMessage = "画像の保存に失敗しました: \(error.localizedDescription)"
+                errorMessage = String(format: NSLocalizedString("Failed to save image: %@", comment: ""), error.localizedDescription)
             }
         }
     }
@@ -1452,7 +1460,7 @@ struct FileManagerView: View {
                     Image(systemName: "arrow.down.circle.fill")
                         .foregroundStyle(.blue)
                         .font(.headline)
-                    Text("ダウンロード・変換タスク (\(activeCount > 0 ? "\(activeCount)件実行中 / 全\(totalCount)件" : "\(totalCount)件"))")
+                    Text(String(format: NSLocalizedString("Download & Conversion Tasks (%@)", comment: ""), activeCount > 0 ? String(format: NSLocalizedString("%lld running / %lld total", comment: ""), activeCount, totalCount) : String(format: NSLocalizedString("%lld total", comment: ""), totalCount)))
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Spacer()
@@ -1496,20 +1504,20 @@ struct FileManagerView: View {
             Button {
                 _ = exports.startPoCTestA_MuxedFMP4()
             } label: {
-                Label("テストA: 映像・音声統合型 fMP4 → MP4", systemImage: "checkmark.seal")
+                Label("Test A: Unified Video/Audio fMP4 → MP4", systemImage: "checkmark.seal")
             }
             Button {
                 _ = exports.startPoCTestB_AppleSeparateAudioFMP4()
             } label: {
-                Label("テストB: Apple公式 分離音声 fMP4 → MP4結合", systemImage: "waveform.badge.plus")
+                Label("Test B: Apple Official Separate Audio fMP4 → MP4 Join", systemImage: "waveform.badge.plus")
             }
             Button {
                 _ = exports.startPoCTestC_MPEGTS()
             } label: {
-                Label("テストC: MPEG-TS形式 非対応判定確認", systemImage: "film.stack")
+                Label("Test C: MPEG-TS Format Unsupported Check", systemImage: "film.stack")
             }
         } label: {
-            Label("fMP4→MP4 PoC実機テスト (A/B/C)", systemImage: "testtube.2")
+            Label("fMP4→MP4 PoC On-Device Test (A/B/C)", systemImage: "testtube.2")
         }
     }
 
@@ -1520,9 +1528,9 @@ struct FileManagerView: View {
             Image(systemName: "folder.badge.questionmark")
                 .font(.system(size: 48))
                 .foregroundStyle(alohaTeal)
-            Text("ファイルがありません")
+            Text("No Files")
                 .font(.headline)
-            Text("ブラウザで動画を再生すると、右下の保存ボタンからダウンロードできます。")
+            Text("When you play a video in the browser, you can download it from the save button at the bottom right.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1537,7 +1545,7 @@ struct FileManagerView: View {
             Image(systemName: isSearch ? "magnifyingglass" : "square.and.arrow.down")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
-            Text(isSearch ? "一致するファイルが見つかりません" : "動画はありません")
+            Text(isSearch ? "No Matching Files" : "No Videos")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
         }
@@ -1572,9 +1580,9 @@ struct FileManagerView: View {
             await MainActor.run {
                 switch result {
                 case .success:
-                    showToast("「\(video.title)」をゴミ箱へ移動しました")
+                    showToast(String(format: NSLocalizedString("Moved \"%@\" to Trash", comment: ""), video.title))
                 case .failure(let err):
-                    errorMessage = "ゴミ箱への移動に失敗しました: \(err.localizedDescription)"
+                    errorMessage = String(format: NSLocalizedString("Failed to move to Trash: %@", comment: ""), err.localizedDescription)
                 }
             }
         }
@@ -1595,7 +1603,7 @@ struct FileManagerView: View {
 
     private func copySourcePageURL(_ urlString: String) {
         UIPasteboard.general.string = urlString
-        showToast("元のページのURLをコピーしました")
+        showToast(NSLocalizedString("Copied page URL", comment: ""))
     }
 }
 
@@ -1753,26 +1761,26 @@ private struct AlohaVideoCardView: View {
                 if !isSelecting {
                     Menu {
                         Button(action: onPlay) {
-                            Label("再生", systemImage: "play.fill")
+                            Label("Play", systemImage: "play.fill")
                         }
 
                         Button(action: onRename) {
-                            Label("ファイル名変更", systemImage: "pencil")
+                            Label("Rename", systemImage: "pencil")
                         }
 
                         Button(action: onMove) {
-                            Label("フォルダ移動", systemImage: "folder")
+                            Label("Move to Folder", systemImage: "folder")
                         }
 
                         if let onMoveToVault = onMoveToVault {
                             Button(action: onMoveToVault) {
-                                Label("Private Vaultへ移動", systemImage: "lock.shield")
+                                Label("Move to Private Vault", systemImage: "lock.shield")
                             }
                         }
 
                         if !video.isHLS && video.fileExists {
                             ShareLink(item: video.fileURL) {
-                                Label("シェア", systemImage: "square.and.arrow.up")
+                                Label("Share", systemImage: "square.and.arrow.up")
                             }
                         }
 
@@ -1781,19 +1789,19 @@ private struct AlohaVideoCardView: View {
                             Button {
                                 onOpenSourcePage(validURL)
                             } label: {
-                                Label("元のWebページを開く", systemImage: "arrow.up.right.square")
+                                Label("Open Original Web Page", systemImage: "arrow.up.right.square")
                             }
                             Button {
                                 onCopySourcePageURL(validURL.absoluteString)
                             } label: {
-                                Label("元ページのURLをコピー", systemImage: "doc.on.doc")
+                                Label("Copy Page URL", systemImage: "doc.on.doc")
                             }
                         }
 
                         Divider()
 
                         Button(role: .destructive, action: onDelete) {
-                            Label("ゴミ箱へ移動", systemImage: "trash")
+                            Label("Move to Trash", systemImage: "trash")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -1938,7 +1946,7 @@ private struct VideoDurationBadge: View {
             if let seconds = await VideoThumbnailManager.shared.loadDuration(for: video) {
                 self.durationText = VideoThumbnailManager.formatDuration(seconds)
             } else {
-                self.durationText = "不明"
+                self.durationText = NSLocalizedString("Unknown", comment: "")
             }
         }
     }
@@ -1960,13 +1968,13 @@ private struct SimpleDownloadJobRow: View {
                     .lineLimit(1)
                 Spacer()
                 if job.state.isActive {
-                    Button("キャンセル", role: .destructive, action: onCancel)
+                    Button("Cancel", role: .destructive, action: onCancel)
                         .font(.caption)
                         .buttonStyle(.borderless)
                 } else {
                     HStack(spacing: 12) {
                         if job.canRetry {
-                            Button("再試行", action: onRetry)
+                            Button("Retry", action: onRetry)
                                 .font(.caption.weight(.semibold))
                                 .buttonStyle(.borderless)
                         }
@@ -1975,7 +1983,7 @@ private struct SimpleDownloadJobRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("履歴から消す")
+                        .accessibilityLabel(Text("Dismiss from History"))
                     }
                 }
             }
@@ -1984,7 +1992,7 @@ private struct SimpleDownloadJobRow: View {
             case .preparing:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("準備中… (\(job.host))")
+                    Text(String(format: NSLocalizedString("Preparing… (%@)", comment: ""), job.host))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -2004,7 +2012,7 @@ private struct SimpleDownloadJobRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             case .completed:
-                Label("保存完了", systemImage: "checkmark.circle.fill")
+                Label("Saved", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
             case .failed(let message):
@@ -2012,7 +2020,7 @@ private struct SimpleDownloadJobRow: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             case .cancelled:
-                Label("キャンセルしました", systemImage: "slash.circle")
+                Label("Cancelled", systemImage: "slash.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2045,7 +2053,7 @@ private struct FMP4ExportJobRow: View {
                     .lineLimit(1)
                 Spacer()
                 if job.state.isActive {
-                    Button("キャンセル", role: .destructive, action: onCancel)
+                    Button("Cancel", role: .destructive, action: onCancel)
                         .font(.caption)
                         .buttonStyle(.borderless)
                 } else {
@@ -2054,7 +2062,7 @@ private struct FMP4ExportJobRow: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("履歴から消す")
+                    .accessibilityLabel(Text("Dismiss from History"))
                 }
             }
 
@@ -2076,15 +2084,15 @@ private struct FMP4ExportJobRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.green)
                 let sizeStr = ByteCountFormatter.string(fromByteCount: summary.byteSize, countStyle: .file)
-                let audioStr = summary.audioCodec ?? "なし(映像のみ)"
+                let audioStr = summary.audioCodec ?? NSLocalizedString("None (Video Only)", comment: "")
                 let segStr = summary.isSeparateAudioMerged
-                    ? "映像\(summary.videoSegmentCount)+音声\(summary.audioSegmentCount)seg (同期補正:\(summary.avSyncOffsetMs)ms)"
+                    ? String(format: NSLocalizedString("Video %lld + Audio %lld seg (Sync offset: %lldms)", comment: ""), summary.videoSegmentCount, summary.audioSegmentCount, summary.avSyncOffsetMs)
                     : "\(summary.videoSegmentCount)seg"
-                Text("映像:\(summary.videoCodec) / 音声:\(audioStr) · Preset:\(summary.exportPresetUsed) · \(sizeStr) · \(segStr) · フレーム検査:\(summary.decodedCheckpoints)/3点合格")
+                Text(String(format: NSLocalizedString("Video: %@ / Audio: %@ · Preset: %@ · %@ · %@ · Frame checkpoints: %lld/3 passed", comment: ""), summary.videoCodec, audioStr, summary.exportPresetUsed, sizeStr, segStr, summary.decodedCheckpoints))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 if let aDur = summary.audioDurationSeconds {
-                    Text(String(format: "映像長:%.1f秒 / 音声長:%.1f秒 · ※実機再生で冒頭・中間・終端の音声同期もご確認ください", summary.durationSeconds, aDur))
+                    Text(String(format: NSLocalizedString("Video length: %.1fs / Audio length: %.1fs · *Please verify AV sync at beginning, middle, and end on real device", comment: ""), summary.durationSeconds, aDur))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -2093,7 +2101,7 @@ private struct FMP4ExportJobRow: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             case .cancelled:
-                Label("キャンセルしました", systemImage: "slash.circle")
+                Label("Cancelled", systemImage: "slash.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2116,13 +2124,13 @@ struct MoveToFolderSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("移動先のフォルダを選択") {
+                Section("Select Destination Folder") {
                     Button {
                         dismiss()
                         onSelectFolder("")
                     } label: {
                         HStack {
-                            Label("Downloads（未分類）", systemImage: "folder")
+                            Label("Downloads (Uncategorized)", systemImage: "folder")
                             Spacer()
                             if currentFolder.isEmpty {
                                 Image(systemName: "checkmark")
@@ -2148,10 +2156,10 @@ struct MoveToFolderSheet: View {
                     }
                 }
 
-                Section("新規フォルダを作成して移動") {
+                Section("Create New Folder and Move") {
                     HStack {
-                        TextField("新しいフォルダ名", text: $newFolderName)
-                        Button("作成して移動") {
+                        TextField("New Folder Name", text: $newFolderName)
+                        Button("Create and Move") {
                             let target = newFolderName
                             dismiss()
                             onSelectFolder(target)
@@ -2160,11 +2168,11 @@ struct MoveToFolderSheet: View {
                     }
                 }
             }
-            .navigationTitle("フォルダ移動")
+            .navigationTitle(Text("Move to Folder"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
             }
         }
@@ -2185,12 +2193,12 @@ private struct BatchMoveToFolderSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("移動先のフォルダを選択") {
+                Section("Select Destination Folder") {
                     Button {
                         dismiss()
                         onSelectFolder("")
                     } label: {
-                        Label("Downloads（未分類）", systemImage: "folder")
+                        Label("Downloads (Uncategorized)", systemImage: "folder")
                     }
 
                     ForEach(folders, id: \.self) { folder in
@@ -2203,10 +2211,10 @@ private struct BatchMoveToFolderSheet: View {
                     }
                 }
 
-                Section("新規フォルダを作成して移動") {
+                Section("Create New Folder and Move") {
                     HStack {
-                        TextField("新しいフォルダ名", text: $newFolderName)
-                        Button("作成して移動") {
+                        TextField("New Folder Name", text: $newFolderName)
+                        Button("Create and Move") {
                             let target = newFolderName
                             dismiss()
                             onSelectFolder(target)
@@ -2215,11 +2223,11 @@ private struct BatchMoveToFolderSheet: View {
                     }
                 }
             }
-            .navigationTitle("\(count) 件の動画を移動")
+            .navigationTitle(String(format: NSLocalizedString("Move %lld Videos", comment: ""), count))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
             }
         }

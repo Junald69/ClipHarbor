@@ -21,8 +21,8 @@ final class VideoFolderManager: ObservableObject {
 
         var title: String {
             switch self {
-            case .all: return "すべての動画"
-            case .uncategorized: return "Downloads（未分類）"
+            case .all: return NSLocalizedString("All Videos", comment: "")
+            case .uncategorized: return NSLocalizedString("Downloads (Uncategorized)", comment: "")
             case .folder(let name): return name
             }
         }
@@ -36,9 +36,9 @@ final class VideoFolderManager: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .emptyName:
-                return "有効な名前を入力してください。"
+                return NSLocalizedString("Please enter a valid name.", comment: "")
             case .alreadyExists:
-                return "同じ名前のフォルダが既に存在します。"
+                return NSLocalizedString("A folder with the same name already exists.", comment: "")
             case .fileOperationFailed(let message):
                 return message
             }
@@ -141,7 +141,7 @@ final class VideoFolderManager: ObservableObject {
             persistState()
             return .success(clean)
         } catch {
-            return .failure(.fileOperationFailed("フォルダを作成できませんでした。"))
+            return .failure(.fileOperationFailed(NSLocalizedString("Failed to create folder.", comment: "")))
         }
     }
 
@@ -161,7 +161,7 @@ final class VideoFolderManager: ObservableObject {
             let newURL = root.appendingPathComponent(cleanNew, isDirectory: true)
             guard FileNaming.isDirectChild(oldURL, of: root),
                   FileNaming.isDirectChild(newURL, of: root) else {
-                return .failure(.fileOperationFailed("フォルダ名が不正です。"))
+                return .failure(.fileOperationFailed(NSLocalizedString("Invalid folder name.", comment: "")))
             }
 
             if FileManager.default.fileExists(atPath: oldURL.path) {
@@ -201,7 +201,7 @@ final class VideoFolderManager: ObservableObject {
             persistState()
             return .success(cleanNew)
         } catch {
-            return .failure(.fileOperationFailed("フォルダ名を変更できませんでした。"))
+            return .failure(.fileOperationFailed(NSLocalizedString("Failed to rename folder.", comment: "")))
         }
     }
 
@@ -272,7 +272,7 @@ final class VideoFolderManager: ObservableObject {
 
             if currentParent != targetParent {
                 guard FileManager.default.fileExists(atPath: currentURL.path) else {
-                    return .failure(.fileOperationFailed("移動元のファイルが見つかりません。"))
+                    return .failure(.fileOperationFailed(NSLocalizedString("Source file not found.", comment: "")))
                 }
                 let ext = currentURL.pathExtension.isEmpty ? video.format.rawValue : currentURL.pathExtension
                 let base = FileNaming.sanitizedBaseName(video.title)
@@ -284,7 +284,7 @@ final class VideoFolderManager: ObservableObject {
                 guard FileNaming.isDirectChild(destURL, of: targetDir),
                       Self.isDescendant(destURL, of: root),
                       let rel = SavedVideo.relativePath(for: destURL) else {
-                    return .failure(.fileOperationFailed("移動先のパスが不正です。"))
+                    return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
                 }
                 try FileManager.default.moveItem(at: currentURL, to: destURL)
                 downloads.updateSavedVideo(id: video.id, relativePath: rel)
@@ -298,7 +298,7 @@ final class VideoFolderManager: ObservableObject {
             persistState()
             return .success(())
         } catch {
-            return .failure(.fileOperationFailed("ファイルを移動できませんでした。"))
+            return .failure(.fileOperationFailed(NSLocalizedString("Failed to move file.", comment: "")))
         }
     }
 
@@ -328,7 +328,7 @@ final class VideoFolderManager: ObservableObject {
                 guard FileNaming.isDirectChild(destURL, of: parentDir),
                       Self.isDescendant(destURL, of: root),
                       let rel = SavedVideo.relativePath(for: destURL) else {
-                    return .failure(.fileOperationFailed("ファイル名が不正です。"))
+                    return .failure(.fileOperationFailed(NSLocalizedString("Invalid file name.", comment: "")))
                 }
                 try FileManager.default.moveItem(at: currentURL, to: destURL)
                 VideoThumbnailManager.shared.invalidateCache(for: video)
@@ -340,7 +340,7 @@ final class VideoFolderManager: ObservableObject {
             downloads.updateSavedVideo(id: video.id, title: cleanTitle)
             return .success(())
         } catch {
-            return .failure(.fileOperationFailed("名前を変更できませんでした。"))
+            return .failure(.fileOperationFailed(NSLocalizedString("Failed to rename.", comment: "")))
         }
     }
 

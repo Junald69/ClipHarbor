@@ -25,23 +25,23 @@ struct TrashItem: Identifiable, Codable, Equatable {
     /// 完全削除までの残り時間表示
     var remainingTimeDescription: String {
         guard let expiresAt = expiresAt else {
-            return "自動削除なし（手動で削除するまで保持）"
+            return NSLocalizedString("No auto-delete (Kept until deleted manually)", comment: "")
         }
         let remaining = expiresAt.timeIntervalSince(Date())
         if remaining <= 0 {
-            return "期限切れ (次回起動時などに削除)"
+            return NSLocalizedString("Expired (Deleted on next app launch)", comment: "")
         }
         let totalHours = Int(remaining / 3600)
         let days = totalHours / 24
         let remHours = totalHours % 24
         if days > 0 {
-            return "残り \(days)日 \(remHours)時間"
+            return String(format: NSLocalizedString("%lldd %lldh left", comment: ""), days, remHours)
         } else {
             let mins = Int((remaining.truncatingRemainder(dividingBy: 3600)) / 60)
             if totalHours > 0 {
-                return "残り \(totalHours)時間 \(mins)分"
+                return String(format: NSLocalizedString("%lldh %lldm left", comment: ""), totalHours, mins)
             } else {
-                return "残り \(max(1, mins))分"
+                return String(format: NSLocalizedString("%lldm left", comment: ""), max(1, mins))
             }
         }
     }
@@ -243,7 +243,7 @@ final class TrashManager: ObservableObject {
         }
         if alreadyProcessing {
             return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
-                NSLocalizedDescriptionKey: "この動画は現在処理中です。"
+                NSLocalizedDescriptionKey: NSLocalizedString("This video is currently being processed.", comment: "")
             ]))
         }
 
@@ -256,7 +256,7 @@ final class TrashManager: ObservableObject {
         let sourceURL = video.fileURL
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
-                NSLocalizedDescriptionKey: "対象ファイルが端末内に見つかりません。"
+                NSLocalizedDescriptionKey: NSLocalizedString("Target file was not found on device.", comment: "")
             ]))
         }
 
@@ -273,7 +273,7 @@ final class TrashManager: ObservableObject {
             ioQueue.async { [weak self] in
                 guard let self = self else {
                     continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
-                        NSLocalizedDescriptionKey: "マネージャーが破棄されました。"
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
                     ])))
                     return
                 }
@@ -323,7 +323,7 @@ final class TrashManager: ObservableObject {
                         try? self.fileManager.moveItem(at: destURL, to: sourceURL)
                         try? self.fileManager.removeItem(at: itemDir)
                         continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 501, userInfo: [
-                            NSLocalizedDescriptionKey: "メタデータの保存に失敗したため、移動を安全に取り消しました: \(error.localizedDescription)"
+                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
                         ])))
                         return
                     }
@@ -363,7 +363,7 @@ final class TrashManager: ObservableObject {
         }
         if alreadyProcessing {
             return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
-                NSLocalizedDescriptionKey: "このアイテムは現在処理中です。"
+                NSLocalizedDescriptionKey: NSLocalizedString("This video is currently being processed.", comment: "")
             ]))
         }
 
@@ -376,7 +376,7 @@ final class TrashManager: ObservableObject {
         let sourceURL = itemFileURL(for: item)
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
-                NSLocalizedDescriptionKey: "ゴミ箱内の実ファイルが見つかりません。"
+                NSLocalizedDescriptionKey: NSLocalizedString("Actual file in Trash was not found.", comment: "")
             ]))
         }
 
@@ -384,7 +384,7 @@ final class TrashManager: ObservableObject {
             ioQueue.async { [weak self] in
                 guard let self = self else {
                     continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
-                        NSLocalizedDescriptionKey: "マネージャーが破棄されました。"
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
                     ])))
                     return
                 }
@@ -442,7 +442,7 @@ final class TrashManager: ObservableObject {
                     // 新しい相対パスを計算（過去の絶対パスは一切再利用しない）
                     guard let newRelativePath = SavedVideo.relativePath(for: destURL) else {
                         throw NSError(domain: "TrashManager", code: 500, userInfo: [
-                            NSLocalizedDescriptionKey: "復元先パスの算出に失敗しました。"
+                            NSLocalizedDescriptionKey: NSLocalizedString("Failed to determine destination path for restore.", comment: "")
                         ])
                     }
 
@@ -458,7 +458,7 @@ final class TrashManager: ObservableObject {
                         // ロールバック: 復元先からゴミ箱へ戻す
                         try? self.fileManager.moveItem(at: destURL, to: sourceURL)
                         continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 502, userInfo: [
-                            NSLocalizedDescriptionKey: "メタデータの更新に失敗したため、復元を安全に取り消しました: \(error.localizedDescription)"
+                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to update metadata; safely cancelled restore: %@", comment: ""), error.localizedDescription)
                         ])))
                         return
                     }
@@ -509,7 +509,7 @@ final class TrashManager: ObservableObject {
         }
         if alreadyProcessing {
             return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
-                NSLocalizedDescriptionKey: "このアイテムは現在処理中です。"
+                NSLocalizedDescriptionKey: NSLocalizedString("This video is currently being processed.", comment: "")
             ]))
         }
 
@@ -523,7 +523,7 @@ final class TrashManager: ObservableObject {
             ioQueue.async { [weak self] in
                 guard let self = self else {
                     continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
-                        NSLocalizedDescriptionKey: "マネージャーが破棄されました。"
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
                     ])))
                     return
                 }
@@ -563,7 +563,7 @@ final class TrashManager: ObservableObject {
             ioQueue.async { [weak self] in
                 guard let self = self else {
                     continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
-                        NSLocalizedDescriptionKey: "マネージャーが破棄されました。"
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
                     ])))
                     return
                 }

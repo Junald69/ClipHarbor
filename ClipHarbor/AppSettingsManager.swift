@@ -79,11 +79,11 @@ enum TrashRetentionPeriod: Int, CaseIterable, Identifiable, Codable {
 
     var summaryText: String {
         switch self {
-        case .oneDay: return "削除から1日後に完全削除"
-        case .threeDays: return "削除から3日後に完全削除"
-        case .sevenDays: return "削除から7日後に完全削除"
-        case .thirtyDays: return "削除から30日後に完全削除"
-        case .never: return "手動で削除するまで永続保持"
+        case .oneDay: return NSLocalizedString("Permanently delete 1 day after removal", comment: "")
+        case .threeDays: return NSLocalizedString("Permanently delete 3 days after removal", comment: "")
+        case .sevenDays: return NSLocalizedString("Permanently delete 7 days after removal", comment: "")
+        case .thirtyDays: return NSLocalizedString("Permanently delete 30 days after removal", comment: "")
+        case .never: return NSLocalizedString("Keep permanently until deleted manually", comment: "")
         }
     }
 

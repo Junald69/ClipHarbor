@@ -77,11 +77,11 @@ struct TrashView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: noticeMessage)
-            .navigationTitle("ゴミ箱")
+            .navigationTitle(Text("Trash"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") {
+                    Button("Close") {
                         dismiss()
                     }
                     .disabled(isOperating)
@@ -90,7 +90,7 @@ struct TrashView: View {
                     Button(role: .destructive) {
                         showEmptyTrashAlert = true
                     } label: {
-                        Text("空にする")
+                        Text("Empty")
                             .foregroundStyle(trashManager.items.isEmpty || isOperating ? Color.secondary : Color.red)
                     }
                     .disabled(trashManager.items.isEmpty || isOperating)
@@ -100,14 +100,14 @@ struct TrashView: View {
                 trashManager.purgeExpiredItems()
             }
             .alert(
-                "項目を完全に削除",
+                NSLocalizedString("Delete Item Permanently", comment: ""),
                 isPresented: Binding(
                     get: { deletingItem != nil },
                     set: { if !$0 { deletingItem = nil } }
                 )
             ) {
-                Button("キャンセル", role: .cancel) { deletingItem = nil }
-                Button("完全に削除", role: .destructive) {
+                Button("Cancel", role: .cancel) { deletingItem = nil }
+                Button("Delete Permanently", role: .destructive) {
                     if let target = deletingItem {
                         performPermanentDelete(target)
                     }
@@ -115,18 +115,18 @@ struct TrashView: View {
                 }
             } message: {
                 if let target = deletingItem {
-                    Text("「\(target.originalTitle)」を端末から完全に削除しますか？\nこの操作は取り消せません。")
+                    Text(String(format: NSLocalizedString("Are you sure you want to permanently delete \"%@\" from this device?\nThis action cannot be undone.", comment: ""), target.originalTitle))
                 }
             }
-            .alert("ゴミ箱を空にする", isPresented: $showEmptyTrashAlert) {
-                Button("キャンセル", role: .cancel) { }
-                Button("すべて完全に削除", role: .destructive) {
+            .alert(NSLocalizedString("Empty Trash", comment: ""), isPresented: $showEmptyTrashAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete All Permanently", role: .destructive) {
                     performEmptyTrash()
                 }
             } message: {
-                Text("ゴミ箱内のすべてのファイル（\(trashManager.items.count)件）を端末から完全に削除しますか？\nこの操作は取り消せません。")
+                Text(String(format: NSLocalizedString("Are you sure you want to permanently delete all files (%lld) in Trash from this device?\nThis action cannot be undone.", comment: ""), trashManager.items.count))
             }
-            .alert("エラー", isPresented: Binding(
+            .alert(NSLocalizedString("Error", comment: ""), isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
@@ -145,7 +145,7 @@ struct TrashView: View {
                 .font(.caption)
                 .foregroundStyle(.blue)
 
-            Text("設定された保持期間（現在: \(AppSettingsManager.shared.trashRetentionPeriod.title)）が経過した動画は次回起動時などに自動削除されます")
+            Text(String(format: NSLocalizedString("Videos exceeding the configured retention period (current: %@) will be automatically deleted on next app launch, etc.", comment: ""), AppSettingsManager.shared.trashRetentionPeriod.title))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -167,9 +167,9 @@ struct TrashView: View {
             Image(systemName: "trash")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("ゴミ箱は空です")
+            Text("Trash is Empty")
                 .font(.headline)
-            Text("削除した動画はここに保管されます。\n設定された保持期間が経過すると自動削除されます（設定から変更可能）。")
+            Text("Deleted videos are kept here.\nThey will be automatically deleted after the configured retention period (can be changed in Settings).")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -189,9 +189,9 @@ struct TrashView: View {
                 isOperating = false
                 switch result {
                 case .success(let video):
-                    showToast("「\(video.title)」を復元しました")
+                    showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), video.title))
                 case .failure(let err):
-                    errorMessage = "復元に失敗しました: \(err.localizedDescription)"
+                    errorMessage = String(format: NSLocalizedString("Failed to restore: %@", comment: ""), err.localizedDescription)
                 }
             }
         }
@@ -206,9 +206,9 @@ struct TrashView: View {
                 isOperating = false
                 switch result {
                 case .success:
-                    showToast("項目を完全に削除しました")
+                    showToast(NSLocalizedString("Permanently deleted item", comment: ""))
                 case .failure(let err):
-                    errorMessage = "削除に失敗しました: \(err.localizedDescription)"
+                    errorMessage = String(format: NSLocalizedString("Failed to delete: %@", comment: ""), err.localizedDescription)
                 }
             }
         }
@@ -223,9 +223,9 @@ struct TrashView: View {
                 isOperating = false
                 switch result {
                 case .success:
-                    showToast("ゴミ箱を空にしました")
+                    showToast(NSLocalizedString("Emptied Trash", comment: ""))
                 case .failure(let err):
-                    errorMessage = "ゴミ箱のクリアに失敗しました: \(err.localizedDescription)"
+                    errorMessage = String(format: NSLocalizedString("Failed to empty Trash: %@", comment: ""), err.localizedDescription)
                 }
             }
         }
@@ -271,13 +271,13 @@ private struct AlohaTrashCardView: View {
                 // 右上: 「…」メニューボタン（個別ファイル操作用: 復元・完全削除）
                 Menu {
                     Button(action: onRestore) {
-                        Label("復元", systemImage: "arrow.uturn.backward")
+                        Label("Restore", systemImage: "arrow.uturn.backward")
                     }
 
                     Divider()
 
                     Button(role: .destructive, action: onDeletePermanently) {
-                        Label("完全に削除", systemImage: "trash")
+                        Label("Delete Permanently", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
