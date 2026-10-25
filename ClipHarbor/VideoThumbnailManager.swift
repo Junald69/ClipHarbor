@@ -49,6 +49,38 @@ final class VideoThumbnailManager: ObservableObject {
         return Self.formatDuration(seconds)
     }
 
+    // MARK: - スレッドセーフ同期ヘルパー
+
+    private func getOrStartTask(for id: UUID, taskFactory: () -> Task<UIImage?, Never>) -> (Task<UIImage?, Never>, Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let existing = inFlightThumbnailTasks[id] {
+            return (existing, false)
+        }
+        let task = taskFactory()
+        inFlightThumbnailTasks[id] = task
+        return (task, true)
+    }
+
+    private func finishTask(for id: UUID, key: NSString, image: UIImage?) {
+        lock.lock()
+        defer { lock.unlock() }
+        inFlightThumbnailTasks.removeValue(forKey: id)
+        if let image = image {
+            let cost = Int(image.size.width * image.size.height * 4)
+            thumbnailCache.setObject(image, forKey: key, cost: cost)
+        }
+    }
+
+    private func storeDuration(_ seconds: Double, for id: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        if durationCache.count >= maxDurationEntries {
+            durationCache.removeAll()
+        }
+        durationCache[id] = seconds
+    }
+
     // MARK: - 非同期取得
 
     /// サムネイルを非同期取得（キャッシュがあれば即座に返却、メインスレッド非同期）
@@ -60,31 +92,16 @@ final class VideoThumbnailManager: ObservableObject {
             return cached
         }
 
-        // 同一動画に対する重複タスクの合流
-        lock.lock()
-        if let existingTask = inFlightThumbnailTasks[video.id] {
-            lock.unlock()
-            return await existingTask.value
+        // 重複タスク管理ヘルパー（非同期コンテキストでの直接lock回避）
+        let (task, _) = getOrStartTask(for: video.id) {
+            Task.detached(priority: .utility) { [weak self] () -> UIImage? in
+                guard let self = self else { return nil }
+                return await self.generateThumbnail(for: video)
+            }
         }
-
-        // メインスレッドを阻害しないようバックグラウンドで切り離し実行
-        let task = Task.detached(priority: .utility) { [weak self] () -> UIImage? in
-            guard let self = self else { return nil }
-            return await self.generateThumbnail(for: video)
-        }
-        inFlightThumbnailTasks[video.id] = task
-        lock.unlock()
 
         let image = await task.value
-
-        lock.lock()
-        inFlightThumbnailTasks.removeValue(forKey: video.id)
-        if let image = image {
-            let cost = Int(image.size.width * image.size.height * 4)
-            thumbnailCache.setObject(image, forKey: key, cost: cost)
-        }
-        lock.unlock()
-
+        finishTask(for: video.id, key: key, image: image)
         return image
     }
 
@@ -112,15 +129,7 @@ final class VideoThumbnailManager: ObservableObject {
         }
 
         guard seconds > 0, !seconds.isNaN, !seconds.isInfinite else { return nil }
-
-        lock.lock()
-        // 上限管理
-        if durationCache.count >= maxDurationEntries {
-            durationCache.removeAll()
-        }
-        durationCache[video.id] = seconds
-        lock.unlock()
-
+        storeDuration(seconds, for: video.id)
         return seconds
     }
 
@@ -148,7 +157,7 @@ final class VideoThumbnailManager: ObservableObject {
         lock.unlock()
     }
 
-    /// 全キャッシュのクリア
+    /// 全キャッシュのクリア（メモリ解放）
     func clearAllCache() {
         lock.lock()
         thumbnailCache.removeAllObjects()
@@ -157,12 +166,15 @@ final class VideoThumbnailManager: ObservableObject {
         lock.unlock()
     }
 
-    // MARK: - プライベート生成ロジック
+    // MARK: - サムネイル生成ロジック
 
     private func generateThumbnail(for video: SavedVideo) async -> UIImage? {
-        if Task.isCancelled { return nil }
+        await generateThumbnail(forFileURL: video.fileURL)
+    }
 
-        let fileURL = video.fileURL
+    /// 任意の動画ファイルURLからサムネイルを非同期生成（ゴミ箱内動画など非公開ファイルにも対応）
+    func generateThumbnail(forFileURL fileURL: URL) async -> UIImage? {
+        if Task.isCancelled { return nil }
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return nil
         }

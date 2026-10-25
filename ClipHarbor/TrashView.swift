@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// アプリ内ゴミ箱画面
-/// - 削除された動画の一覧、サイズ、完全削除までの残り時間を表示
-/// - 個別の復元、個別の完全削除、ゴミ箱を空にする操作を提供
-/// - 誤操作防止の確認ダイアログを完備
-/// - 非同期実行と二重タップ防止、UI処理中インジケータ対応
+/// アプリ内ゴミ箱画面（Aloha風の2列カードグリッドUI）
+/// - 通常ファイル一覧と完全統一された2列グリッド（サムネイル高140pt・角丸16pt・上端厳格整列）
+/// - Dynamic Type対応の2行タイトル領域予約＋形式・容量行＋残り保持時間バッジ
+/// - ゴミ箱内非公開領域に永続化されたサムネイル画像の非同期読み込み・表示
+/// - 各カード右上の「…」メニューから「復元」「完全に削除」を個別実行
+/// - ツールバーの「閉じる」「空にする」と誤操作防止の確認ダイアログ
+/// - 説明バナーの余白を最適化し、一覧の表示領域を最大化
 struct TrashView: View {
     @ObservedObject var trashManager = TrashManager.shared
     @ObservedObject var downloads: DownloadCenter
@@ -17,39 +19,46 @@ struct TrashView: View {
     @State private var errorMessage: String?
     @State private var isOperating = false
 
+    /// 左右のサムネイル上端を厳格に揃えるため alignment: .top を明示指定
+    private let gridColumns = [
+        GridItem(.flexible(), spacing: 14, alignment: .top),
+        GridItem(.flexible(), spacing: 14, alignment: .top)
+    ]
+
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
                 if trashManager.items.isEmpty {
                     emptyTrashPlaceholder
                 } else {
-                    List {
-                        Section {
-                            infoBanner
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(Color.clear)
-                        }
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            // コンパクトな説明バナー（余分な空白を排除し一覧領域を拡大）
+                            compactInfoBanner
 
-                        Section {
-                            ForEach(trashManager.items) { item in
-                                TrashItemRow(
-                                    item: item,
-                                    isItemProcessing: trashManager.processingItemIDs.contains(item.id) || isOperating,
-                                    onRestore: {
-                                        restoreItem(item)
-                                    },
-                                    onDeletePermanently: {
-                                        deletingItem = item
-                                    }
-                                )
+                            // 2列カードグリッド（通常一覧と完全に同一の整列仕様）
+                            LazyVGrid(columns: gridColumns, spacing: 18) {
+                                ForEach(trashManager.items) { item in
+                                    AlohaTrashCardView(
+                                        item: item,
+                                        isProcessing: trashManager.processingItemIDs.contains(item.id) || isOperating,
+                                        onRestore: {
+                                            restoreItem(item)
+                                        },
+                                        onDeletePermanently: {
+                                            deletingItem = item
+                                        }
+                                    )
+                                }
                             }
-                        } header: {
-                            Text("保管中の動画 (\(trashManager.items.count)件)")
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 24)
                         }
                     }
-                    .listStyle(.insetGrouped)
                 }
 
+                // 操作通知トースト
                 if let notice = noticeMessage {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill")
@@ -128,28 +137,30 @@ struct TrashView: View {
         }
     }
 
-    // MARK: - インフォバナー
+    // MARK: - コンパクトなインフォバナー
 
-    private var infoBanner: some View {
-        HStack(alignment: .top, spacing: 10) {
+    private var compactInfoBanner: some View {
+        HStack(spacing: 8) {
             Image(systemName: "info.circle.fill")
+                .font(.caption)
                 .foregroundStyle(.blue)
-                .font(.subheadline)
-                .padding(.top, 1)
 
             Text("削除から3日経過後、次回のアプリ起動時などに完全削除されます")
-                .font(.caption)
+                .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Spacer()
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.top, 4)
     }
 
-    // MARK: - プレースホルダー
+    // MARK: - プレースホルダー（ゴミ箱が空の場合）
 
     private var emptyTrashPlaceholder: some View {
         VStack(spacing: 14) {
@@ -158,7 +169,7 @@ struct TrashView: View {
                 .foregroundStyle(.secondary)
             Text("ゴミ箱は空です")
                 .font(.headline)
-            Text("削除した動画はここに3日間保管されます。\n削除から3日経過後、次回のアプリ起動時などに完全削除されます。")
+            Text("削除した動画はここに保管されます。\n削除から3日経過後、次回のアプリ起動時などに完全削除されます。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -233,101 +244,144 @@ struct TrashView: View {
     }
 }
 
-// MARK: - ゴミ箱アイテム行
+// MARK: - Aloha風ゴミ箱動画カード（通常一覧と厳密に揃えた2列グリッドカード）
 
-private struct TrashItemRow: View {
+private struct AlohaTrashCardView: View {
     let item: TrashItem
-    var isItemProcessing: Bool = false
+    let isProcessing: Bool
     let onRestore: () -> Void
     let onDeletePermanently: () -> Void
 
+    @ObservedObject private var trashManager = TrashManager.shared
+
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption2) private var subtitleHeight: CGFloat = 16
+    @ScaledMetric(relativeTo: .caption2) private var expiryHeight: CGFloat = 16
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                // アイコン
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(.secondarySystemBackground))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: item.format == .hls ? "film.stack" : "play.rectangle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            // サムネイル領域（高さ140pt・角丸16pt固定、中央トリミング）
+            ZStack(alignment: .topTrailing) {
+                TrashClippedThumbnailTileView(item: item)
+                    .frame(height: 140)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                // タイトルと詳細
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.originalTitle)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-
-                    HStack(spacing: 4) {
-                        Text(item.format.label)
-                            .font(.caption2.weight(.semibold))
-
-                        if let size = item.byteSize, size > 0 {
-                            Text("· \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
-                        }
-
-                        if !item.originalFolderName.isEmpty {
-                            Text("· フォルダ: \(item.originalFolderName)")
-                        }
+                // 右上: 「…」メニューボタン（個別ファイル操作用: 復元・完全削除）
+                Menu {
+                    Button(action: onRestore) {
+                        Label("復元", systemImage: "arrow.uturn.backward")
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    Button(role: .destructive, action: onDeletePermanently) {
+                        Label("完全に削除", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.92), in: Circle())
+                        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                        .padding(8)
                 }
+                .buttonStyle(.plain)
+                .disabled(isProcessing)
 
-                Spacer()
+                // 処理中スピナー表示
+                if isProcessing {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.black.opacity(0.35))
+                        ProgressView()
+                            .tint(.white)
+                    }
+                }
             }
+            .frame(height: 140)
 
-            // 残り時間バッジとアクションボタン
-            HStack(spacing: 10) {
-                // 残り時間バッジ
+            // テキスト情報領域（Dynamic Type対応で高さを厳格予約し左右の上端を完全一致）
+            VStack(alignment: .leading, spacing: 2) {
+                // ファイル名（最大2行表示、1行の場合も2行分を確保）
+                Text(item.originalTitle)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(height: titleLineHeight * 2, alignment: .topLeading)
+
+                // 形式・容量（1行固定）
                 HStack(spacing: 4) {
+                    Text(item.format.label)
+                        .font(.caption2.weight(.semibold))
+
+                    if let size = item.byteSize, size > 0 {
+                        Text("· \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
+                            .font(.caption2)
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .frame(height: subtitleHeight, alignment: .leading)
+
+                // ゴミ箱特有情報: 完全削除までの残り時間
+                HStack(spacing: 3) {
                     Image(systemName: "clock")
-                        .font(.caption2)
+                        .font(.system(size: 9))
                     Text(item.remainingTimeDescription)
                         .font(.caption2.weight(.medium))
                 }
                 .foregroundStyle(item.isExpired ? Color.red : Color.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(
-                    (item.isExpired ? Color.red.opacity(0.12) : Color(.secondarySystemBackground)),
-                    in: Capsule()
-                )
+                .frame(height: expiryHeight, alignment: .leading)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+}
 
-                Spacer()
+// MARK: - ゴミ箱専用サムネイルタイル（非公開領域から読み込み・枠内中央トリミング）
 
-                if isItemProcessing {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .frame(height: 26)
+private struct TrashClippedThumbnailTileView: View {
+    let item: TrashItem
+    @State private var thumbnail: UIImage?
+    @State private var hasAttemptedLoad = false
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = max(1, geo.size.width)
+            let h = max(1, geo.size.height)
+
+            ZStack {
+                Color(.secondarySystemBackground)
+
+                if let img = thumbnail {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: w, height: h)
+                        .clipped()
                 } else {
-                    // 復元ボタン
-                    Button(action: onRestore) {
-                        Label("復元", systemImage: "arrow.uturn.backward")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.blue)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.12), in: Capsule())
+                    // サムネイル未取得または生成不可時のプレースホルダー
+                    VStack(spacing: 6) {
+                        Image(systemName: item.format == .hls ? "film.stack" : "play.rectangle.fill")
+                            .font(.system(size: 32))
+                            .foregroundStyle(.secondary)
+                        Text(item.format.label)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-
-                    // 完全削除ボタン
-                    Button(action: onDeletePermanently) {
-                        Image(systemName: "trash")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.red)
-                            .padding(6)
-                            .background(Color.red.opacity(0.1), in: Circle())
-                    }
-                    .buttonStyle(.plain)
                 }
             }
-            .padding(.top, 2)
+            .task(id: item.id) {
+                guard !hasAttemptedLoad else { return }
+                hasAttemptedLoad = true
+                let loaded = await TrashManager.shared.loadThumbnail(for: item)
+                await MainActor.run {
+                    self.thumbnail = loaded
+                }
+            }
         }
-        .padding(.vertical, 4)
     }
 }

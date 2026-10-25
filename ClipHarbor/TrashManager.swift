@@ -44,6 +44,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
 
 /// アプリ内ゴミ箱管理マネージャー
 /// - 保存先: `Library/Application Support/Trash/`（iOSファイルアプリから不可視、OS自動消去対象外）
+/// - サムネイル保存: `Library/Application Support/Trash/<id>/thumbnail.jpg`（非公開領域に永続化、再起動後も表示）
 /// - 72時間（3日間）保持後に次回起動時またはフォアグラウンド復帰時にバックグラウンド完全削除
 /// - 大容量ファイルの操作はバックグラウンドシリアルキューで実行しメインスレッドを阻害しない
 /// - 二重操作防止（処理中アイテムのロック管理）
@@ -61,6 +62,7 @@ final class TrashManager: ObservableObject {
 
     private let fileManager = FileManager.default
     private let ioQueue = DispatchQueue(label: "com.clipharbor.trashmanager.io", qos: .userInitiated)
+    private let trashThumbnailCache = NSCache<NSString, UIImage>()
 
     // MARK: - パス管理
 
@@ -85,9 +87,16 @@ final class TrashManager: ObservableObject {
         itemDirectoryURL(for: item.id).appendingPathComponent(item.fileName)
     }
 
+    func itemThumbnailURL(for item: TrashItem) -> URL {
+        itemDirectoryURL(for: item.id).appendingPathComponent("thumbnail.jpg")
+    }
+
     // MARK: - 初期化とライフサイクル
 
     private init() {
+        trashThumbnailCache.countLimit = 100
+        trashThumbnailCache.totalCostLimit = 40 * 1024 * 1024
+
         loadMetadataSafely()
         purgeExpiredItems()
 
@@ -104,6 +113,40 @@ final class TrashManager: ObservableObject {
         purgeExpiredItems()
     }
 
+    // MARK: - サムネイル取得・永続化
+
+    /// ゴミ箱内アイテムのサムネイル取得（非公開領域に永続化、再起動後も安定表示）
+    func loadThumbnail(for item: TrashItem) async -> UIImage? {
+        let cacheKey = item.id.uuidString as NSString
+        if let cached = trashThumbnailCache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        let thumbURL = itemThumbnailURL(for: item)
+
+        // 1. ゴミ箱専用ディレクトリ内のサムネイルファイルが存在すれば直接読み込み
+        if fileManager.fileExists(atPath: thumbURL.path),
+           let data = try? Data(contentsOf: thumbURL),
+           let img = UIImage(data: data) {
+            let cost = Int(img.size.width * img.size.height * 4)
+            trashThumbnailCache.setObject(img, forKey: cacheKey, cost: cost)
+            return img
+        }
+
+        // 2. なければ実ファイルから非同期生成して保存
+        let videoURL = itemFileURL(for: item)
+        if let generated = await VideoThumbnailManager.shared.generateThumbnail(forFileURL: videoURL) {
+            let cost = Int(generated.size.width * generated.size.height * 4)
+            trashThumbnailCache.setObject(generated, forKey: cacheKey, cost: cost)
+            if let jpegData = generated.jpegData(compressionQuality: 0.75) {
+                try? jpegData.write(to: thumbURL, options: .atomic)
+            }
+            return generated
+        }
+
+        return nil
+    }
+
     // MARK: - 二重操作ロック管理
 
     private func isProcessing(_ id: UUID) -> Bool {
@@ -118,7 +161,7 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - ゴミ箱へ移動（非同期・ロールバック完備）
+    // MARK: - ゴミ箱へ移動（非同期・サムネイル永続化・ロールバック完備）
 
     @discardableResult
     func moveToTrash(
@@ -159,6 +202,9 @@ final class TrashManager: ObservableObject {
         let fileName = sourceURL.lastPathComponent
         let destURL = itemDir.appendingPathComponent(fileName)
 
+        // 移動前のキャッシュサムネイルを取得
+        let preCachedThumb = VideoThumbnailManager.shared.cachedThumbnail(for: video)
+
         return await withCheckedContinuation { continuation in
             ioQueue.async { [weak self] in
                 guard let self = self else {
@@ -174,6 +220,16 @@ final class TrashManager: ObservableObject {
 
                     // 2. 実ファイルまたはHLSディレクトリ一式をゴミ箱へ移動
                     try self.fileManager.moveItem(at: sourceURL, to: destURL)
+
+                    // 3. サムネイル画像をゴミ箱内ディレクトリに永続保存（再起動後も表示維持）
+                    let thumbDest = itemDir.appendingPathComponent("thumbnail.jpg")
+                    if let thumb = preCachedThumb,
+                       let jpegData = thumb.jpegData(compressionQuality: 0.75) {
+                        try? jpegData.write(to: thumbDest, options: .atomic)
+                        let cacheKey = trashID.uuidString as NSString
+                        let cost = Int(thumb.size.width * thumb.size.height * 4)
+                        self.trashThumbnailCache.setObject(thumb, forKey: cacheKey, cost: cost)
+                    }
 
                     let now = Date()
                     let expiresAt = now.addingTimeInterval(Self.expirationInterval)
@@ -192,7 +248,7 @@ final class TrashManager: ObservableObject {
                         fileName: fileName
                     )
 
-                    // 3. メタデータ永続化（失敗時は直ちにファイル移動をロールバック）
+                    // 4. メタデータ永続化（失敗時は直ちにファイル移動をロールバック）
                     var updatedItems = self.items
                     updatedItems.insert(trashItem, at: 0)
                     do {
@@ -207,7 +263,7 @@ final class TrashManager: ObservableObject {
                         return
                     }
 
-                    // 4. メタデータ保存成功後に初めて通常一覧から除外
+                    // 5. メタデータ保存成功後に初めて通常一覧から除外
                     DispatchQueue.main.async {
                         self.items = updatedItems
                         downloads.removeSavedVideoWithoutDeletingFile(id: video.id)
@@ -342,9 +398,10 @@ final class TrashManager: ObservableObject {
                         return
                     }
 
-                    // 3. ゴミ箱一時ディレクトリを片付け
+                    // 3. ゴミ箱一時ディレクトリ（サムネイル画像含む）を片付け
                     let itemDir = self.itemDirectoryURL(for: item.id)
                     try? self.fileManager.removeItem(at: itemDir)
+                    self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
 
                     // 4. メタデータ永続化成功後に通常一覧とフォルダ管理へ登録
                     let restoredVideo = SavedVideo(
@@ -373,7 +430,7 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - 個別の完全削除（非同期・失敗時は一覧から消さない）
+    // MARK: - 個別の完全削除（非同期・サムネイルも消去）
 
     @discardableResult
     func deletePermanently(item: TrashItem) async -> Result<Void, Error> {
@@ -407,10 +464,11 @@ final class TrashManager: ObservableObject {
 
                 let itemDir = self.itemDirectoryURL(for: item.id)
                 do {
-                    // 1. 実ファイルを完全削除（失敗時は例外がスローされ、一覧からは消さない）
+                    // 1. 実ファイルおよびサムネイルを含むアイテムディレクトリを一括完全削除
                     if self.fileManager.fileExists(atPath: itemDir.path) {
                         try self.fileManager.removeItem(at: itemDir)
                     }
+                    self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
 
                     // 2. メタデータを更新
                     var updatedItems = self.items
@@ -422,14 +480,13 @@ final class TrashManager: ObservableObject {
                         continuation.resume(returning: .success(()))
                     }
                 } catch {
-                    // 削除失敗時は一覧から消さずに失敗を返す
                     continuation.resume(returning: .failure(error))
                 }
             }
         }
     }
 
-    // MARK: - ゴミ箱を空にする（非同期・失敗時は成功分のみ反映）
+    // MARK: - ゴミ箱を空にする（非同期・サムネイルも一括消去）
 
     @discardableResult
     func emptyTrash() async -> Result<Void, Error> {
@@ -454,6 +511,7 @@ final class TrashManager: ObservableObject {
                         if self.fileManager.fileExists(atPath: itemDir.path) {
                             try self.fileManager.removeItem(at: itemDir)
                         }
+                        self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
                     } catch {
                         firstError = error
                         remainingItems.append(item)
@@ -499,6 +557,7 @@ final class TrashManager: ObservableObject {
                     if self.fileManager.fileExists(atPath: itemDir.path) {
                         try self.fileManager.removeItem(at: itemDir)
                     }
+                    self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
                     successfullyDeletedIDs.insert(item.id)
                 } catch {
                     print("[TrashManager] Failed to auto-purge item \(item.id): \(error)")
@@ -561,7 +620,7 @@ final class TrashManager: ObservableObject {
         for dir in subdirs where dir.hasDirectoryPath {
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
             guard let files = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]),
-                  let firstFile = files.first(where: { !$0.lastPathComponent.hasPrefix(".") }) else {
+                  let firstFile = files.first(where: { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "thumbnail.jpg" }) else {
                 continue
             }
 

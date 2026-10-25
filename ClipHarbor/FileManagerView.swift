@@ -28,6 +28,13 @@ struct FileManagerView: View {
     @State private var playingVideo: SavedVideo?
     @State private var movingVideo: SavedVideo?
     @State private var showTrashSheet = false
+    @State private var showSettingsSheet = false
+
+    // 複数選択モード
+    @State private var isSelecting = false
+    @State private var selectedVideoIDs: Set<UUID> = []
+    @State private var showBatchMoveSheet = false
+    @State private var showBatchDeleteAlert = false
 
     // フォルダ操作用ダイアログ
     @State private var showNewFolderAlert = false
@@ -100,8 +107,15 @@ struct FileManagerView: View {
                 }
                 .scrollDismissesKeyboard(.immediately)
 
-                // 下部フローティング操作バー
-                floatingBottomBar(isRoot: true)
+                // 下部フローティング操作バー（選択モード時と通常時を切り替え）
+                if isSelecting {
+                    let currentVideos = searchText.isEmpty
+                        ? folderManager.videos(in: .uncategorized)
+                        : folderManager.videos(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+                    selectionBottomBar(currentVideos: currentVideos)
+                } else {
+                    floatingBottomBar(isRoot: true)
+                }
 
                 // コピー・ゴミ箱移動完了トースト
                 if let notice = copyNotice {
@@ -125,49 +139,86 @@ struct FileManagerView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
-            .navigationTitle("ファイル")
+            .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(Color(.secondarySystemBackground), in: Circle())
+                    if isSelecting {
+                        Button("キャンセル") {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isSelecting = false
+                                selectedVideoIDs.removeAll()
+                            }
+                        }
+                    } else {
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 32, height: 32)
+                                .background(Color(.secondarySystemBackground), in: Circle())
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            showTrashSheet = true
-                        } label: {
-                            Label("ゴミ箱 (\(trashManager.items.count))", systemImage: "trash")
+                    if isSelecting {
+                        Button("完了") {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isSelecting = false
+                                selectedVideoIDs.removeAll()
+                            }
                         }
+                        .font(.body.weight(.semibold))
+                    } else {
+                        Menu {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    isSelecting = true
+                                    selectedVideoIDs.removeAll()
+                                }
+                            } label: {
+                                Label("選択", systemImage: "checkmark.circle")
+                            }
+                            .disabled(downloads.saved.isEmpty)
 
-                        Divider()
+                            Button {
+                                showSettingsSheet = true
+                            } label: {
+                                Label("設定", systemImage: "gearshape")
+                            }
 
-                        Button {
-                            newFolderName = ""
-                            showNewFolderAlert = true
+                            Divider()
+
+                            Button {
+                                showTrashSheet = true
+                            } label: {
+                                Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
+                            }
+
+                            Divider()
+
+                            Button {
+                                newFolderName = ""
+                                showNewFolderAlert = true
+                            } label: {
+                                Label("新規フォルダ作成", systemImage: "folder.badge.plus")
+                            }
+                            Button {
+                                folderManager.syncWithFileSystemAndSavedVideos()
+                            } label: {
+                                Label("表示を更新", systemImage: "arrow.clockwise")
+                            }
+                            Divider()
+                            pocVerificationMenu
                         } label: {
-                            Label("新規フォルダ作成", systemImage: "folder.badge.plus")
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 32, height: 32)
+                                .background(Color(.secondarySystemBackground), in: Circle())
                         }
-                        Button {
-                            folderManager.syncWithFileSystemAndSavedVideos()
-                        } label: {
-                            Label("表示を更新", systemImage: "arrow.clockwise")
-                        }
-                        Divider()
-                        pocVerificationMenu
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(Color(.secondarySystemBackground), in: Circle())
                     }
                 }
             }
@@ -199,6 +250,29 @@ struct FileManagerView: View {
                     downloads: downloads,
                     folderManager: folderManager
                 )
+            }
+            .sheet(isPresented: $showSettingsSheet) {
+                FileManagerSettingsView(
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+            }
+            .sheet(isPresented: $showBatchMoveSheet) {
+                BatchMoveToFolderSheet(
+                    count: selectedVideoIDs.count,
+                    folders: folderManager.folders,
+                    onSelectFolder: { targetFolder in
+                        handleBatchMoveToFolder(targetFolder: targetFolder)
+                    }
+                )
+            }
+            .alert("選択した動画をゴミ箱へ移動", isPresented: $showBatchDeleteAlert) {
+                Button("キャンセル", role: .cancel) { }
+                Button("ゴミ箱へ移動", role: .destructive) {
+                    handleBatchMoveToTrash(videos: downloads.saved)
+                }
+            } message: {
+                Text("選択した \(selectedVideoIDs.count) 件の動画をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
             }
             .alert("新規フォルダを作成", isPresented: $showNewFolderAlert) {
                 TextField("フォルダ名", text: $newFolderName)
@@ -466,6 +540,15 @@ struct FileManagerView: View {
                             ForEach(filteredVideos) { video in
                                 AlohaVideoCardView(
                                     video: video,
+                                    isSelecting: isSelecting,
+                                    isSelected: selectedVideoIDs.contains(video.id),
+                                    onToggleSelect: {
+                                        if selectedVideoIDs.contains(video.id) {
+                                            selectedVideoIDs.remove(video.id)
+                                        } else {
+                                            selectedVideoIDs.insert(video.id)
+                                        }
+                                    },
                                     onPlay: { playingVideo = video },
                                     onRename: {
                                         renameVideoInput = video.title
@@ -491,11 +574,75 @@ struct FileManagerView: View {
             }
             .scrollDismissesKeyboard(.immediately)
 
-            // フォルダ内フローティング操作バー
-            floatingBottomBar(isRoot: false)
+            // フォルダ内フローティング操作バー（選択モード切替対応）
+            if isSelecting {
+                selectionBottomBar(currentVideos: filteredVideos)
+            } else {
+                floatingBottomBar(isRoot: false)
+            }
         }
-        .navigationTitle(filter.title)
+        .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : filter.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isSelecting {
+                    Button("完了") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSelecting = false
+                            selectedVideoIDs.removeAll()
+                        }
+                    }
+                    .font(.body.weight(.semibold))
+                } else {
+                    Menu {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isSelecting = true
+                                selectedVideoIDs.removeAll()
+                            }
+                        } label: {
+                            Label("選択", systemImage: "checkmark.circle")
+                        }
+                        .disabled(filteredVideos.isEmpty)
+
+                        Button {
+                            showSettingsSheet = true
+                        } label: {
+                            Label("設定", systemImage: "gearshape")
+                        }
+
+                        Divider()
+
+                        Button {
+                            showTrashSheet = true
+                        } label: {
+                            Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
+                        }
+
+                        if case .folder(let folderName) = filter {
+                            Divider()
+                            Button {
+                                renameFolderInput = folderName
+                                renamingFolder = folderName
+                            } label: {
+                                Label("フォルダ名を変更", systemImage: "pencil")
+                            }
+                            Button(role: .destructive) {
+                                deletingFolder = folderName
+                            } label: {
+                                Label("フォルダを削除", systemImage: "trash")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 32, height: 32)
+                            .background(Color(.secondarySystemBackground), in: Circle())
+                    }
+                }
+            }
+        }
         // 遷移先画面自身に確認ダイアログを接続することで確実に表示されるよう修正
         .confirmationDialog(
             "動画をゴミ箱へ移動",
@@ -517,32 +664,6 @@ struct FileManagerView: View {
         } message: {
             if let target = deletingVideo {
                 Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
-            }
-        }
-        .toolbar {
-            if case .folder(let folderName) = filter {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            renameFolderInput = folderName
-                            renamingFolder = folderName
-                        } label: {
-                            Label("フォルダ名を変更", systemImage: "pencil")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            deletingFolder = folderName
-                        } label: {
-                            Label("フォルダを削除", systemImage: "trash")
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 32, height: 32)
-                            .background(Color(.secondarySystemBackground), in: Circle())
-                    }
-                }
             }
         }
     }
@@ -591,6 +712,15 @@ struct FileManagerView: View {
                             ForEach(matchedVideos) { video in
                                 AlohaVideoCardView(
                                     video: video,
+                                    isSelecting: isSelecting,
+                                    isSelected: selectedVideoIDs.contains(video.id),
+                                    onToggleSelect: {
+                                        if selectedVideoIDs.contains(video.id) {
+                                            selectedVideoIDs.remove(video.id)
+                                        } else {
+                                            selectedVideoIDs.insert(video.id)
+                                        }
+                                    },
                                     onPlay: { playingVideo = video },
                                     onRename: {
                                         renameVideoInput = video.title
@@ -664,8 +794,8 @@ struct FileManagerView: View {
             .background(.ultraThinMaterial, in: Capsule())
             .shadow(color: Color.black.opacity(0.12), radius: 8, y: 3)
 
-            // 右側: 並び替え・ゴミ箱・新規フォルダ・アクションボタン
-            HStack(spacing: 14) {
+            // 右側: 並び替え・新規フォルダ・アクションボタン（選択・設定・ゴミ箱を排除し窮屈さを解消）
+            HStack(spacing: 12) {
                 // 並び替えメニュー
                 Menu {
                     ForEach(SortOption.allCases) { opt in
@@ -684,23 +814,6 @@ struct FileManagerView: View {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
-                }
-
-                // ゴミ箱ショートカットボタン
-                Button {
-                    showTrashSheet = true
-                } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "trash")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                        if !trashManager.items.isEmpty {
-                            Circle()
-                                .fill(Color.orange)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 4, y: -3)
-                        }
-                    }
                 }
 
                 // 新規フォルダ作成ボタン
@@ -724,13 +837,18 @@ struct FileManagerView: View {
                     Button {
                         showTrashSheet = true
                     } label: {
-                        Label("ゴミ箱を開く", systemImage: "trash")
+                        Label("ゴミ箱を開く (\(trashManager.items.count))", systemImage: "trash")
+                    }
+                    Button {
+                        showSettingsSheet = true
+                    } label: {
+                        Label("設定を開く", systemImage: "gearshape")
                     }
                 } label: {
                     Image(systemName: "plus")
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 32, height: 32)
                         .background(alohaTeal, in: Circle())
                 }
             }
@@ -741,6 +859,115 @@ struct FileManagerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
+    }
+
+    // MARK: - 複数選択モード専用フローティングバー
+
+    private func selectionBottomBar(currentVideos: [SavedVideo]) -> some View {
+        HStack(spacing: 12) {
+            // 全選択 / 選択解除ボタン
+            Button {
+                if selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty {
+                    selectedVideoIDs.removeAll()
+                } else {
+                    selectedVideoIDs = Set(currentVideos.map { $0.id })
+                }
+            } label: {
+                Text(selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty ? "選択解除" : "全選択")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(.secondarySystemBackground), in: Capsule())
+            }
+
+            Spacer()
+
+            // 選択件数
+            Text("\(selectedVideoIDs.count) 件選択中")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            // 一括操作ボタン群
+            HStack(spacing: 8) {
+                // 一括フォルダ移動
+                Button {
+                    showBatchMoveSheet = true
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.primary)
+                        .frame(width: 34, height: 34)
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                }
+                .disabled(selectedVideoIDs.isEmpty)
+
+                // 一括ゴミ箱移動
+                Button {
+                    showBatchDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.red)
+                        .frame(width: 34, height: 34)
+                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.red.opacity(0.12), in: Circle())
+                }
+                .disabled(selectedVideoIDs.isEmpty)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 10, y: 4)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 10)
+    }
+
+    // MARK: - 一括操作処理
+
+    private func handleBatchMoveToFolder(targetFolder: String) {
+        let targets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        var successCount = 0
+        for v in targets {
+            if case .success = folderManager.moveVideo(v, toFolder: targetFolder) {
+                successCount += 1
+            }
+        }
+        withAnimation {
+            isSelecting = false
+            selectedVideoIDs.removeAll()
+        }
+        let destName = targetFolder.isEmpty ? "Downloads（未分類）" : "「\(targetFolder)」"
+        showToast("\(successCount) 件の動画を \(destName) へ移動しました")
+    }
+
+    private func handleBatchMoveToTrash(videos: [SavedVideo]) {
+        let targets = videos.filter { selectedVideoIDs.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        Task {
+            var successCount = 0
+            for v in targets {
+                let folder = folderManager.folderName(for: v)
+                if case .success = await trashManager.moveToTrash(
+                    video: v,
+                    folderName: folder,
+                    downloads: downloads,
+                    folderManager: folderManager
+                ) {
+                    successCount += 1
+                }
+            }
+            await MainActor.run {
+                withAnimation {
+                    isSelecting = false
+                    selectedVideoIDs.removeAll()
+                }
+                showToast("\(successCount) 件の動画をゴミ箱へ移動しました")
+            }
+        }
     }
 
     // MARK: - 進行中ダウンロード・MP4変換バナー
@@ -953,10 +1180,13 @@ private struct FolderMosaicView: View {
     }
 }
 
-// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化・枠内厳格フィット・上端整列）
+// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化・枠内厳格フィット・上端整列・複数選択対応）
 
 private struct AlohaVideoCardView: View {
     let video: SavedVideo
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelect: (() -> Void)? = nil
     let onPlay: () -> Void
     let onRename: () -> Void
     let onMove: () -> Void
@@ -980,8 +1210,14 @@ private struct AlohaVideoCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                // サムネイルタップで動画再生（frame先行で枠内に中央トリミング固定）
-                Button(action: onPlay) {
+                // サムネイルタップ（選択モード時は選択トグル、通常時は再生）
+                Button {
+                    if isSelecting {
+                        onToggleSelect?()
+                    } else {
+                        onPlay()
+                    }
+                } label: {
                     GeometryReader { geo in
                         let w = max(1, geo.size.width)
                         ClippedThumbnailTileView(
@@ -998,71 +1234,102 @@ private struct AlohaVideoCardView: View {
                 }
                 .buttonStyle(.plain)
 
-                // 右下: 再生時間バッジ
-                VStack {
-                    Spacer()
+                // 選択モード中のチェックマーク（左上）
+                if isSelecting {
                     HStack {
-                        Spacer()
-                        VideoDurationBadge(video: video)
-                    }
-                }
-                .frame(height: 140)
-                .allowsHitTesting(false) // タップを下のサムネイル再生ボタンへ透過
-
-                // 右上: 「…」メニューボタン（再生ボタンの外側に配置し誤再生を防止）
-                Menu {
-                    Button(action: onPlay) {
-                        Label("再生", systemImage: "play.fill")
-                    }
-
-                    Button(action: onRename) {
-                        Label("ファイル名変更", systemImage: "pencil")
-                    }
-
-                    Button(action: onMove) {
-                        Label("フォルダ移動", systemImage: "folder")
-                    }
-
-                    if !video.isHLS && video.fileExists {
-                        ShareLink(item: video.fileURL) {
-                            Label("シェア", systemImage: "square.and.arrow.up")
+                        ZStack {
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(.blue)
+                                    .background(Circle().fill(.white))
+                            } else {
+                                Circle()
+                                    .strokeBorder(Color.white, lineWidth: 2)
+                                    .background(Circle().fill(Color.black.opacity(0.35)))
+                                    .frame(width: 24, height: 24)
+                            }
                         }
-                    }
-
-                    if let validURL = validatedSourcePageURL {
-                        Divider()
-                        Button {
-                            onOpenSourcePage(validURL)
-                        } label: {
-                            Label("元のWebページを開く", systemImage: "arrow.up.right.square")
-                        }
-                        Button {
-                            onCopySourcePageURL(validURL.absoluteString)
-                        } label: {
-                            Label("元ページのURLをコピー", systemImage: "doc.on.doc")
-                        }
-                    }
-
-                    Divider()
-
-                    Button(role: .destructive, action: onDelete) {
-                        Label("ゴミ箱へ移動", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 28, height: 28)
-                        .background(Color.white.opacity(0.92), in: Circle())
-                        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
                         .padding(8)
+                        Spacer()
+                    }
                 }
-                .buttonStyle(.plain)
+
+                // 右下: 再生時間バッジ（通常時のみ表示）
+                if !isSelecting {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            VideoDurationBadge(video: video)
+                        }
+                    }
+                    .frame(height: 140)
+                    .allowsHitTesting(false)
+                }
+
+                // 右上: 「…」メニューボタン（通常時のみ表示し誤操作を防止）
+                if !isSelecting {
+                    Menu {
+                        Button(action: onPlay) {
+                            Label("再生", systemImage: "play.fill")
+                        }
+
+                        Button(action: onRename) {
+                            Label("ファイル名変更", systemImage: "pencil")
+                        }
+
+                        Button(action: onMove) {
+                            Label("フォルダ移動", systemImage: "folder")
+                        }
+
+                        if !video.isHLS && video.fileExists {
+                            ShareLink(item: video.fileURL) {
+                                Label("シェア", systemImage: "square.and.arrow.up")
+                            }
+                        }
+
+                        if let validURL = validatedSourcePageURL {
+                            Divider()
+                            Button {
+                                onOpenSourcePage(validURL)
+                            } label: {
+                                Label("元のWebページを開く", systemImage: "arrow.up.right.square")
+                            }
+                            Button {
+                                onCopySourcePageURL(validURL.absoluteString)
+                            } label: {
+                                Label("元ページのURLをコピー", systemImage: "doc.on.doc")
+                            }
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive, action: onDelete) {
+                            Label("ゴミ箱へ移動", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.92), in: Circle())
+                            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .frame(height: 140)
 
             // タイトルと詳細（Dynamic Type対応で2行分の高さを確保し、2段目以降の上端を左右で統一）
-            Button(action: onPlay) {
+            Button {
+                if isSelecting {
+                    onToggleSelect?()
+                } else {
+                    onPlay()
+                }
+            } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(video.title)
                         .font(.subheadline.weight(.medium))
@@ -1406,6 +1673,61 @@ private struct MoveToFolderSheet: View {
                 }
             }
             .navigationTitle("フォルダ移動")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - 一括フォルダ移動シート
+
+private struct BatchMoveToFolderSheet: View {
+    let count: Int
+    let folders: [String]
+    let onSelectFolder: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var newFolderName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("移動先のフォルダを選択") {
+                    Button {
+                        dismiss()
+                        onSelectFolder("")
+                    } label: {
+                        Label("Downloads（未分類）", systemImage: "folder")
+                    }
+
+                    ForEach(folders, id: \.self) { folder in
+                        Button {
+                            dismiss()
+                            onSelectFolder(folder)
+                        } label: {
+                            Label(folder, systemImage: "folder.fill")
+                        }
+                    }
+                }
+
+                Section("新規フォルダを作成して移動") {
+                    HStack {
+                        TextField("新しいフォルダ名", text: $newFolderName)
+                        Button("作成して移動") {
+                            let target = newFolderName
+                            dismiss()
+                            onSelectFolder(target)
+                        }
+                        .disabled(VideoFolderManager.sanitizedFolderName(newFolderName).isEmpty)
+                    }
+                }
+            }
+            .navigationTitle("\(count) 件の動画を移動")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
