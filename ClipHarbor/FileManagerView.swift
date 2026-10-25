@@ -86,77 +86,94 @@ struct FileManagerView: View {
         GridItem(.flexible(), spacing: 14, alignment: .top)
     ]
 
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private var rootScrollView: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                if hasActiveJobs {
+                    activeJobsBanner
+                }
+
+                if isSearching {
+                    searchResultsSection
+                } else {
+                    rootFoldersAndVideosGrid
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 80)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private var activeBottomBar: some View {
+        Group {
+            if isSelecting {
+                let currentVideos = searchText.isEmpty
+                    ? folderManager.videos(in: .uncategorized)
+                    : folderManager.videos(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+                selectionBottomBar(currentVideos: currentVideos)
+            } else {
+                floatingBottomBar(isRoot: true)
+            }
+        }
+    }
+
+    private var toastOverlay: some View {
+        Group {
+            if let notice = copyNotice {
+                VStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(notice)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+                    .padding(.top, 8)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(10)
+            }
+        }
+    }
+
+    private var privacyShieldOverlay: some View {
+        Group {
+            if vaultManager.isPrivacyShieldActive {
+                ZStack {
+                    Color(.systemBackground)
+                        .ignoresSafeArea()
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 56))
+                            .foregroundStyle(.indigo)
+                        Text("Private Vault 保護中")
+                            .font(.headline)
+                    }
+                }
+                .transition(.opacity)
+                .zIndex(99)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottom) {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        // 進行中ダウンロード・MP4変換バナー
-                        if hasActiveJobs {
-                            activeJobsBanner
-                        }
-
-                        // 検索結果または通常ルートグリッド
-                        if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                            searchResultsSection
-                        } else {
-                            rootFoldersAndVideosGrid
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    // フローティングバー分の余白を確保
-                    .padding(.bottom, 80)
-                }
-                .scrollDismissesKeyboard(.immediately)
-
-                // 下部フローティング操作バー（選択モード時と通常時を切り替え）
-                if isSelecting {
-                    let currentVideos = searchText.isEmpty
-                        ? folderManager.videos(in: .uncategorized)
-                        : folderManager.videos(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchText) }
-                    selectionBottomBar(currentVideos: currentVideos)
-                } else {
-                    floatingBottomBar(isRoot: true)
-                }
-
-                // コピー・ゴミ箱移動完了トースト
-                if let notice = copyNotice {
-                    VStack {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text(notice)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.primary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
-                        .padding(.top, 8)
-                        Spacer()
-                    }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(10)
-                }
-
-                // App Switcher等のプライバシーシールド
-                if vaultManager.isPrivacyShieldActive {
-                    ZStack {
-                        Color(.systemBackground)
-                            .ignoresSafeArea()
-                        VStack(spacing: 16) {
-                            Image(systemName: "lock.shield.fill")
-                                .font(.system(size: 56))
-                                .foregroundStyle(.indigo)
-                            Text("Private Vault 保護中")
-                                .font(.headline)
-                        }
-                    }
-                    .transition(.opacity)
-                    .zIndex(99)
-                }
+                rootScrollView
+                activeBottomBar
+                toastOverlay
+                privacyShieldOverlay
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
             .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
