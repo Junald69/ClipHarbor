@@ -130,7 +130,6 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     }
 
     lazy var webView: WKWebView = {
-        isWebViewCreated = true
         let controller = WKUserContentController()
         // ページのJavaScriptから隔離されたワールドで監視する（ページ側が偽のメッセージを送れない）
         controller.add(self, contentWorld: .defaultClient, name: MediaScannerScript.handlerName)
@@ -138,6 +137,14 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
                                               injectionTime: .atDocumentEnd,
                                               forMainFrameOnly: false,
                                               in: .defaultClient))
+
+        // 初期のコンテンツブロッカールール適用（self.webViewを絶対に触らずローカルのcontrollerに直接登録して再帰を防止）
+        if ContentBlockerManager.shared.shouldAttachRules(for: initialURL.host, isPrivate: isPrivate),
+           let targetList = ContentBlockerManager.shared.targetRuleList(isPrivate: isPrivate) {
+            controller.add(targetList)
+            self.attachedRuleList = targetList
+        }
+
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         configuration.allowsInlineMediaPlayback = true
@@ -161,8 +168,6 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         view.navigationDelegate = self
         view.uiDelegate = self
 
-        // 初期のコンテンツブロッカールール適用
-        syncContentBlockerRules(host: initialURL.host)
         // WebKit標準の左右スワイプによる進む・戻るジェスチャーナビゲーションを有効化（通常・プライベート共通）
         view.allowsBackForwardNavigationGestures = true
         view.backgroundColor = .systemBackground
@@ -189,6 +194,9 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
             }
         }
         view.load(URLRequest(url: initialURL))
+
+        // viewの構築が完全に完了した時点で初めて作成完了フラグを立てる
+        isWebViewCreated = true
         return view
     }()
 
@@ -500,7 +508,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     /// ホストのコンテンツブロッカールールを同期
     func syncContentBlockerRules(host: String? = nil) {
         guard isWebViewCreated, !isTornDown else { return }
-        let targetHost = host ?? currentURL.host ?? webView.url?.host
+        let targetHost = host ?? currentURL.host
         let shouldAttach = ContentBlockerManager.shared.shouldAttachRules(for: targetHost, isPrivate: isPrivate)
         guard let targetList = ContentBlockerManager.shared.targetRuleList(isPrivate: isPrivate) else { return }
 
