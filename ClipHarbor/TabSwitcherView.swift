@@ -394,7 +394,7 @@ private struct TabCardView: View {
 
             Text(isPrivate ? "プライベート" : "ページプレビュー")
                 .font(.system(size: 11))
-                .foregroundStyle(isPrivate ? Color.white.opacity(0.5) : Color.tertiary)
+                .foregroundStyle(isPrivate ? Color.white.opacity(0.5) : Color.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
