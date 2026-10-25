@@ -344,6 +344,11 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
+    /// 動画・画像のお気に入り状態を切り替える
+    func toggleFavorite(for video: SavedVideo) {
+        downloads.updateSavedVideo(id: video.id, isFavorite: !video.isFavorite)
+    }
+
     /// 動画を削除する
     func deleteVideo(_ video: SavedVideo) {
         VideoThumbnailManager.shared.invalidateCache(for: video)
@@ -368,6 +373,11 @@ final class VideoFolderManager: ObservableObject {
             folderMap[video.id.uuidString] = clean
             persistState()
         }
+    }
+
+    /// 動画・画像の所属フォルダを論理マップに登録・保存する
+    func setFolderName(_ folderName: String, for video: SavedVideo) {
+        restoreVideoToFolder(video, targetFolder: folderName)
     }
 
     /// ファイルシステム上のサブフォルダと保存済み動画一覧を再スキャンして同期する
@@ -470,14 +480,14 @@ final class VideoFolderManager: ObservableObject {
         return clean
     }
 
-    private static func ensureDownloadsDirectory() throws -> URL {
+    static func ensureDownloadsDirectory() throws -> URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let folder = documents.appendingPathComponent("Downloads", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
     }
 
-    private static func ensureSubfolder(named folderName: String) throws -> URL {
+    static func ensureSubfolder(named folderName: String) throws -> URL {
         let root = try ensureDownloadsDirectory()
         let clean = sanitizedFolderName(folderName)
         guard !clean.isEmpty else { return root }

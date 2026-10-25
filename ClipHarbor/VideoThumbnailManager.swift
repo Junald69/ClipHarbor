@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AVFoundation
+import ImageIO
 
 /// 動画サムネイルと再生時間の非同期生成・メモリキャッシュ管理マネージャー
 /// - メインスレッドを一切ブロックせず、バックグラウンド優先度（utility）で生成
@@ -113,6 +114,7 @@ final class VideoThumbnailManager: ObservableObject {
     /// 再生時間を非同期取得
     func loadDuration(for video: SavedVideo) async -> Double? {
         if Task.isCancelled { return nil }
+        if video.format.isImage { return nil }
 
         if let cached = cachedDuration(for: video) {
             return cached
@@ -177,11 +179,18 @@ final class VideoThumbnailManager: ObservableObject {
         await generateThumbnail(forFileURL: video.fileURL)
     }
 
-    /// 任意の動画ファイルURLからサムネイルを非同期生成（ゴミ箱内動画など非公開ファイルにも対応）
+    private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "heic"]
+
+    /// 任意の動画・画像ファイルURLからサムネイルを非同期生成（ゴミ箱内ファイルなど非公開ファイルにも対応）
     func generateThumbnail(forFileURL fileURL: URL) async -> UIImage? {
         if Task.isCancelled { return nil }
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return nil
+        }
+
+        let ext = fileURL.pathExtension.lowercased()
+        if Self.imageExtensions.contains(ext) {
+            return generateImageThumbnail(forFileURL: fileURL)
         }
 
         // HLS (.movpkg) はディレクトリ構造により AVAssetImageGenerator が失敗することがあるため
@@ -211,6 +220,22 @@ final class VideoThumbnailManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    /// 画像ファイルからメモリ効率の良い縮小サムネイルを生成（原寸画像を展開せず省メモリ処理）
+    private func generateImageThumbnail(forFileURL fileURL: URL) -> UIImage? {
+        guard let imageSource = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 400
+        ]
+        guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+            return nil
+        }
+        return UIImage(cgImage: cgThumb)
     }
 
     // MARK: - フォーマットヘルパー

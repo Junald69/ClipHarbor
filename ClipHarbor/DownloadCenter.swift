@@ -137,11 +137,12 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         persistSaved()
     }
 
-    /// フォルダ管理層（VideoFolderManager）による名前変更・MP4フォルダ移動後にメタデータを更新する
-    func updateSavedVideo(id: UUID, title: String? = nil, relativePath: String? = nil) {
+    /// フォルダ管理層（VideoFolderManager）による名前変更・MP4フォルダ移動・お気に入り更新後にメタデータを更新する
+    func updateSavedVideo(id: UUID, title: String? = nil, relativePath: String? = nil, isFavorite: Bool? = nil) {
         guard let idx = saved.firstIndex(where: { $0.id == id }) else { return }
         if let title = title { saved[idx].title = title }
         if let relativePath = relativePath { saved[idx].relativePath = relativePath }
+        if let isFavorite = isFavorite { saved[idx].isFavorite = isFavorite }
         persistSaved()
     }
 

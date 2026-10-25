@@ -26,6 +26,8 @@ final class VaultManager: ObservableObject {
     @Published var processingProgress: Double = 0.0
     @Published var processingMessage: String = ""
     @Published var isPrivacyShieldActive: Bool = false
+    /// ロックやセッション切替時に刷新される世代トークン（非同期タスクの遅延反映を防止）
+    @Published private(set) var sessionToken = UUID()
 
     // MARK: - 内部プロパティ
     private var masterKey: SymmetricKey?
@@ -301,8 +303,9 @@ final class VaultManager: ObservableObject {
         }
     }
 
-    /// ロック実行（メモリ上の鍵を消去し、再生一時ファイルを消去）
+    /// ロック実行（メモリ上の鍵を消去し、世代トークンを刷新、再生一時ファイルを消去）
     func lock() {
+        sessionToken = UUID()
         masterKey = nil
         isUnlocked = false
         items = []
@@ -403,6 +406,10 @@ final class VaultManager: ObservableObject {
             throw VaultError.hlsNotSupportedYet
         }
 
+        guard video.format.isVideo else {
+            throw VaultError.fileOperationFailed("画像ファイルはVault暗号化に対応していません。")
+        }
+
         let sourceURL = video.fileURL
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             throw VaultError.fileNotFound
@@ -451,7 +458,8 @@ final class VaultManager: ObservableObject {
                 sourceHost: video.sourceHost,
                 sourcePageURL: video.sourcePageURL,
                 createdAt: video.createdAt,
-                vaultAddedAt: Date()
+                vaultAddedAt: Date(),
+                isFavorite: video.isFavorite
             )
 
             // インデックスに追加して保存
@@ -574,7 +582,8 @@ final class VaultManager: ObservableObject {
                 sourceHost: item.sourceHost,
                 createdAt: Date(),
                 byteSize: item.byteSize,
-                sourcePageURL: item.sourcePageURL
+                sourcePageURL: item.sourcePageURL,
+                isFavorite: item.isFavorite
             )
 
             processingMessage = "ファイル一覧に登録中..."
@@ -652,11 +661,20 @@ final class VaultManager: ObservableObject {
         try saveEncryptedIndex()
     }
 
-    // MARK: - 再生用一時ファイル管理
+    // MARK: - お気に入り操作
 
-    /// 再生用に一時ディレクトリに復号してローカルURLを生成
-    /// - 再生終了時やロック時に直ちに消去されます
-    func preparePlaybackURL(for item: VaultItem) throws -> URL {
+    /// Vaultアイテムのお気に入り状態を切り替えて暗号化インデックスを更新
+    func toggleFavorite(for item: VaultItem) {
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
+        items[idx].isFavorite.toggle()
+        try? saveEncryptedIndex()
+    }
+
+    // MARK: - 再生・編集用一時ファイル管理
+
+    /// 再生・編集用に一時ディレクトリに復号してローカルURLを生成
+    /// - operationIDおよびsessionTokenを含めることで開き直しや並行処理時の衝突・レースコンディションを完全防止
+    func preparePlaybackURL(for item: VaultItem, operationID: UUID = UUID()) throws -> URL {
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
         }
@@ -668,9 +686,10 @@ final class VaultManager: ObservableObject {
         }
 
         let ext = (item.originalFileName as NSString).pathExtension
-        let tempVideoURL = playbackTempDirectory.appendingPathComponent("\(item.id.uuidString).\(ext)")
+        let safeExt = ext.isEmpty ? item.format.rawValue : ext
+        let fileName = "\(item.id.uuidString)_\(sessionToken.uuidString)_\(operationID.uuidString).\(safeExt)"
+        let tempVideoURL = playbackTempDirectory.appendingPathComponent(fileName)
 
-        // 既存の再生残骸があれば一度削除
         if fileManager.fileExists(atPath: tempVideoURL.path) {
             try? fileManager.removeItem(at: tempVideoURL)
         }
@@ -680,20 +699,30 @@ final class VaultManager: ObservableObject {
         // ファイル保護を完全保護に設定
         try? fileManager.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: tempVideoURL.path)
 
+        // 復号中にロックされた場合の安全確認
+        guard isUnlocked, masterKey != nil else {
+            try? fileManager.removeItem(at: tempVideoURL)
+            throw VaultError.masterKeyMissing
+        }
+
         return tempVideoURL
     }
 
-    /// 再生用一時ファイルを消去
-    func cleanupPlaybackTemp(for itemID: UUID? = nil) {
+    /// 一時ファイルを消去
+    func cleanupPlaybackTemp(fileURL: URL? = nil, itemID: UUID? = nil) {
+        if let fileURL = fileURL {
+            try? fileManager.removeItem(at: fileURL)
+            return
+        }
         if let itemID = itemID {
             let contents = (try? fileManager.contentsOfDirectory(at: playbackTempDirectory, includingPropertiesForKeys: nil)) ?? []
-            for fileURL in contents where fileURL.lastPathComponent.hasPrefix(itemID.uuidString) {
-                try? fileManager.removeItem(at: fileURL)
+            for url in contents where url.lastPathComponent.hasPrefix(itemID.uuidString) {
+                try? fileManager.removeItem(at: url)
             }
         } else {
             let contents = (try? fileManager.contentsOfDirectory(at: playbackTempDirectory, includingPropertiesForKeys: nil)) ?? []
-            for fileURL in contents {
-                try? fileManager.removeItem(at: fileURL)
+            for url in contents {
+                try? fileManager.removeItem(at: url)
             }
         }
     }

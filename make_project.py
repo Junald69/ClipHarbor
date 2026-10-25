@@ -36,6 +36,13 @@ files = [
     'AppSettingsManager.swift',
     'AppSettingsView.swift',
     'VaultSettingsView.swift',
+    'VideoPlaybackCoordinator.swift',
+    'PlaybackPlaylistContext.swift',
+    'CustomVideoPlayerView.swift',
+    'ZoomableImageView.swift',
+    'PlayerControlsOverlay.swift',
+    'VideoTrimmerView.swift',
+    'ModernVideoPlayerView.swift',
 ]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()

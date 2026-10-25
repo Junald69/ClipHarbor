@@ -15,6 +15,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
     let deletedAt: Date              // ゴミ箱移動日時
     let expiresAt: Date?             // 完全削除予定日時（nilは自動削除なし）
     let fileName: String             // 実際のファイル名またはパッケージ名
+    let isFavorite: Bool?            // 元のお気に入り状態
 
     var isExpired: Bool {
         guard let expiresAt = expiresAt else { return false }
@@ -47,7 +48,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, originalVideoID, originalTitle, originalRelativePath, originalFolderName
-        case format, byteSize, sourceHost, sourcePageURL, deletedAt, expiresAt, fileName
+        case format, byteSize, sourceHost, sourcePageURL, deletedAt, expiresAt, fileName, isFavorite
     }
 
     init(
@@ -62,7 +63,8 @@ struct TrashItem: Identifiable, Codable, Equatable {
         sourcePageURL: String?,
         deletedAt: Date,
         expiresAt: Date?,
-        fileName: String
+        fileName: String,
+        isFavorite: Bool? = false
     ) {
         self.id = id
         self.originalVideoID = originalVideoID
@@ -76,6 +78,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
         self.deletedAt = deletedAt
         self.expiresAt = expiresAt
         self.fileName = fileName
+        self.isFavorite = isFavorite
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +94,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
         sourcePageURL = try container.decodeIfPresent(String.self, forKey: .sourcePageURL)
         deletedAt = try container.decode(Date.self, forKey: .deletedAt)
         fileName = try container.decode(String.self, forKey: .fileName)
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite)
 
         if container.contains(.expiresAt) {
             expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
@@ -305,7 +309,8 @@ final class TrashManager: ObservableObject {
                         sourcePageURL: video.sourcePageURL,
                         deletedAt: now,
                         expiresAt: expiresAt,
-                        fileName: fileName
+                        fileName: fileName,
+                        isFavorite: video.isFavorite
                     )
 
                     // 4. メタデータ永続化（失敗時は直ちにファイル移動をロールバック）
@@ -472,7 +477,8 @@ final class TrashManager: ObservableObject {
                         sourceHost: item.sourceHost,
                         createdAt: Date(),
                         byteSize: item.byteSize,
-                        sourcePageURL: item.sourcePageURL
+                        sourcePageURL: item.sourcePageURL,
+                        isFavorite: item.isFavorite ?? false
                     )
 
                     DispatchQueue.main.async {

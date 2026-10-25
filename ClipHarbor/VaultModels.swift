@@ -14,6 +14,54 @@ struct VaultItem: Identifiable, Codable, Equatable {
     let sourcePageURL: String?       // 元WebページURL
     let createdAt: Date              // 動画の元の作成・保存日時
     let vaultAddedAt: Date           // Vaultへの移動日時
+    var isFavorite: Bool = false     // お気に入り状態（Vault暗号化メタデータに保護）
+
+    init(
+        id: UUID,
+        originalVideoID: UUID,
+        originalTitle: String,
+        originalFileName: String,
+        originalRelativePath: String,
+        originalFolderName: String,
+        format: SavedVideo.Format,
+        byteSize: Int64?,
+        sourceHost: String?,
+        sourcePageURL: String?,
+        createdAt: Date,
+        vaultAddedAt: Date,
+        isFavorite: Bool = false
+    ) {
+        self.id = id
+        self.originalVideoID = originalVideoID
+        self.originalTitle = originalTitle
+        self.originalFileName = originalFileName
+        self.originalRelativePath = originalRelativePath
+        self.originalFolderName = originalFolderName
+        self.format = format
+        self.byteSize = byteSize
+        self.sourceHost = sourceHost
+        self.sourcePageURL = sourcePageURL
+        self.createdAt = createdAt
+        self.vaultAddedAt = vaultAddedAt
+        self.isFavorite = isFavorite
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.originalVideoID = try container.decode(UUID.self, forKey: .originalVideoID)
+        self.originalTitle = try container.decode(String.self, forKey: .originalTitle)
+        self.originalFileName = try container.decode(String.self, forKey: .originalFileName)
+        self.originalRelativePath = try container.decode(String.self, forKey: .originalRelativePath)
+        self.originalFolderName = try container.decode(String.self, forKey: .originalFolderName)
+        self.format = try container.decode(SavedVideo.Format.self, forKey: .format)
+        self.byteSize = try container.decodeIfPresent(Int64.self, forKey: .byteSize)
+        self.sourceHost = try container.decodeIfPresent(String.self, forKey: .sourceHost)
+        self.sourcePageURL = try container.decodeIfPresent(String.self, forKey: .sourcePageURL)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.vaultAddedAt = try container.decode(Date.self, forKey: .vaultAddedAt)
+        self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+    }
 
     /// 表示用のファイルサイズ文字列
     var formattedSize: String {

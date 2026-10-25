@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import PhotosUI
 
 /// Aloha Browser風のモダンなファイル・動画管理画面
 /// - 2カラムのカードグリッドUI（左右上端厳格整列・タイトル2行固定高）
@@ -49,6 +50,11 @@ struct FileManagerView: View {
     // 動画操作用ダイアログ
     @State private var renamingVideo: SavedVideo?
     @State private var renameVideoInput = ""
+
+    // 画像インポート
+    @State private var showPhotosPicker = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
     @State private var deletingVideo: SavedVideo?
 
     // エラー・通知
@@ -264,6 +270,16 @@ struct FileManagerView: View {
                             Divider()
 
                             Button {
+                                showPhotosPicker = true
+                            } label: {
+                                Label("写真をインポート", systemImage: "photo.on.rectangle")
+                            }
+                            Button {
+                                showFileImporter = true
+                            } label: {
+                                Label("ファイルからインポート", systemImage: "doc.badge.plus")
+                            }
+                            Button {
                                 newFolderName = ""
                                 showNewFolderAlert = true
                             } label: {
@@ -294,7 +310,26 @@ struct FileManagerView: View {
                 trashManager.purgeExpiredItems()
             }
             .fullScreenCover(item: $playingVideo) { video in
-                OfflineVideoPlayerSheet(video: video)
+                let currentFilter = navigationPath.last ?? .all
+                let currentVideos = folderManager.videos(in: currentFilter)
+                OfflineVideoPlayerSheet(
+                    video: video,
+                    playlist: currentVideos,
+                    folderTitle: folderTitle(for: currentFilter)
+                )
+            }
+            .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotoItems, matching: .images)
+            .onChange(of: selectedPhotoItems) { newItems in
+                if !newItems.isEmpty {
+                    handleImportedPhotos(newItems)
+                }
+            }
+            .fileImporter(
+                isPresented: $showFileImporter,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                handleFileImport(result: result)
             }
             .sheet(item: $movingVideo) { video in
                 MoveToFolderSheet(
@@ -1024,6 +1059,17 @@ struct FileManagerView: View {
                 // クイック追加(+)ボタン
                 Menu {
                     Button {
+                        showPhotosPicker = true
+                    } label: {
+                        Label("写真をインポート", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("ファイルからインポート", systemImage: "doc.badge.plus")
+                    }
+                    Divider()
+                    Button {
                         newFolderName = ""
                         showNewFolderAlert = true
                     } label: {
@@ -1208,9 +1254,9 @@ struct FileManagerView: View {
         let targets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
         guard !targets.isEmpty else { return }
 
-        let validTargets = targets.filter { !$0.isHLS }
+        let validTargets = targets.filter { $0.format.isVideo && !$0.isHLS }
         if validTargets.isEmpty {
-            errorMessage = VaultError.hlsNotSupportedYet.localizedDescription
+            errorMessage = "選択された項目に取り込み可能な動画がありません（HLS形式や画像ファイルは非対応です）。"
             return
         }
 
@@ -1231,6 +1277,117 @@ struct FileManagerView: View {
                     }
                     showToast("\(succeeded) 件の動画をPrivate Vaultへ移動しました")
                 }
+            }
+        }
+    }
+
+    // MARK: - フォルダ名ヘルパー
+
+    private func folderTitle(for filter: VideoFolderManager.FolderFilter) -> String {
+        switch filter {
+        case .all: return "すべてのファイル"
+        case .uncategorized: return "未分類"
+        case .folder(let name): return name
+        }
+    }
+
+    // MARK: - 画像インポート処理（最小構成: PhotosPicker / fileImporter）
+
+    private func handleImportedPhotos(_ items: [PhotosPickerItem]) {
+        Task {
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    await importImageData(data, preferredName: "Photo")
+                }
+            }
+            await MainActor.run {
+                selectedPhotoItems.removeAll()
+            }
+        }
+    }
+
+    private func handleFileImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            Task {
+                for url in urls {
+                    guard url.startAccessingSecurityScopedResource() else { continue }
+                    let data = try? Data(contentsOf: url)
+                    let name = url.deletingPathExtension().lastPathComponent
+                    url.stopAccessingSecurityScopedResource()
+
+                    if let d = data {
+                        await importImageData(d, preferredName: name)
+                    }
+                }
+            }
+        case .failure(let err):
+            errorMessage = "ファイルの読み込みに失敗しました: \(err.localizedDescription)"
+        }
+    }
+
+    private func importImageData(_ data: Data, preferredName: String) async {
+        guard let _ = UIImage(data: data) else { return }
+
+        // マジックバイト等でフォーマット判定
+        let format: SavedVideo.Format
+        let ext: String
+        if data.prefix(3) == Data([0xFF, 0xD8, 0xFF]) {
+            format = .jpeg
+            ext = "jpg"
+        } else if data.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47]) {
+            format = .png
+            ext = "png"
+        } else if data.prefix(3) == Data([0x47, 0x49, 0x46]) {
+            format = .gif
+            ext = "gif"
+        } else {
+            format = .jpeg
+            ext = "jpg"
+        }
+
+        do {
+            let root = try VideoFolderManager.ensureDownloadsDirectory()
+            let targetDir: URL
+            let currentFilter = navigationPath.last ?? .all
+            switch currentFilter {
+            case .folder(let name):
+                targetDir = try VideoFolderManager.ensureSubfolder(named: name)
+            default:
+                targetDir = root
+            }
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd_HHmmss"
+            let timeStr = formatter.string(from: Date())
+            let baseName = "\(FileNaming.sanitizedBaseName(preferredName))_\(timeStr)"
+            let destURL = FileNaming.uniqueDestination(in: targetDir, baseName: baseName, fileExtension: ext)
+
+            try data.write(to: destURL, options: .atomic)
+            guard let rel = SavedVideo.relativePath(for: destURL) else { return }
+
+            let savedItem = SavedVideo(
+                id: UUID(),
+                title: destURL.deletingPathExtension().lastPathComponent,
+                relativePath: rel,
+                format: format,
+                sourceHost: nil,
+                createdAt: Date(),
+                byteSize: Int64(data.count),
+                sourcePageURL: nil,
+                isFavorite: false
+            )
+
+            await MainActor.run {
+                downloads.addSaved(savedItem)
+                if case .folder(let name) = currentFilter {
+                    folderManager.setFolderName(name, for: savedItem)
+                }
+                showToast("「\(savedItem.title)」を取り込みました")
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "画像の保存に失敗しました: \(error.localizedDescription)"
             }
         }
     }
@@ -1521,6 +1678,24 @@ private struct AlohaVideoCardView: View {
                     }
                 }
 
+                // 左下: お気に入り星バッジ（登録時のみ表示）
+                if !isSelecting && video.isFavorite {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.yellow)
+                                .padding(5)
+                                .background(Color.black.opacity(0.65), in: Circle())
+                                .padding(6)
+                            Spacer()
+                        }
+                    }
+                    .frame(height: 140)
+                    .allowsHitTesting(false)
+                }
+
                 // 右下: 再生時間バッジ（通常時のみ表示）
                 if !isSelecting {
                     VStack {
@@ -1704,7 +1879,7 @@ private struct VideoDurationBadge: View {
 
     var body: some View {
         Group {
-            if let text = durationText {
+            if video.format.isVideo, let text = durationText {
                 Text(text)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
@@ -1715,6 +1890,7 @@ private struct VideoDurationBadge: View {
             }
         }
         .task(id: video.id) {
+            guard video.format.isVideo else { return }
             if let cached = VideoThumbnailManager.shared.formattedDuration(for: video) {
                 self.durationText = cached
                 return

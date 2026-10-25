@@ -662,48 +662,18 @@ private struct SavedVideoRow: View {
 }
 
 /// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生用）。
+/// - ModernVideoPlayerView を使用したAloha風プレイヤーへのブリッジ
 struct OfflineVideoPlayerSheet: View {
     let video: SavedVideo
+    var playlist: [SavedVideo] = []
+    var folderTitle: String = "保存済みファイル"
     @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer?
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if video.fileExists {
-                    VideoPlayer(player: player)
-                        .ignoresSafeArea(edges: .bottom)
-                        .onAppear {
-                            let avPlayer = AVPlayer(url: video.fileURL)
-                            player = avPlayer
-                            avPlayer.play()
-                        }
-                        .onDisappear {
-                            player?.pause()
-                            player = nil
-                        }
-                } else {
-                    ContentUnavailableView(
-                        "ファイルがありません",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text("保存場所が変更されたか、OSによって消去された可能性があります。")
-                    )
-                }
-            }
-            .navigationTitle(video.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }
-                }
-                if !video.isHLS && video.fileExists {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ShareLink(item: video.fileURL) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                }
-            }
+        let videos = playlist.isEmpty ? [video] : playlist
+        let context = PlaybackPlaylistContext(normalVideos: videos, initialVideo: video, folderTitle: folderTitle)
+        ModernVideoPlayerView(playlistContext: context) {
+            dismiss()
         }
     }
 }

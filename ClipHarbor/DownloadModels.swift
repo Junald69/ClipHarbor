@@ -4,10 +4,26 @@ import Foundation
 struct SavedVideo: Identifiable, Codable, Equatable {
     enum Format: String, Codable {
         case mp4, m4v, mov, webm, hls
+        case jpeg, jpg, png, gif, heic
+
+        var isImage: Bool {
+            switch self {
+            case .jpeg, .jpg, .png, .gif, .heic:
+                return true
+            case .mp4, .m4v, .mov, .webm, .hls:
+                return false
+            }
+        }
+
+        var isVideo: Bool { !isImage }
 
         var label: String {
             switch self {
             case .hls: return "オフラインHLS"
+            case .jpeg, .jpg: return "JPEG"
+            case .png: return "PNG"
+            case .gif: return "GIF"
+            case .heic: return "HEIC"
             default: return rawValue.uppercased()
             }
         }
@@ -24,6 +40,43 @@ struct SavedVideo: Identifiable, Codable, Equatable {
     var byteSize: Int64?
     /// 保存元WebページのURL（動画の直接URLではなく、閲覧していたページURL。クレデンシャル・機密パラメータ除去済み）
     var sourcePageURL: String? = nil
+    /// お気に入りフラグ（星アイコン表示と連動）
+    var isFavorite: Bool = false
+
+    init(
+        id: UUID,
+        title: String,
+        relativePath: String,
+        format: Format,
+        sourceHost: String?,
+        createdAt: Date,
+        byteSize: Int64?,
+        sourcePageURL: String? = nil,
+        isFavorite: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.relativePath = relativePath
+        self.format = format
+        self.sourceHost = sourceHost
+        self.createdAt = createdAt
+        self.byteSize = byteSize
+        self.sourcePageURL = sourcePageURL
+        self.isFavorite = isFavorite
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.title = try container.decode(String.self, forKey: .title)
+        self.relativePath = try container.decode(String.self, forKey: .relativePath)
+        self.format = try container.decode(Format.self, forKey: .format)
+        self.sourceHost = try container.decodeIfPresent(String.self, forKey: .sourceHost)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.byteSize = try container.decodeIfPresent(Int64.self, forKey: .byteSize)
+        self.sourcePageURL = try container.decodeIfPresent(String.self, forKey: .sourcePageURL)
+        self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+    }
 
     var fileURL: URL {
         URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(relativePath)

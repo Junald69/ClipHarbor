@@ -170,12 +170,11 @@ struct PrivateVaultView: View {
                     }
                 }
             }
-            .sheet(item: $activePlayingItem) { item in
-                if let playURL = activePlaybackURL {
-                    VaultVideoPlayerSheet(item: item, url: playURL) {
-                        activePlaybackURL = nil
-                        vaultManager.cleanupPlaybackTemp(for: item.id)
-                    }
+            .fullScreenCover(item: $activePlayingItem) { item in
+                let context = PlaybackPlaylistContext(vaultItems: vaultManager.items, initialItem: item)
+                ModernVideoPlayerView(playlistContext: context) {
+                    activePlaybackURL = nil
+                    vaultManager.cleanupPlaybackTemp(for: item.id)
                 }
             }
             .sheet(isPresented: $showChangePasscode) {
@@ -1073,7 +1072,7 @@ struct VaultImportPickerView: View {
     @State private var selectedIDs = Set<UUID>()
 
     private var availableVideos: [SavedVideo] {
-        downloads.saved.filter { !$0.isHLS }
+        downloads.saved.filter { $0.format.isVideo && !$0.isHLS }
     }
 
     var body: some View {
@@ -1086,7 +1085,7 @@ struct VaultImportPickerView: View {
                             .foregroundStyle(.secondary)
                         Text("取り込める動画がありません")
                             .font(.headline)
-                        Text("通常保存領域に動画がないか、すべての動画がHLS形式です。\n※ 現在HLS形式のVault暗号化は非対応です。")
+                        Text("通常保存領域に動画がないか、すべての動画がHLS形式または画像ファイルです。\n※ 現在HLS形式および画像ファイルのVault暗号化は非対応です。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
