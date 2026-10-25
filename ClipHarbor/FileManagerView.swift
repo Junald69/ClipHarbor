@@ -15,6 +15,7 @@ struct FileManagerView: View {
     var onOpenSourcePage: ((URL) -> Void)? = nil
     @ObservedObject private var exports = VideoExportManager.shared
     @ObservedObject private var trashManager = TrashManager.shared
+    @ObservedObject private var vaultManager = VaultManager.shared
     @Environment(\.dismiss) private var dismiss
 
     // ナビゲーション管理
@@ -29,6 +30,8 @@ struct FileManagerView: View {
     @State private var movingVideo: SavedVideo?
     @State private var showTrashSheet = false
     @State private var showSettingsSheet = false
+    @State private var showPrivateVaultSheet = false
+    @State private var pendingVaultVideos: [SavedVideo] = []
 
     // 複数選択モード
     @State private var isSelecting = false
@@ -137,6 +140,23 @@ struct FileManagerView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(10)
                 }
+
+                // App Switcher等のプライバシーシールド
+                if vaultManager.isPrivacyShieldActive {
+                    ZStack {
+                        Color(.systemBackground)
+                            .ignoresSafeArea()
+                        VStack(spacing: 16) {
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 56))
+                                .foregroundStyle(.indigo)
+                            Text("Private Vault 保護中")
+                                .font(.headline)
+                        }
+                    }
+                    .transition(.opacity)
+                    .zIndex(99)
+                }
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
             .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
@@ -187,6 +207,12 @@ struct FileManagerView: View {
                                 showSettingsSheet = true
                             } label: {
                                 Label("設定", systemImage: "gearshape")
+                            }
+
+                            Button {
+                                showPrivateVaultSheet = true
+                            } label: {
+                                Label("Private Vault", systemImage: "lock.shield")
                             }
 
                             Divider()
@@ -256,6 +282,26 @@ struct FileManagerView: View {
                     downloads: downloads,
                     folderManager: folderManager
                 )
+            }
+            .sheet(isPresented: $showPrivateVaultSheet) {
+                PrivateVaultView(
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+            }
+            .onChange(of: vaultManager.isUnlocked) { isUnlocked in
+                if isUnlocked && !pendingVaultVideos.isEmpty {
+                    let toMove = pendingVaultVideos
+                    pendingVaultVideos = []
+                    Task {
+                        let (succeeded, _) = await vaultManager.moveMultipleToVault(
+                            videos: toMove,
+                            downloads: downloads,
+                            folderManager: folderManager
+                        )
+                        copyNotice = "\(succeeded) 件の動画をPrivate Vaultへ移動しました"
+                    }
+                }
             }
             .sheet(isPresented: $showBatchMoveSheet) {
                 BatchMoveToFolderSheet(
@@ -396,34 +442,137 @@ struct FileManagerView: View {
         let hasUncategorized = !uncategorizedVideos.isEmpty
 
         return Group {
-            if !hasFolders && !hasUncategorized && !hasActiveJobs {
-                emptyFilesPlaceholder
-            } else {
-                LazyVGrid(columns: gridColumns, spacing: 18) {
-                    // 未分類フォルダカード（未分類動画がある、またはフォルダが作成されている場合に表示）
-                    if hasUncategorized || hasFolders {
-                        folderCard(
-                            title: "未分類の動画",
-                            itemCount: uncategorizedVideos.count,
-                            videos: uncategorizedVideos,
-                            filter: .uncategorized,
-                            isCustomFolder: false
-                        )
-                    }
+            LazyVGrid(columns: gridColumns, spacing: 18) {
+                // Private Vaultカード（非公開保管庫）
+                privateVaultCard
 
-                    // ユーザー作成フォルダ群
-                    ForEach(folderManager.folders, id: \.self) { folderName in
-                        let videosInFolder = folderManager.videos(in: .folder(folderName))
-                        folderCard(
-                            title: folderName,
-                            itemCount: videosInFolder.count,
-                            videos: videosInFolder,
-                            filter: .folder(folderName),
-                            isCustomFolder: true
-                        )
-                    }
+                // 未分類フォルダカード（未分類動画がある、またはフォルダが作成されている場合に表示）
+                if hasUncategorized || hasFolders {
+                    folderCard(
+                        title: "未分類の動画",
+                        itemCount: uncategorizedVideos.count,
+                        videos: uncategorizedVideos,
+                        filter: .uncategorized,
+                        isCustomFolder: false
+                    )
+                }
+
+                // ユーザー作成フォルダ群
+                ForEach(folderManager.folders, id: \.self) { folderName in
+                    let videosInFolder = folderManager.videos(in: .folder(folderName))
+                    folderCard(
+                        title: folderName,
+                        itemCount: videosInFolder.count,
+                        videos: videosInFolder,
+                        filter: .folder(folderName),
+                        isCustomFolder: true
+                    )
                 }
             }
+
+            if !hasFolders && !hasUncategorized && !hasActiveJobs {
+                emptyFilesPlaceholder
+            }
+        }
+    }
+
+    // MARK: - Private Vault カード（ルート画面用・厳格整列）
+
+    private var privateVaultCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                Button {
+                    showPrivateVaultSheet = true
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        Color.indigo.opacity(0.18),
+                                        Color.purple.opacity(0.12)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.indigo.opacity(0.15))
+                                    .frame(width: 52, height: 52)
+                                Image(systemName: vaultManager.isUnlocked ? "lock.open.fill" : "lock.shield.fill")
+                                    .font(.system(size: 26))
+                                    .foregroundStyle(.indigo)
+                            }
+
+                            Text(vaultManager.isUnlocked ? "ロック解除中" : "暗号化保護")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.indigo)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.indigo.opacity(0.12), in: Capsule())
+                        }
+                    }
+                    .frame(height: 140)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                // 右上「…」メニュー
+                Menu {
+                    Button {
+                        showPrivateVaultSheet = true
+                    } label: {
+                        Label("保管庫を開く", systemImage: "lock.shield")
+                    }
+
+                    if vaultManager.isUnlocked {
+                        Button(role: .destructive) {
+                            vaultManager.lock()
+                        } label: {
+                            Label("今すぐロック", systemImage: "lock.fill")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.indigo)
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.92), in: Circle())
+                        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 140)
+
+            // タイトルとサブタイトル（Dynamic Type対応で高さを確保し、2段目の上端を厳格一致）
+            Button {
+                showPrivateVaultSheet = true
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("Private Vault")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.indigo)
+                    }
+                    .frame(height: folderTitleHeight, alignment: .leading)
+
+                    Text(vaultManager.isUnlocked ? "\(vaultManager.items.count) 件の動画" : "非公開保管庫")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(height: folderSubtitleHeight, alignment: .leading)
+                }
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -555,6 +704,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
+                                    onMoveToVault: {
+                                        handleMoveToVault(video: video)
+                                    },
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -727,6 +879,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
+                                    onMoveToVault: {
+                                        handleMoveToVault(video: video)
+                                    },
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -904,6 +1059,18 @@ struct FileManagerView: View {
                 }
                 .disabled(selectedVideoIDs.isEmpty)
 
+                // 一括Private Vault移動
+                Button {
+                    handleBatchMoveToVault()
+                } label: {
+                    Image(systemName: "lock.shield")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
+                        .frame(width: 34, height: 34)
+                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                }
+                .disabled(selectedVideoIDs.isEmpty)
+
                 // 一括ゴミ箱移動
                 Button {
                     showBatchDeleteAlert = true
@@ -966,6 +1133,62 @@ struct FileManagerView: View {
                     selectedVideoIDs.removeAll()
                 }
                 showToast("\(successCount) 件の動画をゴミ箱へ移動しました")
+            }
+        }
+    }
+
+    private func handleMoveToVault(video: SavedVideo) {
+        if video.isHLS {
+            errorMessage = VaultError.hlsNotSupportedYet.localizedDescription
+            return
+        }
+
+        if !vaultManager.isUnlocked {
+            pendingVaultVideos = [video]
+            showPrivateVaultSheet = true
+        } else {
+            Task {
+                do {
+                    try await vaultManager.moveToVault(
+                        video: video,
+                        downloads: downloads,
+                        folderManager: folderManager
+                    )
+                    showToast("「\(video.title)」をPrivate Vaultへ移動しました")
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func handleBatchMoveToVault() {
+        let targets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
+        guard !targets.isEmpty else { return }
+
+        let validTargets = targets.filter { !$0.isHLS }
+        if validTargets.isEmpty {
+            errorMessage = VaultError.hlsNotSupportedYet.localizedDescription
+            return
+        }
+
+        if !vaultManager.isUnlocked {
+            pendingVaultVideos = validTargets
+            showPrivateVaultSheet = true
+        } else {
+            Task {
+                let (succeeded, _) = await vaultManager.moveMultipleToVault(
+                    videos: validTargets,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                await MainActor.run {
+                    withAnimation {
+                        isSelecting = false
+                        selectedVideoIDs.removeAll()
+                    }
+                    showToast("\(succeeded) 件の動画をPrivate Vaultへ移動しました")
+                }
             }
         }
     }
@@ -1190,6 +1413,7 @@ private struct AlohaVideoCardView: View {
     let onPlay: () -> Void
     let onRename: () -> Void
     let onMove: () -> Void
+    var onMoveToVault: (() -> Void)? = nil
     let onDelete: () -> Void
     let onOpenSourcePage: (URL) -> Void
     let onCopySourcePageURL: (String) -> Void
@@ -1281,6 +1505,12 @@ private struct AlohaVideoCardView: View {
 
                         Button(action: onMove) {
                             Label("フォルダ移動", systemImage: "folder")
+                        }
+
+                        if let onMoveToVault = onMoveToVault {
+                            Button(action: onMoveToVault) {
+                                Label("Private Vaultへ移動", systemImage: "lock.shield")
+                            }
                         }
 
                         if !video.isHLS && video.fileExists {

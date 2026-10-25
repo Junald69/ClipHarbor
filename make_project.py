@@ -29,6 +29,10 @@ files = [
     'BookmarkManager.swift',
     'BookmarkView.swift',
     'FileNaming.swift',
+    'VaultModels.swift',
+    'VaultCrypto.swift',
+    'VaultManager.swift',
+    'PrivateVaultView.swift',
 ]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()
