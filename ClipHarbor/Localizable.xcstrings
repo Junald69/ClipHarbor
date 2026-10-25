@@ -2913,6 +2913,23 @@
           }
         }
       }
+    },
+    "Failed to update content blocking rules. Preserving previous rules.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to update content blocking rules. Preserving previous rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロックルールの更新に失敗しました。以前のルールを維持します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

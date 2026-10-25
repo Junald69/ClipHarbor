@@ -92,6 +92,13 @@ private struct ActiveBrowserContainer: View {
         .onChange(of: browser.id) { _, _ in
             browser.showToolbar()
         }
+        .sheet(item: $browser.activePopup) { popup in
+            PopupSheetView(
+                popup: popup,
+                isPrivate: browser.isPrivate,
+                onClose: { browser.closeActivePopup() }
+            )
+        }
         .sheet(item: $savingCandidate) { candidate in
             SaveVideoSheet(
                 candidate: candidate,
@@ -995,5 +1002,48 @@ private struct BrowserWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
+    }
+}
+
+private struct PopupWebViewContainer: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> WKWebView {
+        webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+    }
+}
+
+private struct PopupSheetView: View {
+    let popup: PopupInfo
+    let isPrivate: Bool
+    let onClose: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            PopupWebViewContainer(webView: popup.webView)
+                .ignoresSafeArea(edges: .bottom)
+                .navigationTitle(popup.initialURL?.host ?? "Popup")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(NSLocalizedString("Close", comment: "")) {
+                            onClose()
+                        }
+                    }
+                    if isPrivate {
+                        ToolbarItem(placement: .principal) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "eyeglasses")
+                                    .font(.caption)
+                                Text(popup.initialURL?.host ?? "")
+                                    .font(.headline)
+                            }
+                        }
+                    }
+                }
+        }
     }
 }

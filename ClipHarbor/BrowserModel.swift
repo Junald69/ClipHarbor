@@ -1,6 +1,13 @@
 import SwiftUI
 import WebKit
 
+/// 子ポップアップWebViewの管理レコード
+struct PopupInfo: Identifiable {
+    let id = UUID()
+    let webView: WKWebView
+    let initialURL: URL?
+}
+
 /// WKWebViewのブラウズと、ページ内のHTML5動画の状態管理を担当する。
 /// 暗号化/DRMの解除、通信内容の強制傍受、保護されたAPIへのアクセスは行わない。
 @MainActor
@@ -31,6 +38,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     @Published var isEditingAddress = false
     /// 迷惑ポップアップブロック通知（ブロックされたホストを保持、画面遷移で失効）
     @Published var pendingBlockedPopupHost: String?
+    /// 現在表示中の子ポップアップ情報（最大1件制限）
+    @Published var activePopup: PopupInfo?
     /// プライベートブラウズモード（trueの場合、閲覧履歴・Cookie・セッションは永続化されない）
     let isPrivate: Bool
     /// プライベートタブ用の非永続WKWebsiteDataStore（通常タブはnil、WKWebsiteDataStore.default()を使用）
@@ -41,7 +50,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     var onRequestOpenInNewTab: ((URL) -> Void)? = nil
     private(set) var isWebViewCreated = false
     private(set) var isTornDown = false
-    private var isContentRuleListAttached = false
+    private var attachedRuleList: WKContentRuleList?
     private var lastBlockedPopupTime: Date = .distantPast
     private var noticeTask: Task<Void, Never>?
     private var progressObservation: NSKeyValueObservation?
@@ -103,11 +112,21 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
             name: .contentBlockerSettingsChanged,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleContentBlockerCompileFailed(_:)),
+            name: .contentBlockerCompileFailed,
+            object: nil
+        )
     }
 
     @objc private func handleContentBlockerNotification() {
         guard isWebViewCreated, !isTornDown else { return }
         syncContentBlockerRules(host: webView.url?.host ?? currentURL.host)
+    }
+
+    @objc private func handleContentBlockerCompileFailed(_ notification: Notification) {
+        showNotice(NSLocalizedString("Failed to update content blocking rules. Preserving previous rules.", comment: ""))
     }
 
     lazy var webView: WKWebView = {
@@ -124,9 +143,9 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         configuration.allowsInlineMediaPlayback = true
         configuration.allowsPictureInPictureMediaPlayback = true
 
-        // 勝手に新しいウィンドウやタブを開くスクリプトのポップアップを防止
+        // スクリプトからのウィンドウ作成要求をcreateWebViewWithに確実に到達させ、アプリ側で一元判定
         let preferences = WKPreferences()
-        preferences.javaScriptCanOpenWindowsAutomatically = false
+        preferences.javaScriptCanOpenWindowsAutomatically = true
         configuration.preferences = preferences
 
         // Webサイトデータ（Cookie・キャッシュ・LocalStorage等）の分離設定
@@ -419,12 +438,13 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
 
         NotificationCenter.default.removeObserver(self)
         clearBlockedPopupNotice()
+        closeActivePopup()
 
         guard isWebViewCreated else { return }
 
-        if isContentRuleListAttached, let ruleList = ContentBlockerManager.shared.compiledRuleList {
-            webView.configuration.userContentController.remove(ruleList)
-            isContentRuleListAttached = false
+        if let attached = attachedRuleList {
+            webView.configuration.userContentController.remove(attached)
+            attachedRuleList = nil
         }
 
         webView.stopLoading()
@@ -435,6 +455,15 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         controller.removeScriptMessageHandler(forName: MediaScannerScript.handlerName, contentWorld: .defaultClient)
 
         resetPageState()
+    }
+
+    /// アクティブな子ポップアップを安全に閉じる（親のuserContentControllerは破壊しない）
+    func closeActivePopup() {
+        guard let popup = activePopup else { return }
+        popup.webView.stopLoading()
+        popup.webView.navigationDelegate = nil
+        popup.webView.uiDelegate = nil
+        activePopup = nil
     }
 
     private func resetPageState() {
@@ -471,20 +500,23 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     /// ホストのコンテンツブロッカールールを同期
     func syncContentBlockerRules(host: String? = nil) {
         guard isWebViewCreated, !isTornDown else { return }
-        guard let ruleList = ContentBlockerManager.shared.compiledRuleList else { return }
         let targetHost = host ?? currentURL.host ?? webView.url?.host
-        let shouldBlock = ContentBlockerManager.shared.shouldBlockAds(for: targetHost, isPrivate: isPrivate)
+        let shouldAttach = ContentBlockerManager.shared.shouldAttachRules(for: targetHost, isPrivate: isPrivate)
+        guard let targetList = ContentBlockerManager.shared.targetRuleList(isPrivate: isPrivate) else { return }
 
         let controller = webView.configuration.userContentController
-        if shouldBlock {
-            if !isContentRuleListAttached {
-                controller.add(ruleList)
-                isContentRuleListAttached = true
+        if shouldAttach {
+            if attachedRuleList !== targetList {
+                controller.add(targetList)
+                if let old = attachedRuleList {
+                    controller.remove(old)
+                }
+                attachedRuleList = targetList
             }
         } else {
-            if isContentRuleListAttached {
-                controller.remove(ruleList)
-                isContentRuleListAttached = false
+            if let attached = attachedRuleList {
+                controller.remove(attached)
+                attachedRuleList = nil
             }
         }
     }
@@ -574,26 +606,38 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // 同時に開ける子ポップアップは最大1件に制限（多重ポップアップ・DoS防止）
+        guard activePopup == nil else { return nil }
+
         let targetHost = navigationAction.request.url?.host ?? webView.url?.host
         let shouldBlock = ContentBlockerManager.shared.shouldBlockPopups(for: targetHost, isPrivate: isPrivate)
 
         if shouldBlock {
             if navigationAction.navigationType == .linkActivated {
-                // ユーザーによる意図的なタップ（リンククリック、target="_blank"等）は安全に読み込む
-                if navigationAction.targetFrame == nil {
-                    webView.load(navigationAction.request)
-                }
-                return nil
+                // ユーザーによる意図的なタップ（リンククリック、target="_blank"等）: 許可して子画面として生成
+                return spawnChildPopup(with: configuration, request: navigationAction.request)
             }
             // スクリプト等による勝手なポップアップ・新規ウィンドウ要求をブロック
             notifyBlockedPopup(for: navigationAction.request.url ?? webView.url)
             return nil
         } else {
-            // ポップアップブロック無効、またはサイト例外登録済み
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-            }
-            return nil
+            // ポップアップブロック無効、またはサイト例外登録済み: 許可して子画面として生成
+            return spawnChildPopup(with: configuration, request: navigationAction.request)
+        }
+    }
+
+    private func spawnChildPopup(with configuration: WKWebViewConfiguration, request: URLRequest) -> WKWebView {
+        let child = WKWebView(frame: .zero, configuration: configuration)
+        child.uiDelegate = self
+        child.navigationDelegate = self
+        child.allowsBackForwardNavigationGestures = true
+        self.activePopup = PopupInfo(webView: child, initialURL: request.url)
+        return child
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if activePopup?.webView === webView {
+            closeActivePopup()
         }
     }
 
