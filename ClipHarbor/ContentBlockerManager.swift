@@ -247,6 +247,11 @@ final class ContentBlockerManager: ObservableObject {
         }
     }
 
+    /// 設定変更時の通知
+    func notifySettingsChanged() {
+        NotificationCenter.default.post(name: .contentBlockerSettingsChanged, object: nil)
+    }
+
     // MARK: - 判定と適用管理
 
     /// 通常・プライベートに応じた適用ルールリストを返却
