@@ -749,7 +749,7 @@ struct BrowserMenuSheet: View {
                         HStack {
                             Label {
                                 Text("動画の候補一覧")
-                                    .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.primary)
+                                    .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.blue)
                             } icon: {
                                 Image(systemName: "film.stack")
                                     .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.blue)
@@ -793,7 +793,7 @@ struct BrowserMenuSheet: View {
                     } label: {
                         Label {
                             Text(isCurrentPageBookmarked ? "ブックマークを解除" : "このページをブックマーク")
-                                .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.primary)
+                                .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.blue)
                         } icon: {
                             Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
                                 .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.blue)
