@@ -244,7 +244,7 @@ struct PrivateVaultView: View {
         let context = PlaybackPlaylistContext(vaultItems: vaultManager.items, initialItem: item)
         ModernVideoPlayerView(playlistContext: context) {
             activePlaybackURL = nil
-            vaultManager.cleanupPlaybackTemp(for: item.id)
+            vaultManager.cleanupPlaybackTemp(itemID: item.id)
         }
     }
 
