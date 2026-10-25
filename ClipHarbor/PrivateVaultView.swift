@@ -57,58 +57,13 @@ struct PrivateVaultView: View {
                 }
 
                 // 処理中プログレスオーバーレイ
-                if vaultManager.isProcessing {
-                    ZStack {
-                        Color.black.opacity(0.4)
-                            .ignoresSafeArea()
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                                .tint(.white)
-                            Text(vaultManager.processingMessage)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(24)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    }
-                    .transition(.opacity)
-                }
+                processingOverlay
 
                 // 操作通知トースト
-                if let notice = noticeMessage {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                        Text(notice)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.primary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
-                    .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(10)
-                }
+                noticeToastOverlay
 
                 // App Switcher等のプライバシーシールド
-                if vaultManager.isPrivacyShieldActive {
-                    ZStack {
-                        Color(.systemBackground)
-                            .ignoresSafeArea()
-                        VStack(spacing: 16) {
-                            Image(systemName: "lock.shield.fill")
-                                .font(.system(size: 56))
-                                .foregroundStyle(.indigo)
-                            Text("Private Vault 保護中")
-                                .font(.headline)
-                        }
-                    }
-                    .transition(.opacity)
-                    .zIndex(99)
-                }
+                privacyShieldOverlay
             }
             .animation(.easeInOut(duration: 0.25), value: noticeMessage)
             .animation(.easeInOut(duration: 0.25), value: vaultManager.isProcessing)
@@ -171,11 +126,7 @@ struct PrivateVaultView: View {
                 }
             }
             .fullScreenCover(item: $activePlayingItem) { item in
-                let context = PlaybackPlaylistContext(vaultItems: vaultManager.items, initialItem: item)
-                ModernVideoPlayerView(playlistContext: context) {
-                    activePlaybackURL = nil
-                    vaultManager.cleanupPlaybackTemp(for: item.id)
-                }
+                vaultPlayerCover(for: item)
             }
             .sheet(isPresented: $showChangePasscode) {
                 VaultChangePasscodeView {
@@ -223,6 +174,77 @@ struct PrivateVaultView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+        }
+    }
+
+    // MARK: - サブビュー（コンパイラ型推論負荷軽減）
+
+    @ViewBuilder
+    private var processingOverlay: some View {
+        if vaultManager.isProcessing {
+            ZStack {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(.white)
+                    Text(vaultManager.processingMessage)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                }
+                .padding(24)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var noticeToastOverlay: some View {
+        if let notice = noticeMessage {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(notice)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(10)
+        }
+    }
+
+    @ViewBuilder
+    private var privacyShieldOverlay: some View {
+        if vaultManager.isPrivacyShieldActive {
+            ZStack {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+                VStack(spacing: 16) {
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: 56))
+                        .foregroundStyle(.indigo)
+                    Text("Private Vault 保護中")
+                        .font(.headline)
+                }
+            }
+            .transition(.opacity)
+            .zIndex(99)
+        }
+    }
+
+    @ViewBuilder
+    private func vaultPlayerCover(for item: VaultItem) -> some View {
+        let context = PlaybackPlaylistContext(vaultItems: vaultManager.items, initialItem: item)
+        ModernVideoPlayerView(playlistContext: context) {
+            activePlaybackURL = nil
+            vaultManager.cleanupPlaybackTemp(for: item.id)
         }
     }
 
