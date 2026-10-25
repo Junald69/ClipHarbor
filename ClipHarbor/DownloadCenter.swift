@@ -145,6 +145,20 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         persistSaved()
     }
 
+    /// ゴミ箱移動時に、実ファイルを削除せずに保存済み一覧からのみ除外する
+    func removeSavedVideoWithoutDeletingFile(id: UUID) {
+        saved.removeAll { $0.id == id }
+        persistSaved()
+    }
+
+    /// ゴミ箱からの復元時に、保存済み動画を再登録する
+    func restoreSavedVideo(_ video: SavedVideo) {
+        if !saved.contains(where: { $0.id == video.id }) {
+            saved.insert(video, at: 0)
+            persistSaved()
+        }
+    }
+
     /// VideoExportManager が生成・品質検証を完了したMP4ファイルを保存済み一覧へ登録する。
     /// - 二重登録を防止し、onVideoSaved による二重ファイル移動を発生させない。
     @discardableResult

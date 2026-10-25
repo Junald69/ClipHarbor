@@ -2,10 +2,11 @@ import SwiftUI
 import AVKit
 
 /// Aloha Browser風のモダンなファイル・動画管理画面
-/// - 2カラムのカードグリッドUI
+/// - 2カラムのカードグリッドUI（左右上端厳格整列・タイトル2行固定高）
 /// - 動画入りフォルダのモザイクプレビュー表示（中央トリミング・枠内厳格フィット）
+/// - アプリ内ゴミ箱機能（72時間保持・自動完全削除・復元・空にする操作）
 /// - サムネイル・動画時間の非同期取得・NSCacheメモリ管理
-/// - フローティング操作バー（検索・並び替え・新規フォルダ作成・追加）
+/// - フローティング操作バー（検索・並び替え・新規フォルダ作成・ゴミ箱・追加）
 /// - カードタップと「…」メニューのジェスチャー完全分離（誤再生・誤遷移防止）
 /// - 既存のダウンロード・fMP4変換・オフライン再生・移動・リネーム・削除処理を完全保護
 struct FileManagerView: View {
@@ -13,6 +14,7 @@ struct FileManagerView: View {
     @ObservedObject var folderManager: VideoFolderManager
     var onOpenSourcePage: ((URL) -> Void)? = nil
     @ObservedObject private var exports = VideoExportManager.shared
+    @ObservedObject private var trashManager = TrashManager.shared
     @Environment(\.dismiss) private var dismiss
 
     // ナビゲーション管理
@@ -25,6 +27,7 @@ struct FileManagerView: View {
     // 再生・移動対象
     @State private var playingVideo: SavedVideo?
     @State private var movingVideo: SavedVideo?
+    @State private var showTrashSheet = false
 
     // フォルダ操作用ダイアログ
     @State private var showNewFolderAlert = false
@@ -64,9 +67,13 @@ struct FileManagerView: View {
             : UIColor(red: 0.88, green: 0.96, blue: 0.98, alpha: 1.0)
     })
 
+    @ScaledMetric(relativeTo: .subheadline) private var folderTitleHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption) private var folderSubtitleHeight: CGFloat = 16
+
+    /// 左右のサムネイル上端を厳格に揃えるため alignment: .top を明示指定
     private let gridColumns = [
-        GridItem(.flexible(), spacing: 14),
-        GridItem(.flexible(), spacing: 14)
+        GridItem(.flexible(), spacing: 14, alignment: .top),
+        GridItem(.flexible(), spacing: 14, alignment: .top)
     ]
 
     var body: some View {
@@ -96,7 +103,7 @@ struct FileManagerView: View {
                 // 下部フローティング操作バー
                 floatingBottomBar(isRoot: true)
 
-                // コピー完了トースト
+                // コピー・ゴミ箱移動完了トースト
                 if let notice = copyNotice {
                     VStack {
                         HStack(spacing: 8) {
@@ -135,6 +142,14 @@ struct FileManagerView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button {
+                            showTrashSheet = true
+                        } label: {
+                            Label("ゴミ箱 (\(trashManager.items.count))", systemImage: "trash")
+                        }
+
+                        Divider()
+
+                        Button {
                             newFolderName = ""
                             showNewFolderAlert = true
                         } label: {
@@ -161,6 +176,7 @@ struct FileManagerView: View {
             }
             .onAppear {
                 folderManager.syncWithFileSystemAndSavedVideos()
+                trashManager.purgeExpiredItems()
             }
             .fullScreenCover(item: $playingVideo) { video in
                 OfflineVideoPlayerSheet(video: video)
@@ -175,6 +191,13 @@ struct FileManagerView: View {
                             errorMessage = err.localizedDescription
                         }
                     }
+                )
+            }
+            .sheet(isPresented: $showTrashSheet) {
+                TrashView(
+                    trashManager: trashManager,
+                    downloads: downloads,
+                    folderManager: folderManager
                 )
             }
             .alert("新規フォルダを作成", isPresented: $showNewFolderAlert) {
@@ -254,24 +277,27 @@ struct FileManagerView: View {
                     renamingVideo = nil
                 }
             }
-            .alert(
-                "動画を削除",
+            // ルートビュー用のゴミ箱移動確認ダイアログ
+            .confirmationDialog(
+                "動画をゴミ箱へ移動",
                 isPresented: Binding(
-                    get: { deletingVideo != nil },
+                    get: { deletingVideo != nil && navigationPath.isEmpty && searchText.isEmpty },
                     set: { if !$0 { deletingVideo = nil } }
-                )
+                ),
+                titleVisibility: .visible
             ) {
-                Button("キャンセル", role: .cancel) { deletingVideo = nil }
-                Button("動画を削除", role: .destructive) {
+                Button("ゴミ箱へ移動", role: .destructive) {
                     if let target = deletingVideo {
-                        VideoThumbnailManager.shared.invalidateCache(for: target)
-                        folderManager.deleteVideo(target)
+                        handleMoveToTrash(video: target)
                     }
+                    deletingVideo = nil
+                }
+                Button("キャンセル", role: .cancel) {
                     deletingVideo = nil
                 }
             } message: {
                 if let target = deletingVideo {
-                    Text("「\(target.title)」を端末から完全に削除しますか？")
+                    Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
                 }
             }
             .alert(
@@ -327,7 +353,7 @@ struct FileManagerView: View {
         }
     }
 
-    // MARK: - フォルダカードコンポーネント（タップ領域とメニューを独立化）
+    // MARK: - フォルダカードコンポーネント（タップ領域とメニューを独立化・上端整列）
 
     private func folderCard(
         title: String,
@@ -401,7 +427,7 @@ struct FileManagerView: View {
             }
             .frame(height: 140)
 
-            // フォルダタイトルとアイテム数（タップで遷移）
+            // フォルダタイトルとアイテム数（Dynamic Type対応で高さを確保し、2段目の上端を厳格一致）
             Button {
                 navigationPath.append(filter)
             } label: {
@@ -410,9 +436,11 @@ struct FileManagerView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
+                        .frame(height: folderTitleHeight, alignment: .topLeading)
                     Text("\(itemCount) アイテム")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(height: folderSubtitleHeight, alignment: .leading)
                 }
                 .padding(.horizontal, 4)
             }
@@ -420,7 +448,7 @@ struct FileManagerView: View {
         }
     }
 
-    // MARK: - フォルダ内動画詳細ビュー
+    // MARK: - フォルダ内動画詳細ビュー（確認ダイアログを直結し確実に表示）
 
     private func folderDetailView(for filter: VideoFolderManager.FolderFilter) -> some View {
         let videos = sortVideos(folderManager.videos(in: filter))
@@ -444,7 +472,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onDelete: { deletingVideo = video },
+                                    onDelete: {
+                                        deletingVideo = video
+                                    },
                                     onOpenSourcePage: { url in
                                         onOpenSourcePage?(url)
                                         dismiss()
@@ -466,6 +496,29 @@ struct FileManagerView: View {
         }
         .navigationTitle(filter.title)
         .navigationBarTitleDisplayMode(.inline)
+        // 遷移先画面自身に確認ダイアログを接続することで確実に表示されるよう修正
+        .confirmationDialog(
+            "動画をゴミ箱へ移動",
+            isPresented: Binding(
+                get: { deletingVideo != nil },
+                set: { if !$0 { deletingVideo = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("ゴミ箱へ移動", role: .destructive) {
+                if let target = deletingVideo {
+                    handleMoveToTrash(video: target)
+                }
+                deletingVideo = nil
+            }
+            Button("キャンセル", role: .cancel) {
+                deletingVideo = nil
+            }
+        } message: {
+            if let target = deletingVideo {
+                Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
+            }
+        }
         .toolbar {
             if case .folder(let folderName) = filter {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -544,7 +597,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onDelete: { deletingVideo = video },
+                                    onDelete: {
+                                        deletingVideo = video
+                                    },
                                     onOpenSourcePage: { url in
                                         onOpenSourcePage?(url)
                                         dismiss()
@@ -555,6 +610,28 @@ struct FileManagerView: View {
                         }
                     }
                 }
+            }
+        }
+        .confirmationDialog(
+            "動画をゴミ箱へ移動",
+            isPresented: Binding(
+                get: { deletingVideo != nil && !searchText.isEmpty },
+                set: { if !$0 { deletingVideo = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("ゴミ箱へ移動", role: .destructive) {
+                if let target = deletingVideo {
+                    handleMoveToTrash(video: target)
+                }
+                deletingVideo = nil
+            }
+            Button("キャンセル", role: .cancel) {
+                deletingVideo = nil
+            }
+        } message: {
+            if let target = deletingVideo {
+                Text("「\(target.title)」をゴミ箱へ移動しますか？\n（3日後に完全削除されます）")
             }
         }
     }
@@ -587,7 +664,7 @@ struct FileManagerView: View {
             .background(.ultraThinMaterial, in: Capsule())
             .shadow(color: Color.black.opacity(0.12), radius: 8, y: 3)
 
-            // 右側: 並び替え・新規フォルダ・アクションボタン
+            // 右側: 並び替え・ゴミ箱・新規フォルダ・アクションボタン
             HStack(spacing: 14) {
                 // 並び替えメニュー
                 Menu {
@@ -609,6 +686,23 @@ struct FileManagerView: View {
                         .foregroundStyle(.primary)
                 }
 
+                // ゴミ箱ショートカットボタン
+                Button {
+                    showTrashSheet = true
+                } label: {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: "trash")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        if !trashManager.items.isEmpty {
+                            Circle()
+                                .fill(Color.orange)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 4, y: -3)
+                        }
+                    }
+                }
+
                 // 新規フォルダ作成ボタン
                 Button {
                     newFolderName = ""
@@ -626,6 +720,11 @@ struct FileManagerView: View {
                         showNewFolderAlert = true
                     } label: {
                         Label("新規フォルダを作成", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        showTrashSheet = true
+                    } label: {
+                        Label("ゴミ箱を開く", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "plus")
@@ -770,13 +869,32 @@ struct FileManagerView: View {
         }
     }
 
-    // MARK: - URLコピー通知
+    // MARK: - ゴミ箱移動とURLコピー通知
 
-    private func copySourcePageURL(_ urlString: String) {
-        UIPasteboard.general.string = urlString
+    private func handleMoveToTrash(video: SavedVideo) {
+        let folder = folderManager.folderName(for: video)
+        Task {
+            let result = await trashManager.moveToTrash(
+                video: video,
+                folderName: folder,
+                downloads: downloads,
+                folderManager: folderManager
+            )
+            await MainActor.run {
+                switch result {
+                case .success:
+                    showToast("「\(video.title)」をゴミ箱へ移動しました")
+                case .failure(let err):
+                    errorMessage = "ゴミ箱への移動に失敗しました: \(err.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func showToast(_ msg: String) {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(.easeInOut(duration: 0.2)) {
-            copyNotice = "元のページのURLをコピーしました"
+            copyNotice = msg
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -784,6 +902,11 @@ struct FileManagerView: View {
                 copyNotice = nil
             }
         }
+    }
+
+    private func copySourcePageURL(_ urlString: String) {
+        UIPasteboard.general.string = urlString
+        showToast("元のページのURLをコピーしました")
     }
 }
 
@@ -830,7 +953,7 @@ private struct FolderMosaicView: View {
     }
 }
 
-// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化・枠内厳格フィット）
+// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化・枠内厳格フィット・上端整列）
 
 private struct AlohaVideoCardView: View {
     let video: SavedVideo
@@ -840,6 +963,9 @@ private struct AlohaVideoCardView: View {
     let onDelete: () -> Void
     let onOpenSourcePage: (URL) -> Void
     let onCopySourcePageURL: (String) -> Void
+
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption2) private var subtitleHeight: CGFloat = 16
 
     private var validatedSourcePageURL: URL? {
         guard let raw = video.sourcePageURL,
@@ -920,7 +1046,7 @@ private struct AlohaVideoCardView: View {
                     Divider()
 
                     Button(role: .destructive, action: onDelete) {
-                        Label("削除", systemImage: "trash")
+                        Label("ゴミ箱へ移動", systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -935,7 +1061,7 @@ private struct AlohaVideoCardView: View {
             }
             .frame(height: 140)
 
-            // タイトルと詳細（タップで動画再生）
+            // タイトルと詳細（Dynamic Type対応で2行分の高さを確保し、2段目以降の上端を左右で統一）
             Button(action: onPlay) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(video.title)
@@ -943,6 +1069,7 @@ private struct AlohaVideoCardView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+                        .frame(height: titleLineHeight * 2, alignment: .topLeading)
 
                     HStack(spacing: 4) {
                         Text(video.format.label)
@@ -954,6 +1081,7 @@ private struct AlohaVideoCardView: View {
                         }
                     }
                     .foregroundStyle(.secondary)
+                    .frame(height: subtitleHeight, alignment: .leading)
                 }
                 .padding(.horizontal, 4)
             }

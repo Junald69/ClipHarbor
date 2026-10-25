@@ -352,6 +352,24 @@ final class VideoFolderManager: ObservableObject {
         downloads.delete(video)
     }
 
+    /// ゴミ箱移動時に論理フォルダマップから除外する
+    func removeVideoFromFolder(videoID: UUID) {
+        folderMap[videoID.uuidString] = nil
+        persistState()
+    }
+
+    /// ゴミ箱復元時に論理フォルダマップを再設定する
+    func restoreVideoToFolder(_ video: SavedVideo, targetFolder: String) {
+        let clean = Self.sanitizedFolderName(targetFolder)
+        if !clean.isEmpty {
+            if !folders.contains(clean) {
+                _ = createFolder(name: clean)
+            }
+            folderMap[video.id.uuidString] = clean
+            persistState()
+        }
+    }
+
     /// ファイルシステム上のサブフォルダと保存済み動画一覧を再スキャンして同期する
     func syncWithFileSystemAndSavedVideos() {
         var folderSet = Set(folders)

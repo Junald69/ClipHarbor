@@ -11,6 +11,8 @@ files = [
     'FileManagerView.swift',
     'VideoFolderManager.swift',
     'VideoThumbnailManager.swift',
+    'TrashManager.swift',
+    'TrashView.swift',
     'VideoExportManager.swift',
     'BrowserModel.swift',
     'TabManager.swift',
