@@ -44,6 +44,9 @@ files = [
     'VideoTrimmerView.swift',
     'ModernVideoPlayerView.swift',
 ]
+resources = [
+    'Localizable.xcstrings',
+]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()
 def e(s): return f'{ident(s)} /* {s} */'
@@ -52,11 +55,15 @@ out = ['// !$*UTF8*$!', '{','\tarchiveVersion = 1;','\tclasses = {};','\tobjectV
 out.append('/* Begin PBXBuildFile section */')
 for name in files:
     out.append(f'\t\t{e("build "+name)} = {{isa = PBXBuildFile; fileRef = {e("file "+name)}; }};')
+for name in resources:
+    out.append(f'\t\t{e("build "+name)} = {{isa = PBXBuildFile; fileRef = {e("file "+name)}; }};')
 out.append('/* End PBXBuildFile section */\n')
 out.append('/* Begin PBXFileReference section */')
 out.append(f'\t\t{e("file Info.plist")} = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; }};')
 for name in files:
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
+for name in resources:
+    out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = {name}; sourceTree = "<group>"; }};')
 out.append(f'\t\t{e("product app")} = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; }};')
 out.append('/* End PBXFileReference section */\n')
 out.append('/* Begin PBXGroup section */')
@@ -72,6 +79,7 @@ out.extend([
  f'\t\t\t\t{e("file Info.plist")},',
 ])
 for name in files:out.append(f'\t\t\t\t{e("file "+name)},')
+for name in resources:out.append(f'\t\t\t\t{e("file "+name)},')
 out.extend(['\t\t\t);','\t\t\tpath = ClipHarbor;','\t\t\tsourceTree = "<group>";','\t\t};',
  f'\t\t{e("product group")} = {{',
  '\t\t\tisa = PBXGroup;',f'\t\t\tchildren = ({e("product app")}, );',
@@ -81,7 +89,7 @@ out.extend([
  f'\t\t{e("target")} = {{',
  '\t\t\tisa = PBXNativeTarget;',
  f'\t\t\tbuildConfigurationList = {e("target configs")};',
- f'\t\t\tbuildPhases = ({e("sources phase")}, );',
+ f'\t\t\tbuildPhases = ({e("sources phase")}, {e("resources phase")}, );',
  '\t\t\tbuildRules = ();','\t\t\tdependencies = ();',
  '\t\t\tname = ClipHarbor;',
  f'\t\t\tproductReference = {e("product app")};',
@@ -96,9 +104,9 @@ out.extend([
  '\t\t\t};',
  f'\t\t\tbuildConfigurationList = {e("project configs")};',
  '\t\t\tcompatibilityVersion = "Xcode 14.0";',
- '\t\t\tdevelopmentRegion = ja;',
+ '\t\t\tdevelopmentRegion = en;',
  '\t\t\thasScannedForEncodings = 0;',
- '\t\t\tknownRegions = (ja, en, Base, );',
+ '\t\t\tknownRegions = (en, ja, Base, );',
  f'\t\t\tmainGroup = {e("main group")};',
  f'\t\t\tproductRefGroup = {e("product group")};',
  '\t\t\tprojectDirPath = "";',
@@ -111,7 +119,14 @@ out.extend([
  '\t\t\tfiles = (',
 ])
 for name in files:out.append(f'\t\t\t\t{e("build "+name)},')
-out.extend(['\t\t\t);','\t\t\trunOnlyForDeploymentPostprocessing = 0;','\t\t};','/* End PBXSourcesBuildPhase section */\n'])
+out.extend(['\t\t\t);','\t\t\trunOnlyForDeploymentPostprocessing = 0;','\t\t};','/* End PBXSourcesBuildPhase section */\n',
+ '/* Begin PBXResourcesBuildPhase section */',
+ f'\t\t{e("resources phase")} = {{','\t\t\tisa = PBXResourcesBuildPhase;',
+ '\t\t\tbuildActionMask = 2147483647;',
+ '\t\t\tfiles = (',
+])
+for name in resources:out.append(f'\t\t\t\t{e("build "+name)},')
+out.extend(['\t\t\t);','\t\t\trunOnlyForDeploymentPostprocessing = 0;','\t\t};','/* End PBXResourcesBuildPhase section */\n'])
 out.append('/* Begin XCBuildConfiguration section */')
 for kind in ['Debug','Release']:
     o = 'project '+kind

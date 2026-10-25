@@ -136,6 +136,7 @@ struct PlayerControlsOverlay: View {
                     .frame(width: 32, height: 32)
                     .background(Color.black.opacity(0.4), in: Circle())
             }
+            .accessibilityLabel(NSLocalizedString("Close", comment: ""))
 
             // タイトル（ボタンを圧迫しないよう末尾省略）
             Text(title)
@@ -149,17 +150,13 @@ struct PlayerControlsOverlay: View {
                 // 編集ボタン（動画のみ、通常・Vault両方で有効）
                 if !isImage {
                     Button(action: onEdit) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("編集")
-                                .font(.system(size: 13, weight: .medium))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.black.opacity(0.4), in: Capsule())
+                        Image(systemName: "pencil")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Color.black.opacity(0.4), in: Circle())
                     }
+                    .accessibilityLabel(NSLocalizedString("Edit", comment: ""))
                 }
 
                 // 共有・出力ボタン（通常・Vault両方で表示）
@@ -170,6 +167,7 @@ struct PlayerControlsOverlay: View {
                         .frame(width: 32, height: 32)
                         .background(Color.black.opacity(0.4), in: Circle())
                 }
+                .accessibilityLabel(NSLocalizedString("Share", comment: ""))
             }
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -310,32 +308,26 @@ struct PlayerControlsOverlay: View {
                 if !isImage {
                     // 1. 最初から再生 (0秒へシークして即再生開始)
                     Button(action: onRestart) {
-                        VStack(spacing: 3) {
-                            Image(systemName: "repeat")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("最初から")
-                                .font(.system(size: 9))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
+                        Image(systemName: "repeat")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
-                    .accessibilityLabel("最初から再生")
+                    .accessibilityLabel(NSLocalizedString("Restart Playback", comment: ""))
                 }
 
                 // 2. お気に入り (承認済みデザインの「星」アイコン)
                 Button {
                     isFavorite.toggle()
                 } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: isFavorite ? "star.fill" : "star")
-                            .font(.system(size: 15))
-                            .foregroundStyle(isFavorite ? Color.yellow : Color.white)
-                        Text(isFavorite ? "登録済" : "お気に入り")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(maxWidth: .infinity)
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 16))
+                        .foregroundStyle(isFavorite ? Color.yellow : Color.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel(isFavorite ? NSLocalizedString("Remove from Favorites", comment: "") : NSLocalizedString("Add to Favorites", comment: ""))
 
                 if !isImage {
                     // 3. 再生速度変更 (0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0x)
@@ -353,76 +345,67 @@ struct PlayerControlsOverlay: View {
                             }
                         }
                     } label: {
-                        VStack(spacing: 3) {
-                            Text(String(format: "%.1fx", playbackRate))
-                                .font(.system(size: 13, weight: .bold))
-                            Text("速度")
-                                .font(.system(size: 9))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
+                        Text(String(format: "%.1fx", playbackRate))
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel(NSLocalizedString("Playback Speed", comment: ""))
+                    .accessibilityValue(String(format: "%.1fx", playbackRate))
 
                     // 4. PiP (Vault内は無効化)
                     Button(action: onTriggerPiP) {
-                        VStack(spacing: 3) {
-                            Image(systemName: "pip.enter")
-                                .font(.system(size: 15))
-                            Text("PiP")
-                                .font(.system(size: 9))
-                        }
-                        .foregroundStyle(isVault ? .white.opacity(0.3) : .white)
-                        .frame(maxWidth: .infinity)
+                        Image(systemName: "pip.enter")
+                            .font(.system(size: 16))
+                            .foregroundStyle(isVault ? .white.opacity(0.3) : .white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .disabled(isVault)
+                    .accessibilityLabel(NSLocalizedString("Picture in Picture", comment: ""))
 
                     // 5. 縦横切替
                     Button(action: onToggleOrientation) {
-                        VStack(spacing: 3) {
-                            OrientationSwitchIcon()
-                            Text("縦横切替")
-                                .font(.system(size: 9))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
+                        OrientationSwitchIcon()
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
-                    .accessibilityLabel("縦横切替")
+                    .accessibilityLabel(NSLocalizedString("Toggle Orientation", comment: ""))
                 }
 
                 // 6. … その他メニュー
                 Menu {
                     if !isImage {
-                        Menu("字幕") {
-                            Text("字幕トラックなし")
+                        Menu(NSLocalizedString("Subtitles", comment: "")) {
+                            Text(NSLocalizedString("No Subtitles", comment: ""))
                         }
                     }
 
                     Button(action: onMoveFile) {
-                        Label("ファイル移動", systemImage: "folder")
+                        Label(NSLocalizedString("Move File", comment: ""), systemImage: "folder")
                     }
 
                     Button(action: onShare) {
-                        Label("出力・共有", systemImage: "square.and.arrow.up")
+                        Label(NSLocalizedString("Export / Share", comment: ""), systemImage: "square.and.arrow.up")
                     }
 
                     Divider()
 
                     Button(role: .destructive, action: onDeleteFile) {
                         Label(
-                            isVault ? "完全に削除" : "ゴミ箱へ移動",
+                            isVault ? NSLocalizedString("Delete Permanently", comment: "") : NSLocalizedString("Move to Trash", comment: ""),
                             systemImage: "trash"
                         )
                     }
                 } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 15, weight: .bold))
-                        Text("その他")
-                            .font(.system(size: 9))
-                    }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
+                .accessibilityLabel(NSLocalizedString("More Actions", comment: ""))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)

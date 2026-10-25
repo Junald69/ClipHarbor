@@ -115,34 +115,32 @@ struct AppSettingsView: View {
                     }
                 }
 
-                // MARK: - 【プライバシー】 (隠しモード時はVault項目を非表示)
-                if !vaultManager.isStealthModeEnabled {
-                    Section {
-                        Button {
-                            if vaultManager.isUnlocked {
-                                showVaultSettings = true
-                            } else {
-                                showVaultAuth = true
-                            }
-                        } label: {
-                            HStack {
-                                Label("Private Vault 設定", systemImage: "lock.shield")
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                Text(vaultManager.isUnlocked ? "解錠中" : "保護中")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                Image(systemName: "chevron.right")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
+                // MARK: - 【プライバシー】
+                Section {
+                    Button {
+                        if vaultManager.isUnlocked {
+                            showVaultSettings = true
+                        } else {
+                            showVaultAuth = true
                         }
-                    } header: {
-                        Text("プライバシー")
-                    } footer: {
-                        Text("プライベートブラウズとPrivate Vaultは独立した機能です。プライベートタブの履歴・Cookieはタブ終了時に自動破棄されます。")
-                            .font(.caption2)
+                    } label: {
+                        HStack {
+                            Label(NSLocalizedString("Private Vault Settings", comment: ""), systemImage: "lock.shield")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(vaultManager.isUnlocked ? NSLocalizedString("Unlocked", comment: "") : NSLocalizedString("Locked", comment: ""))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } header: {
+                    Text("プライバシー")
+                } footer: {
+                    Text("プライベートブラウズとPrivate Vaultは独立した機能です。プライベートタブの履歴・Cookieはタブ終了時に自動破棄されます。")
+                        .font(.caption2)
                 }
 
                 // MARK: - 【アプリ情報】

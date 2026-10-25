@@ -20,7 +20,6 @@ final class VaultManager: ObservableObject {
     @Published private(set) var isUnlocked: Bool = false
     @Published private(set) var items: [VaultItem] = []
     @Published private(set) var isBiometricsEnabled: Bool = false
-    @Published private(set) var isStealthModeEnabled: Bool = false
     @Published private(set) var failedAttempts: Int = 0
     @Published private(set) var lockoutUntil: Date? = nil
     @Published var isProcessing: Bool = false
@@ -60,7 +59,6 @@ final class VaultManager: ObservableObject {
     }
 
     private let biometricsPrefKey = "VaultManager.isBiometricsEnabled"
-    private let stealthModePrefKey = "VaultManager.isStealthModeEnabled"
     private let failedAttemptsPrefKey = "VaultManager.failedAttempts"
     private let lockoutUntilPrefKey = "VaultManager.lockoutUntil"
 
@@ -98,7 +96,6 @@ final class VaultManager: ObservableObject {
     private func loadPersistedState() {
         isInitialized = fileManager.fileExists(atPath: masterKeyFileURL.path)
         isBiometricsEnabled = UserDefaults.standard.bool(forKey: biometricsPrefKey)
-        isStealthModeEnabled = UserDefaults.standard.bool(forKey: stealthModePrefKey)
         failedAttempts = UserDefaults.standard.integer(forKey: failedAttemptsPrefKey)
 
         if let lockoutTimestamp = UserDefaults.standard.object(forKey: lockoutUntilPrefKey) as? Date {
@@ -354,12 +351,6 @@ final class VaultManager: ObservableObject {
             isBiometricsEnabled = false
             UserDefaults.standard.set(false, forKey: biometricsPrefKey)
         }
-    }
-
-    /// 隠しモード（Stealth Mode）の有効/無効切替
-    func setStealthModeEnabled(_ enabled: Bool) {
-        isStealthModeEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: stealthModePrefKey)
     }
 
     // MARK: - インデックスの保存・読み込み

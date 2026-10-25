@@ -175,38 +175,41 @@ struct ModernVideoPlayerView: View {
         .sheet(isPresented: $showMoveSheet) {
             moveFolderDestinationView
         }
-        .alert("Vaultファイルの共有について", isPresented: $showVaultShareAlert) {
-            Button("OK", role: .cancel) {
+        .alert(NSLocalizedString("Sharing Vault Files", comment: ""), isPresented: $showVaultShareAlert) {
+            Button(NSLocalizedString("OK", comment: ""), role: .cancel) {
                 scheduleAutoHide(delay: 10.0)
             }
         } message: {
-            Text("Vault内の動画は直接共有できません。共有するには、通常フォルダへ戻してから共有してください。")
+            Text(NSLocalizedString("Videos in Private Vault cannot be shared directly. Move the video back to a normal folder before sharing.", comment: ""))
         }
         .alert(
             pendingDeletionContext != nil
                 ? (playlistContext.isVault
-                    ? "「\(pendingDeletionContext?.title ?? "")」を削除しますか？"
-                    : "「\(pendingDeletionContext?.title ?? "")」をゴミ箱へ移動しますか？")
+                    ? String(format: NSLocalizedString("Permanently delete \"%@\"?", comment: ""), pendingDeletionContext?.title ?? "")
+                    : String(format: NSLocalizedString("Move \"%@\" to Trash?", comment: ""), pendingDeletionContext?.title ?? ""))
                 : "",
             isPresented: Binding(
                 get: { pendingDeletionContext != nil },
                 set: { if !$0 && !isDeletingItem { pendingDeletionContext = nil; scheduleAutoHide(delay: 10.0) } }
             )
         ) {
-            Button("キャンセル", role: .cancel) {
+            Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {
                 pendingDeletionContext = nil
                 scheduleAutoHide(delay: 10.0)
             }
             if let context = pendingDeletionContext {
-                Button(playlistContext.isVault ? "削除" : "ゴミ箱へ移動", role: .destructive) {
+                Button(
+                    playlistContext.isVault ? NSLocalizedString("Delete Permanently", comment: "") : NSLocalizedString("Move to Trash", comment: ""),
+                    role: .destructive
+                ) {
                     executeDeletion(for: context)
                 }
             }
         } message: {
             if playlistContext.isVault {
-                Text("このファイルを削除します。この操作は取り消せません。")
+                Text(NSLocalizedString("This file will be permanently deleted. This action cannot be undone.", comment: ""))
             } else {
-                Text("ゴミ箱に移動したファイルは、設定された保持期間の間保管され、後から復元できます。")
+                Text(NSLocalizedString("Files moved to trash are kept for the configured retention period and can be restored later.", comment: ""))
             }
         }
         .onChange(of: showTrimmerSheet) { isPresented in
@@ -892,7 +895,7 @@ struct ModernVideoPlayerView: View {
                 // 5. 削除失敗時の復帰処理
                 isDeletingItem = false
                 pendingDeletionContext = nil
-                showToast("削除に失敗しました: \(errorMessage ?? "不明なエラー")")
+                showToast(String(format: "%@: %@", NSLocalizedString("Failed to delete", comment: ""), errorMessage ?? ""))
 
                 if isVault {
                     // 削除失敗後、元ファイルを復号・再表示する前の検証

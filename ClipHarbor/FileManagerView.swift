@@ -17,6 +17,7 @@ struct FileManagerView: View {
     @ObservedObject private var exports = VideoExportManager.shared
     @ObservedObject private var trashManager = TrashManager.shared
     @ObservedObject private var vaultManager = VaultManager.shared
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
@@ -314,12 +315,10 @@ struct FileManagerView: View {
                         Label("設定", systemImage: "gearshape")
                     }
 
-                    if !vaultManager.isStealthModeEnabled {
-                        Button {
-                            showPrivateVaultSheet = true
-                        } label: {
-                            Label("Private Vault", systemImage: "lock.shield")
-                        }
+                    Button {
+                        showPrivateVaultSheet = true
+                    } label: {
+                        Label("Private Vault", systemImage: "lock.shield")
                     }
 
                     Divider()
@@ -543,7 +542,7 @@ struct FileManagerView: View {
         return Group {
             LazyVGrid(columns: gridColumns, spacing: 18) {
                 // Private Vaultカード（非公開保管庫、隠しモード無効時のみ表示）
-                if !vaultManager.isStealthModeEnabled {
+                if !settingsManager.hideVaultInFileList {
                     privateVaultCard
                 }
 
@@ -805,7 +804,7 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: vaultManager.isStealthModeEnabled ? nil : {
+                                    onMoveToVault: {
                                         handleMoveToVault(video: video)
                                     },
                                     onDelete: {
@@ -980,7 +979,7 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: vaultManager.isStealthModeEnabled ? nil : {
+                                    onMoveToVault: {
                                         handleMoveToVault(video: video)
                                     },
                                     onDelete: {
@@ -1171,19 +1170,17 @@ struct FileManagerView: View {
                 }
                 .disabled(selectedVideoIDs.isEmpty)
 
-                // 一括Private Vault移動（隠しモード時は非表示）
-                if !vaultManager.isStealthModeEnabled {
-                    Button {
-                        handleBatchMoveToVault()
-                    } label: {
-                        Image(systemName: "lock.shield")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
-                            .frame(width: 34, height: 34)
-                            .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
-                    }
-                    .disabled(selectedVideoIDs.isEmpty)
+                // 一括Private Vault移動
+                Button {
+                    handleBatchMoveToVault()
+                } label: {
+                    Image(systemName: "lock.shield")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
+                        .frame(width: 34, height: 34)
+                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
                 }
+                .disabled(selectedVideoIDs.isEmpty)
 
                 // 一括ゴミ箱移動
                 Button {

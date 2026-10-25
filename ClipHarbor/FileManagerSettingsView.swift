@@ -27,81 +27,93 @@ struct FileManagerSettingsView: View {
         NavigationStack {
             List {
                 // セクション 1: ストレージ使用状況
-                Section("ストレージ使用状況") {
+                Section(NSLocalizedString("Storage Usage", comment: "")) {
                     HStack {
-                        Label("保存済み動画", systemImage: "play.rectangle")
+                        Label(NSLocalizedString("Saved Videos", comment: ""), systemImage: "play.rectangle")
                         Spacer()
-                        Text("\(downloads.saved.count) 本 (\(ByteCountFormatter.string(fromByteCount: totalSavedBytes, countStyle: .file)))")
+                        Text("\(String.localizedStringWithFormat(NSLocalizedString("%lld videos", comment: ""), Int64(downloads.saved.count))) (\(ByteCountFormatter.string(fromByteCount: totalSavedBytes, countStyle: .file)))")
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Label("フォルダ数", systemImage: "folder")
+                        Label(NSLocalizedString("Folders", comment: ""), systemImage: "folder")
                         Spacer()
-                        Text("\(folderManager.folders.count) 個")
+                        Text(String.localizedStringWithFormat(NSLocalizedString("%lld folders", comment: ""), Int64(folderManager.folders.count)))
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Label("ゴミ箱", systemImage: "trash")
+                        Label(NSLocalizedString("Trash", comment: ""), systemImage: "trash")
                         Spacer()
-                        Text("\(trashManager.items.count) 件 (\(ByteCountFormatter.string(fromByteCount: totalTrashBytes, countStyle: .file)))")
+                        Text("\(String.localizedStringWithFormat(NSLocalizedString("%lld items", comment: ""), Int64(trashManager.items.count))) (\(ByteCountFormatter.string(fromByteCount: totalTrashBytes, countStyle: .file)))")
                             .foregroundStyle(.secondary)
                     }
                 }
 
-                // セクション 2: キャッシュ管理
+                // セクション 2: 表示設定 (Private Vault一覧表示設定)
+                Section {
+                    Toggle(isOn: $settingsManager.hideVaultInFileList) {
+                        Text(NSLocalizedString("Hide Private Vault from File List", comment: ""))
+                    }
+                } header: {
+                    Text(NSLocalizedString("Display Settings", comment: ""))
+                } footer: {
+                    Text(NSLocalizedString("Hides the Private Vault card from the file list. You can still access the Vault anytime from the top-right menu (…).", comment: ""))
+                        .font(.caption2)
+                }
+
+                // セクション 3: キャッシュ管理
                 Section {
                     Button {
                         VideoThumbnailManager.shared.clearAllCache()
-                        showToast("サムネイルのメモリキャッシュを解放しました")
+                        showToast(NSLocalizedString("Cleared thumbnail memory cache", comment: ""))
                     } label: {
                         HStack {
-                            Label("サムネイルのメモリキャッシュを解放", systemImage: "photo.on.rectangle.angled")
+                            Label(NSLocalizedString("Clear Thumbnail Memory Cache", comment: ""), systemImage: "photo.on.rectangle.angled")
                             Spacer()
                         }
                     }
                 } header: {
-                    Text("キャッシュ管理")
+                    Text(NSLocalizedString("Cache Management", comment: ""))
                 } footer: {
-                    Text("メモリ上の一時キャッシュを解放します。保存済みの動画ファイルやディスク上のデータは消去されません。")
+                    Text(NSLocalizedString("Frees temporary memory cache. Saved video files and data on disk will not be deleted.", comment: ""))
                         .font(.caption2)
                 }
 
-                // セクション 3: ゴミ箱の自動削除設定
+                // セクション 4: ゴミ箱の自動削除設定
                 Section {
-                    Picker("保持期間", selection: $settingsManager.trashRetentionPeriod) {
+                    Picker(NSLocalizedString("Retention Period", comment: ""), selection: $settingsManager.trashRetentionPeriod) {
                         ForEach(TrashRetentionPeriod.allCases) { period in
                             Text(period.title).tag(period)
                         }
                     }
                 } header: {
-                    Text("ゴミ箱の自動削除設定")
+                    Text(NSLocalizedString("Trash Auto-Deletion Settings", comment: ""))
                 } footer: {
-                    Text("設定を変更すると、今後ゴミ箱に移動した動画から適用されます。既にゴミ箱にある動画の期限は変更されません。「自動削除しない」を選択した場合、手動で削除するまで端末の容量を消費し続けます。")
+                    Text(NSLocalizedString("Changes will apply to videos moved to trash in the future. The expiration date of videos currently in trash will not change. If 'Do Not Auto-Delete' is selected, files will continue to consume device storage until manually deleted.", comment: ""))
                         .font(.caption2)
                 }
 
-                // セクション 4: ファイル共有とセキュリティ
-                Section("ファイル共有") {
+                // セクション 5: ファイル共有とセキュリティ
+                Section(NSLocalizedString("File Sharing", comment: "")) {
                     HStack {
-                        Label("iOS「ファイル」アプリ連携", systemImage: "doc.badge.arrow.up")
+                        Label(NSLocalizedString("iOS Files App Integration", comment: ""), systemImage: "doc.badge.arrow.up")
                         Spacer()
-                        Text("有効")
+                        Text(NSLocalizedString("Enabled", comment: ""))
                             .foregroundStyle(.green)
                     }
 
-                    Text("「Downloads」配下の動画はiOS標準の「ファイル」アプリから閲覧・共有できます。ゴミ箱内のファイルは非公開領域に安全に隔離されます。")
+                    Text(NSLocalizedString("Videos in 'Downloads' can be viewed and shared via the iOS Files app. Files in Trash are securely isolated in a private directory.", comment: ""))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("ファイル管理設定")
+            .navigationTitle(NSLocalizedString("File Management Settings", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") {
+                    Button(NSLocalizedString("Close", comment: "")) {
                         dismiss()
                     }
                     .font(.body.weight(.semibold))

@@ -69,11 +69,11 @@ enum TrashRetentionPeriod: Int, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
-        case .oneDay: return "1日"
-        case .threeDays: return "3日（初期値）"
-        case .sevenDays: return "7日"
-        case .thirtyDays: return "30日"
-        case .never: return "自動削除しない"
+        case .oneDay: return NSLocalizedString("1 Day", comment: "")
+        case .threeDays: return NSLocalizedString("3 Days (Default)", comment: "")
+        case .sevenDays: return NSLocalizedString("7 Days", comment: "")
+        case .thirtyDays: return NSLocalizedString("30 Days", comment: "")
+        case .never: return NSLocalizedString("Do Not Auto-Delete", comment: "")
         }
     }
 
@@ -119,9 +119,18 @@ final class AppSettingsManager: ObservableObject {
         }
     }
 
+    /// ファイル一覧でのPrivate Vaultカード非表示設定 (true = 非表示, false = 表示)
+    @Published var hideVaultInFileList: Bool {
+        didSet {
+            UserDefaults.standard.set(hideVaultInFileList, forKey: hideVaultInFileListKey)
+        }
+    }
+
     // MARK: - キー定義
     private let searchEngineKey = "clipHarbor.settings.searchEngine"
     private let trashRetentionKey = "clipHarbor.settings.trashRetentionPeriod"
+    private let hideVaultInFileListKey = "clipHarbor.settings.hideVaultInFileList"
+    private let legacyStealthModePrefKey = "VaultManager.isStealthModeEnabled"
 
     private init() {
         // 検索エンジン読み出し (デフォルト: Google)
@@ -138,6 +147,16 @@ final class AppSettingsManager: ObservableObject {
             self.trashRetentionPeriod = period
         } else {
             self.trashRetentionPeriod = .threeDays
+        }
+
+        // Private Vault表示設定読み出し（新キー優先、未保存時のみ旧隠しモード引き継ぎ、初期値: false=カード表示）
+        if let existingVal = UserDefaults.standard.object(forKey: hideVaultInFileListKey) as? Bool {
+            self.hideVaultInFileList = existingVal
+        } else if let legacyVal = UserDefaults.standard.object(forKey: legacyStealthModePrefKey) as? Bool {
+            self.hideVaultInFileList = legacyVal
+            UserDefaults.standard.set(legacyVal, forKey: hideVaultInFileListKey)
+        } else {
+            self.hideVaultInFileList = false
         }
     }
 

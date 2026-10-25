@@ -4,22 +4,21 @@ import LocalAuthentication
 /// Private Vault（非公開保管庫）の統合設定画面
 /// - 生体認証（Face ID / Touch ID）の有効・無効切替
 /// - 6桁パスコードの変更
-/// - 隠しモード（Stealth Mode）の有効化・無効化
+/// - ファイル一覧でのVaultカード表示・非表示設定
 /// - 暗号化仕様・自動ロック条件・パスコード紛失時の不可復旧性の説明
 struct VaultSettingsView: View {
     @ObservedObject var vaultManager = VaultManager.shared
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showChangePasscode = false
-    @State private var showStealthModeAlert = false
-    @State private var showStealthModeExplanation = false
     @State private var toastMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
                 // セクション 1: 認証・生体認証
-                Section("ロック解除設定") {
+                Section(NSLocalizedString("Unlock Settings", comment: "")) {
                     if LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) {
                         Toggle(isOn: Binding(
                             get: { vaultManager.isBiometricsEnabled },
@@ -28,7 +27,7 @@ struct VaultSettingsView: View {
                                 showToast(enabled ? "Face IDを有効にしました" : "Face IDを無効にしました")
                             }
                         )) {
-                            Label("Face ID / 生体認証で解除", systemImage: "faceid")
+                            Label(NSLocalizedString("Unlock with Face ID / Biometrics", comment: ""), systemImage: "faceid")
                         }
                     }
 
@@ -36,7 +35,7 @@ struct VaultSettingsView: View {
                         showChangePasscode = true
                     } label: {
                         HStack {
-                            Label("専用パスコードを変更", systemImage: "key.fill")
+                            Label(NSLocalizedString("Change Passcode", comment: ""), systemImage: "key.fill")
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: "chevron.right")
@@ -46,38 +45,22 @@ struct VaultSettingsView: View {
                     }
                 }
 
-                // セクション 2: 隠しモード (Stealth Mode)
+                // セクション 2: 表示設定 (Private Vault一覧表示設定)
                 Section {
-                    Toggle(isOn: Binding(
-                        get: { vaultManager.isStealthModeEnabled },
-                        set: { enabled in
-                            if enabled {
-                                showStealthModeExplanation = true
-                            } else {
-                                vaultManager.setStealthModeEnabled(false)
-                                showToast("隠しモードを無効化しました")
-                            }
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("隠しモード（Stealth Mode）")
-                                .font(.body)
-                            Text(vaultManager.isStealthModeEnabled ? "有効: ファイル画面や設定からVaultの表示が完全に隠されています" : "無効: 通常ファイル一覧の先頭にVaultカードを表示します")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                    Toggle(isOn: $settingsManager.hideVaultInFileList) {
+                        Text(NSLocalizedString("Hide Private Vault from File List", comment: ""))
                     }
                 } header: {
-                    Text("プライバシー表示")
+                    Text(NSLocalizedString("Display Settings", comment: ""))
                 } footer: {
-                    Text("隠しモードを有効にすると、ファイル一覧やメニュー、設定画面からVaultの表示が消去されます。開くにはファイル画面タイトル「ファイル」を2秒長押しします。")
+                    Text(NSLocalizedString("Hides the Private Vault card from the file list. You can still access the Vault anytime from the top-right menu (…).", comment: ""))
                         .font(.caption2)
                 }
 
                 // セクション 3: セキュリティとロック条件
-                Section("セキュリティ保護仕様") {
+                Section(NSLocalizedString("Security Specifications", comment: "")) {
                     HStack {
-                        Text("暗号化方式")
+                        Text(NSLocalizedString("Encryption", comment: ""))
                         Spacer()
                         Text("AES-256-GCM (1MBチャンク)")
                             .font(.caption)
@@ -85,7 +68,7 @@ struct VaultSettingsView: View {
                     }
 
                     HStack {
-                        Text("鍵導出方式")
+                        Text(NSLocalizedString("Key Derivation", comment: ""))
                         Spacer()
                         Text("PBKDF2 (SHA-256, 10万回)")
                             .font(.caption)
@@ -93,18 +76,18 @@ struct VaultSettingsView: View {
                     }
 
                     HStack {
-                        Text("自動ロック")
+                        Text(NSLocalizedString("Auto-Lock", comment: ""))
                         Spacer()
-                        Text("アプリ終了・バックグラウンド移行時")
+                        Text(NSLocalizedString("On app exit or background", comment: ""))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 // セクション 4: 重要事項
-                Section("重要なお知らせ") {
+                Section(NSLocalizedString("Important Notice", comment: "")) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label("パスコードの管理について", systemImage: "exclamationmark.triangle.fill")
+                        Label(NSLocalizedString("Passcode Management", comment: ""), systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.orange)
 
@@ -117,25 +100,17 @@ struct VaultSettingsView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Private Vault 設定")
+            .navigationTitle(NSLocalizedString("Private Vault Settings", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button(NSLocalizedString("Close", comment: "")) { dismiss() }
                 }
             }
             .sheet(isPresented: $showChangePasscode) {
                 VaultChangePasscodeView {
                     showToast("パスコードを変更しました")
                 }
-            }
-            .sheet(isPresented: $showStealthModeExplanation) {
-                VaultStealthModeSetupSheet(
-                    onConfirm: {
-                        vaultManager.setStealthModeEnabled(true)
-                        showToast("隠しモードを有効化しました")
-                    }
-                )
             }
             .overlay(alignment: .top) {
                 if let toast = toastMessage {
@@ -163,115 +138,6 @@ struct VaultSettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
             withAnimation {
                 toastMessage = nil
-            }
-        }
-    }
-}
-
-/// 隠しモード有効化前の説明・同意シート
-struct VaultStealthModeSetupSheet: View {
-    let onConfirm: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.indigo.opacity(0.12))
-                            .frame(width: 80, height: 80)
-                        Image(systemName: "eye.slash.fill")
-                            .font(.system(size: 38))
-                            .foregroundStyle(.indigo)
-                    }
-                    .padding(.top, 16)
-
-                    VStack(spacing: 8) {
-                        Text("隠しモードを有効にしますか？")
-                            .font(.title2.weight(.bold))
-                        Text("Private Vaultの存在そのものをアプリ内から隠蔽します")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        bulletPoint(
-                            icon: "square.grid.2x2",
-                            title: "一覧・メニューからの完全非表示",
-                            description: "ファイル一覧のVaultカード、右上メニュー、設定画面、動画の「Vaultへ移動」ボタンがすべて非表示になります。"
-                        )
-
-                        bulletPoint(
-                            icon: "hand.tap.fill",
-                            title: "開き方：タイトル「ファイル」を2秒長押し",
-                            description: "ファイル管理ルート画面の上部ナビゲーションタイトル「ファイル」を2秒間長押しすると、認証画面が表示されます。"
-                        )
-
-                        bulletPoint(
-                            icon: "lock.shield.fill",
-                            title: "毎回厳格な認証が必要",
-                            description: "長押し操作を行うだけで解錠されることはありません。設定されたパスコードまたはFace IDでの認証を必ず経由します。"
-                        )
-
-                        bulletPoint(
-                            icon: "accessibility",
-                            title: "アクセシビリティ対応",
-                            description: "VoiceOver環境では、タイトル「ファイル」のカスタムアクション「保管庫を開く」から起動できます。"
-                        )
-                    }
-                    .padding(18)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                    .padding(.horizontal, 16)
-
-                    Spacer(minLength: 20)
-
-                    VStack(spacing: 12) {
-                        Button {
-                            onConfirm()
-                            dismiss()
-                        } label: {
-                            Text("理解して隠しモードを有効化")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.indigo, in: RoundedRectangle(cornerRadius: 14))
-                        }
-
-                        Button("キャンセル") {
-                            dismiss()
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 24)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func bulletPoint(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 20))
-                .foregroundStyle(.indigo)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

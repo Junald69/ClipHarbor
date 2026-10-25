@@ -44,6 +44,7 @@
 		2269AB7D8C7FE32C00B93E6F /* build PlayerControlsOverlay.swift */ = {isa = PBXBuildFile; fileRef = CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */; };
 		D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */ = {isa = PBXBuildFile; fileRef = 2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */; };
 		6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */ = {isa = PBXBuildFile; fileRef = 3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */; };
+		17BF3D4D6443CA860CF92810 /* build Localizable.xcstrings */ = {isa = PBXBuildFile; fileRef = A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -86,6 +87,7 @@
 		CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerControlsOverlay.swift; sourceTree = "<group>"; };
 		2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmerView.swift; sourceTree = "<group>"; };
 		3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernVideoPlayerView.swift; sourceTree = "<group>"; };
+		A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -137,6 +139,7 @@
 				CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */,
 				2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */,
 				3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */,
+				A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */,
 			);
 			path = ClipHarbor;
 			sourceTree = "<group>";
@@ -153,7 +156,7 @@
 		0E8A3AD980EC179856012B7E /* target */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 20BA35986C8D108192A74E6F /* target configs */;
-			buildPhases = (1CE6DC2571680BAD24FA2D71 /* sources phase */, );
+			buildPhases = (1CE6DC2571680BAD24FA2D71 /* sources phase */, 7C9581047372A5681A4931A9 /* resources phase */, );
 			buildRules = ();
 			dependencies = ();
 			name = ClipHarbor;
@@ -173,9 +176,9 @@
 			};
 			buildConfigurationList = FA52021448A4AC7DE6CD200E /* project configs */;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = ja;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
-			knownRegions = (ja, en, Base, );
+			knownRegions = (en, ja, Base, );
 			mainGroup = 7FEFA489E25E19BEF8A8A2A9 /* main group */;
 			productRefGroup = 828132AE302825007DC2C140 /* product group */;
 			projectDirPath = "";
@@ -231,6 +234,17 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7C9581047372A5681A4931A9 /* resources phase */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				17BF3D4D6443CA860CF92810 /* build Localizable.xcstrings */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		CACD8F8D7E01D03300A42FA5 /* project Debug */ = {
