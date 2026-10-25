@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import AVFoundation
+import ImageIO
 
 /// 刷新されたAloha風全画面メディアプレイヤー／画像ビューアー
 /// - 動画: AVPlayerLayer (CustomVideoPlayerView) + 完全カスタムUI
@@ -37,8 +38,14 @@ struct ModernVideoPlayerView: View {
     @State private var volumeValue: Double = 1.0
 
     // 画像閲覧状態
+    private enum ImageLoadState: Equatable {
+        case loading
+        case success(UIImage)
+        case failure(String)
+    }
     @State private var isImageZoomed: Bool = false
-    @State private var currentLoadedImage: UIImage?
+    @State private var imageLoadState: ImageLoadState = .loading
+    @State private var imageLoadTaskID: UUID = UUID()
 
     // フィードバックバッジ
     @State private var seekFeedbackText: String?
@@ -69,8 +76,10 @@ struct ModernVideoPlayerView: View {
             mediaContentLayer
                 .ignoresSafeArea()
 
-            // MARK: - 背景ジェスチャー検出レイヤー
-            gestureDetectionLayer
+            // MARK: - 背景ジェスチャー検出レイヤー（動画のみ）
+            if let item = playlistContext.currentItem, !item.isImage {
+                videoGestureDetectionLayer
+            }
 
             // MARK: - ダブルタップ10秒シークフィードバックバッジ
             if seekFeedbackOpacity > 0 {
@@ -96,6 +105,8 @@ struct ModernVideoPlayerView: View {
                         isVault: playlistContext.isVault,
                         isImage: item.isImage,
                         isHLS: item.isHLS,
+                        canGoNext: playlistContext.canGoNext,
+                        canGoPrevious: playlistContext.canGoPrevious,
                         onClose: handleClose,
                         onEdit: {
                             registerUserAction()
@@ -104,8 +115,9 @@ struct ModernVideoPlayerView: View {
                         onShare: handleShareTapped,
                         onRestart: handleRestart,
                         onTogglePlay: togglePlayPause,
-                        onSeekBy: { handleSeek(offset: $0) },
                         onSeekTo: { handleSeekToTime($0) },
+                        onNextFile: handleNavigateNext,
+                        onPreviousFile: handleNavigatePrevious,
                         onToggleOrientation: toggleOrientation,
                         onTriggerPiP: triggerPiP,
                         onMoveFile: {
@@ -206,14 +218,31 @@ struct ModernVideoPlayerView: View {
     private var mediaContentLayer: some View {
         if let item = playlistContext.currentItem {
             if item.isImage {
-                if let img = currentLoadedImage {
+                switch imageLoadState {
+                case .loading:
+                    ProgressView().tint(.white)
+                case .success(let img):
                     ZoomableImageView(
                         image: img,
                         isZoomed: $isImageZoomed,
-                        onTap: { toggleControlsVisibility() }
+                        onTap: { toggleControlsVisibility() },
+                        onSwipeNext: { handleNavigateNext() },
+                        onSwipePrevious: { handleNavigatePrevious() }
                     )
-                } else {
-                    ProgressView().tint(.white)
+                case .failure(let errorMsg):
+                    VStack(spacing: 16) {
+                        Image(systemName: "photo.badge.exclamationmark")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.white.opacity(0.8))
+                        Text(errorMsg)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.8))
+                        Button("再試行") {
+                            loadCurrentItem(autoPlay: false)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white.opacity(0.3))
+                    }
                 }
             } else {
                 if let p = player {
@@ -225,86 +254,59 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    // MARK: - ジェスチャー検出レイヤー
+    // MARK: - 動画用ジェスチャー検出レイヤー
 
-    private var gestureDetectionLayer: some View {
+    private var videoGestureDetectionLayer: some View {
         GeometryReader { geo in
             let w = geo.size.width
-            let h = geo.size.height
-
-            Color.clear
-                .contentShape(Rectangle())
-                // シングルタップで UI 表示切替
-                .onTapGesture(count: 1) {
-                    toggleControlsVisibility()
-                }
-                // ダブルタップ（左: -10秒、右: +10秒）動画のみ有効
-                .highPriorityGesture(
-                    TapGesture(count: 2)
-                        .onEnded {
-                            // ダブルタップ位置の判定（画面中央から左または右）
-                            // SwiftUIのTapGestureは位置を取れないため、DragGestureまたは左右分割エリアで検出
-                        }
-                )
-                // 水平スワイプ（左右）による次／前切り替え（画像拡大中は無効）
-                .gesture(
-                    DragGesture(minimumDistance: 40)
-                        .onEnded { value in
-                            guard !isImageZoomed else { return }
-                            let horizontal = value.translation.width
-                            let vertical = value.translation.height
-
-                            // 水平判定（垂直ドラッグを無視）
-                            guard abs(horizontal) > abs(vertical) * 1.5 else { return }
-
-                            if horizontal < -50 {
-                                // 左スワイプ（指を右から左へ）＝ 次へ (Next)
-                                handleSwipeNext()
-                            } else if horizontal > 50 {
-                                // 右スワイプ（指を左から右へ）＝ 前へ (Previous)
-                                handleSwipePrevious()
-                            }
-                        }
-                )
-                // 左右のダブルタップ領域オーバーレイ（動画のみ）
-                .overlay(
-                    HStack(spacing: 0) {
-                        // 左半分: -10秒ダブルタップ
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 2) {
-                                if let item = playlistContext.currentItem, !item.isImage {
-                                    handleDoubleTapSeek(isForward: false)
-                                }
-                            }
-                            .onTapGesture(count: 1) {
-                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
-                                toggleControlsVisibility()
-                            }
-
-                        // 中央タップ透過領域
-                        Color.clear
-                            .frame(width: 80)
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 1) {
-                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
-                                toggleControlsVisibility()
-                            }
-
-                        // 右半分: +10秒ダブルタップ
-                        Color.clear
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 2) {
-                                if let item = playlistContext.currentItem, !item.isImage {
-                                    handleDoubleTapSeek(isForward: true)
-                                }
-                            }
-                            .onTapGesture(count: 1) {
-                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
-                                toggleControlsVisibility()
-                            }
+            HStack(spacing: 0) {
+                // 左40%: -10秒ダブルタップ & シングルタップでコントロール表示切替
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        handleDoubleTapSeek(isForward: false)
                     }
-                )
+                    .onTapGesture(count: 1) {
+                        guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
+                        toggleControlsVisibility()
+                    }
+
+                // 中央20%: シングルタップでコントロール表示切替
+                Color.clear
+                    .frame(width: max(60, w * 0.2))
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 1) {
+                        guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
+                        toggleControlsVisibility()
+                    }
+
+                // 右40%: +10秒ダブルタップ & シングルタップでコントロール表示切替
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        handleDoubleTapSeek(isForward: true)
+                    }
+                    .onTapGesture(count: 1) {
+                        guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
+                        toggleControlsVisibility()
+                    }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { value in
+                        let horizontal = value.translation.width
+                        let vertical = value.translation.height
+                        // 水平優位性判定（垂直スクロールや斜めドラッグを確実に除外）
+                        guard abs(horizontal) > abs(vertical) * 1.5 else { return }
+                        if horizontal < -50 {
+                            // 左スワイプ（指を右から左へ）＝ 次へ (Next)
+                            handleNavigateNext()
+                        } else if horizontal > 50 {
+                            // 右スワイプ（指を左から右へ）＝ 前へ (Previous)
+                            handleNavigatePrevious()
+                        }
+                    }
+            )
         }
     }
 
@@ -346,7 +348,46 @@ struct ModernVideoPlayerView: View {
 
     // MARK: - メディアロード & ライフサイクル
 
-    private func loadCurrentItem() {
+    private func downsampleImage(at url: URL, maxPixelSize: CGFloat = 4096) -> UIImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else {
+            return UIImage(contentsOfFile: url.path)
+        }
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
+        ] as [CFString: Any] as CFDictionary
+
+        if let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions) {
+            return UIImage(cgImage: thumbnail)
+        }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    private func loadImage(from url: URL) {
+        let taskID = UUID()
+        imageLoadTaskID = taskID
+        imageLoadState = .loading
+        isPlaying = false
+        duration = 0.0
+        currentTime = 0.0
+
+        Task.detached(priority: .userInitiated) {
+            let loaded = self.downsampleImage(at: url, maxPixelSize: 4096)
+            await MainActor.run {
+                guard self.imageLoadTaskID == taskID else { return }
+                if let image = loaded {
+                    self.imageLoadState = .success(image)
+                } else {
+                    self.imageLoadState = .failure("画像の読み込みに失敗しました")
+                }
+            }
+        }
+    }
+
+    private func loadCurrentItem(autoPlay: Bool = true) {
         guard let item = playlistContext.currentItem else { return }
 
         // 前のプレイヤー・音声監視の停止
@@ -356,41 +397,43 @@ struct ModernVideoPlayerView: View {
         case .normal(let video):
             currentPlaybackURL = video.fileURL
             if video.format.isImage {
-                // 画像のダウンサンプリング読み込み
-                currentLoadedImage = UIImage(contentsOfFile: video.fileURL.path)
-                isPlaying = false
-                duration = 0.0
-                currentTime = 0.0
+                loadImage(from: video.fileURL)
             } else {
-                currentLoadedImage = nil
-                setupVideoPlayer(url: video.fileURL, isVault: false)
+                setupVideoPlayer(url: video.fileURL, isVault: false, autoPlay: autoPlay)
             }
 
         case .vault(let vaultItem):
-            currentLoadedImage = nil
             do {
                 let opID = UUID()
                 let tempURL = try VaultManager.shared.preparePlaybackURL(for: vaultItem, operationID: opID)
                 self.vaultActivePlaybackURL = tempURL
                 self.currentPlaybackURL = tempURL
-                setupVideoPlayer(url: tempURL, isVault: true)
+                if vaultItem.format.isImage {
+                    loadImage(from: tempURL)
+                } else {
+                    setupVideoPlayer(url: tempURL, isVault: true, autoPlay: autoPlay)
+                }
             } catch {
                 showToast("再生準備に失敗しました: \(error.localizedDescription)")
             }
         }
     }
 
-    private func setupVideoPlayer(url: URL, isVault: Bool) {
+    private func setupVideoPlayer(url: URL, isVault: Bool, autoPlay: Bool) {
         let (p, sid) = coordinator.startPlaybackSession(
             url: url,
             context: playlistContext,
             isVault: isVault,
-            initialRate: playbackRate
+            initialRate: autoPlay ? playbackRate : 0.0
         )
         self.player = p
         self.sessionID = sid
-        self.isPlaying = true
+        self.isPlaying = autoPlay
         p.volume = Float(volumeValue)
+
+        if !autoPlay {
+            p.pause()
+        }
 
         // 再生時間の監視
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
@@ -493,29 +536,50 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    // MARK: - スワイプ次／前ナビゲーション
+    // MARK: - 次／前メディアナビゲーション（スワイプ & ボタン共有）
 
-    private func handleSwipeNext() {
-        activeInteractions.removeAll()
-        guard playlistContext.canGoNext else {
-            showToast("最後のファイルです")
-            return
-        }
-        playlistContext.moveToNext()
-        loadCurrentItem()
-        if areControlsVisible {
-            scheduleAutoHide(delay: 10.0)
-        }
+    private func handleNavigateNext() {
+        navigateToItem(isNext: true)
     }
 
-    private func handleSwipePrevious() {
-        activeInteractions.removeAll()
-        guard playlistContext.canGoPrevious else {
-            showToast("先頭のファイルです")
-            return
+    private func handleNavigatePrevious() {
+        navigateToItem(isNext: false)
+    }
+
+    private func navigateToItem(isNext: Bool) {
+        // 1. 境界チェック（リソース破棄前に行う。境界到達時はトーストを出さず再生停止もしない）
+        let canNavigate = isNext ? playlistContext.canGoNext : playlistContext.canGoPrevious
+        guard canNavigate else { return }
+
+        // 2. 現在のメディア種別と再生中状態の保存
+        let currentItem = playlistContext.currentItem
+        let wasImage = currentItem?.isImage ?? false
+        let wasPlaying = !wasImage && isPlaying
+
+        // 3. インデックスの移動
+        let targetItem = isNext ? playlistContext.moveToNext() : playlistContext.moveToPrevious()
+        guard let newItem = targetItem else { return }
+
+        // 4. 次のメディアの自動再生判定:
+        // - 動画 -> 動画: 再生状態をそのまま引き継ぐ
+        // - 動画 -> 画像: 画像は自動再生不可 (false)
+        // - 画像 -> 動画: 不意な大音量再生を防ぐため停止状態で開始 (false)
+        // - 画像 -> 画像: (false)
+        let shouldAutoPlay: Bool
+        if !wasImage && !newItem.isImage {
+            shouldAutoPlay = wasPlaying
+        } else {
+            shouldAutoPlay = false
         }
-        playlistContext.moveToPrevious()
-        loadCurrentItem()
+
+        // 5. 前のリソース解放
+        activeInteractions.removeAll()
+        tearDownPlayer()
+
+        // 6. 新しいアイテムのロード
+        loadCurrentItem(autoPlay: shouldAutoPlay)
+
+        // 7. コントロール表示中なら自動非表示タイマーをリセット
         if areControlsVisible {
             scheduleAutoHide(delay: 10.0)
         }

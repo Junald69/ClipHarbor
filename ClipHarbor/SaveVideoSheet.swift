@@ -663,16 +663,22 @@ private struct SavedVideoRow: View {
 
 /// ClipHarbor独自の全画面動画プレイヤーシート（オフライン保存済み動画の再生用）。
 /// - ModernVideoPlayerView を使用したAloha風プレイヤーへのブリッジ
+/// - @StateObject でプレイリストコンテキストを保持し、再描画時のリセットを防止
 struct OfflineVideoPlayerSheet: View {
-    let video: SavedVideo
-    var playlist: [SavedVideo] = []
-    var folderTitle: String = "保存済みファイル"
+    @StateObject private var playlistContext: PlaybackPlaylistContext
     @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
+    init(video: SavedVideo, playlist: [SavedVideo] = [], folderTitle: String = "保存済みファイル") {
         let videos = playlist.isEmpty ? [video] : playlist
-        let context = PlaybackPlaylistContext(normalVideos: videos, initialVideo: video, folderTitle: folderTitle)
-        ModernVideoPlayerView(playlistContext: context) {
+        _playlistContext = StateObject(wrappedValue: PlaybackPlaylistContext(
+            normalVideos: videos,
+            initialVideo: video,
+            folderTitle: folderTitle
+        ))
+    }
+
+    var body: some View {
+        ModernVideoPlayerView(playlistContext: playlistContext) {
             dismiss()
         }
     }

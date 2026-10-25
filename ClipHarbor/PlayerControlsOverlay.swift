@@ -23,6 +23,8 @@ struct PlayerControlsOverlay: View {
     let isVault: Bool
     let isImage: Bool
     let isHLS: Bool
+    let canGoNext: Bool
+    let canGoPrevious: Bool
 
     // コールバック
     let onClose: () -> Void
@@ -30,8 +32,9 @@ struct PlayerControlsOverlay: View {
     let onShare: () -> Void
     let onRestart: () -> Void
     let onTogglePlay: () -> Void
-    let onSeekBy: (Double) -> Void
     let onSeekTo: (Double) -> Void
+    let onNextFile: () -> Void
+    let onPreviousFile: () -> Void
     let onToggleOrientation: () -> Void
     let onTriggerPiP: () -> Void
     let onMoveFile: () -> Void
@@ -68,10 +71,8 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                // MARK: - 中央コントロール（動画のみ）
-                if !isImage {
-                    centerControlsView
-                }
+                // MARK: - 中央コントロール（前ファイル／再生・停止／次ファイル）
+                centerControlsView
 
                 Spacer()
 
@@ -156,41 +157,56 @@ struct PlayerControlsOverlay: View {
         )
     }
 
-    // MARK: - 中央コントロール
+    // MARK: - 中央コントロール（前ファイル／再生・停止／次ファイル）
 
     private var centerControlsView: some View {
-        HStack(spacing: 40) {
-            // 10秒戻し
+        HStack(spacing: 36) {
+            // 前のファイルへ
             Button {
-                onSeekBy(-10)
+                onPreviousFile()
             } label: {
-                Image(systemName: "gobackward.10")
-                    .font(.system(size: 26, weight: .medium))
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 52, height: 52)
                     .background(Color.black.opacity(0.45), in: Circle())
             }
+            .disabled(!canGoPrevious)
+            .opacity(canGoPrevious ? 1.0 : 0.3)
+            .accessibilityLabel("前のファイル")
+            .accessibilityHint(canGoPrevious ? "前のファイルを表示します" : "先頭のファイルです")
 
-            // 再生・一時停止
-            Button(action: onTogglePlay) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.white)
+            // 再生・一時停止（動画のみ表示、画像時はレイアウトバランス保持のため透明枠）
+            if !isImage {
+                Button(action: onTogglePlay) {
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 72, height: 72)
+                        .background(Color.white.opacity(0.25), in: Circle())
+                        .background(.ultraThinMaterial.opacity(0.4), in: Circle())
+                }
+                .accessibilityLabel(isPlaying ? "一時停止" : "再生")
+            } else {
+                Color.clear
                     .frame(width: 72, height: 72)
-                    .background(Color.white.opacity(0.25), in: Circle())
-                    .background(.ultraThinMaterial.opacity(0.4), in: Circle())
+                    .allowsHitTesting(false)
             }
 
-            // 10秒送り
+            // 次のファイルへ
             Button {
-                onSeekBy(10)
+                onNextFile()
             } label: {
-                Image(systemName: "goforward.10")
-                    .font(.system(size: 26, weight: .medium))
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 52, height: 52)
                     .background(Color.black.opacity(0.45), in: Circle())
             }
+            .disabled(!canGoNext)
+            .opacity(canGoNext ? 1.0 : 0.3)
+            .accessibilityLabel("次のファイル")
+            .accessibilityHint(canGoNext ? "次のファイルを表示します" : "最後のファイルです")
         }
     }
 

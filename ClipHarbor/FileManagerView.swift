@@ -206,10 +206,13 @@ struct FileManagerView: View {
             }
             .fullScreenCover(item: $playingVideo) { video in
                 let currentFilter = navigationPath.last ?? .all
-                let currentVideos = folderManager.videos(in: currentFilter)
+                let baseVideos = folderManager.videos(in: currentFilter)
+                let query = searchText.trimmingCharacters(in: .whitespaces)
+                let matching = query.isEmpty ? baseVideos : baseVideos.filter { $0.title.localizedCaseInsensitiveContains(query) }
+                let playlist = sortVideos(matching)
                 OfflineVideoPlayerSheet(
                     video: video,
-                    playlist: currentVideos,
+                    playlist: playlist,
                     folderTitle: folderTitle(for: currentFilter)
                 )
             }

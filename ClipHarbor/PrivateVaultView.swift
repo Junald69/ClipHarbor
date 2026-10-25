@@ -241,10 +241,10 @@ struct PrivateVaultView: View {
 
     @ViewBuilder
     private func vaultPlayerCover(for item: VaultItem) -> some View {
-        let context = PlaybackPlaylistContext(vaultItems: vaultManager.items, initialItem: item)
-        ModernVideoPlayerView(playlistContext: context) {
+        PrivateVaultPlayerSheet(vaultItems: vaultManager.items, initialItem: item) {
             activePlaybackURL = nil
             vaultManager.cleanupPlaybackTemp(itemID: item.id)
+            activePlayingItem = nil
         }
     }
 
@@ -1179,6 +1179,27 @@ struct VaultImportPickerView: View {
                     .disabled(selectedIDs.isEmpty)
                 }
             }
+        }
+    }
+}
+
+/// Private Vault用の全画面メディアプレイヤーシート
+/// - @StateObject でプレイリストコンテキストを保持し、再描画時のリセットを防止
+private struct PrivateVaultPlayerSheet: View {
+    @StateObject private var playlistContext: PlaybackPlaylistContext
+    let onDismiss: () -> Void
+
+    init(vaultItems: [VaultItem], initialItem: VaultItem, onDismiss: @escaping () -> Void) {
+        self.onDismiss = onDismiss
+        _playlistContext = StateObject(wrappedValue: PlaybackPlaylistContext(
+            vaultItems: vaultItems,
+            initialItem: initialItem
+        ))
+    }
+
+    var body: some View {
+        ModernVideoPlayerView(playlistContext: playlistContext) {
+            onDismiss()
         }
     }
 }

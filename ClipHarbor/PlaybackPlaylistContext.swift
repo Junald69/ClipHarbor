@@ -31,7 +31,7 @@ enum PlaybackMediaItem: Identifiable, Equatable {
     var isImage: Bool {
         switch self {
         case .normal(let v): return v.format.isImage
-        case .vault: return false
+        case .vault(let item): return item.format.isImage
         }
     }
 
