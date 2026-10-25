@@ -2590,6 +2590,329 @@
           }
         }
       }
+    },
+    "Content Blocking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content Blocking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロック"
+          }
+        }
+      }
+    },
+    "Block Ads & Trackers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block Ads & Trackers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広告とトラッカーをブロック"
+          }
+        }
+      }
+    },
+    "Block Annoying Pop-ups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block Annoying Pop-ups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迷惑ポップアップをブロック"
+          }
+        }
+      }
+    },
+    "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック判定は端末内のルールで行われ、ブロック判定のために閲覧URLや履歴を外部送信しません。"
+          }
+        }
+      }
+    },
+    "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迷惑ポップアップをブロックしました。正常な操作の場合は、このサイトで許可して再試行してください。"
+          }
+        }
+      }
+    },
+    "Allow for this site and reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow for this site and reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで許可して再読み込み"
+          }
+        }
+      }
+    },
+    "Site Protection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site Protection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイトの保護設定"
+          }
+        }
+      }
+    },
+    "Enable Protection on This Site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Protection on This Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで保護を有効化"
+          }
+        }
+      }
+    },
+    "Disable Protection on This Site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Protection on This Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで保護を無効化"
+          }
+        }
+      }
+    },
+    "Protection Enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護有効"
+          }
+        }
+      }
+    },
+    "Protection Disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection Disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護解除中"
+          }
+        }
+      }
+    },
+    "Global content blocking is disabled in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global content blocking is disabled in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定画面でコンテンツブロックが無効化されています。"
+          }
+        }
+      }
+    },
+    "※ Exceptions set in Private Browsing are kept in memory and cleared when private tabs are closed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "※ Exceptions set in Private Browsing are kept in memory and cleared when private tabs are closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "※ プライベートブラウズ中の例外設定はメモリ内のみ保持され、プライベートタブ終了時に消去されます。"
+          }
+        }
+      }
+    },
+    "Protection status for %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection status for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の保護設定"
+          }
+        }
+      }
+    },
+    "Content Blocker & Data Sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content Blocker & Data Sources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロック・データ出典"
+          }
+        }
+      }
+    },
+    "licenses_adaway_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ClipHarbor adapts the open-source AdAway Default Blocklist into WebKit Content Rule List format to block known tracking and advertising domains directly on device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AdAway Default Blocklist をWebKitコンテンツルール形式に変換して採用し、既知の広告・トラッカー配信ドメインを端末内で直接ブロックします。"
+          }
+        }
+      }
+    },
+    "licenses_adaway_license": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: AdAway (commit f39ba0a)\nLicense: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\nAdaptation: Converted hosts format to WebKit url-filter rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出典: AdAway (コミット f39ba0a)\nライセンス: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\n改変内容: hosts形式からWebKit url-filterルールへ変換して同梱"
+          }
+        }
+      }
+    },
+    "Retention Period": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retention Period"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持期間"
+          }
+        }
+      }
+    },
+    "Files moved to trash are kept for the configured retention period and can be restored later.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files moved to trash are kept for the configured retention period and can be restored later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に移動したファイルは設定された保持期間の間保管され、後から復元できます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

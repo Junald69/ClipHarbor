@@ -582,38 +582,83 @@ private struct ActiveBrowserContainer: View {
 
     @ViewBuilder
     private var statusBanner: some View {
-        if let notice = browser.notice ?? downloads.statusMessage ?? exports.statusMessage {
-            let hasActiveTask = (downloads.activeCount + exports.activeCount) > 0
-            HStack(spacing: 8) {
-                if hasActiveTask {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.blue)
+        VStack(spacing: 6) {
+            if let _ = browser.pendingBlockedPopupHost {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .foregroundStyle(.orange)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(NSLocalizedString("Blocked an annoying pop-up. If this was intentional, allow it for this site and retry.", comment: ""))
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .lineLimit(3)
+                        Button {
+                            browser.allowPopupsForCurrentSiteAndReload()
+                        } label: {
+                            Text(NSLocalizedString("Allow for this site and reload", comment: ""))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    Button {
+                        browser.clearBlockedPopupNotice()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(4)
+                    }
                 }
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                Spacer(minLength: 4)
-                if hasActiveTask || !exports.exportJobs.isEmpty {
-                    Button("詳細") { showDownloads = true }
-                        .font(.caption.weight(.semibold))
-                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.orange.opacity(0.35), lineWidth: 0.8)
+                )
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-            )
-            .padding(.horizontal, 16)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+
+            if let notice = browser.notice ?? downloads.statusMessage ?? exports.statusMessage {
+                let hasActiveTask = (downloads.activeCount + exports.activeCount) > 0
+                HStack(spacing: 8) {
+                    if hasActiveTask {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundStyle(.blue)
+                    }
+                    Text(notice)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Spacer(minLength: 4)
+                    if hasActiveTask || !exports.exportJobs.isEmpty {
+                        Button("詳細") { showDownloads = true }
+                            .font(.caption.weight(.semibold))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
@@ -834,6 +879,49 @@ struct BrowserMenuSheet: View {
                 } footer: {
                     if browser.isPrivate {
                         Text("※プライベートタブでの閲覧履歴は一切保存されません。")
+                    }
+                }
+
+                if let host = browser.currentURL.host, !host.isEmpty {
+                    Section {
+                        let isWhitelisted = ContentBlockerManager.shared.isHostWhitelisted(host, isPrivate: browser.isPrivate)
+                        let isGlobalDisabled = !AppSettingsManager.shared.blockAdsAndTrackers && !AppSettingsManager.shared.blockAnnoyingPopups
+
+                        Button {
+                            dismiss()
+                            browser.toggleSiteProtection()
+                        } label: {
+                            HStack {
+                                Label {
+                                    Text(isWhitelisted ? NSLocalizedString("Enable Protection on This Site", comment: "") : NSLocalizedString("Disable Protection on This Site", comment: ""))
+                                        .foregroundStyle(isGlobalDisabled ? Color.secondary : (isWhitelisted ? Color.blue : Color.red))
+                                } icon: {
+                                    Image(systemName: isWhitelisted ? "shield" : "shield.slash")
+                                        .foregroundStyle(isGlobalDisabled ? Color.secondary : (isWhitelisted ? Color.blue : Color.red))
+                                }
+                                Spacer()
+                                if isWhitelisted {
+                                    Text(NSLocalizedString("Protection Disabled", comment: ""))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else if !isGlobalDisabled {
+                                    Text(NSLocalizedString("Protection Enabled", comment: ""))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(isGlobalDisabled)
+                    } header: {
+                        Text(NSLocalizedString("Site Protection", comment: ""))
+                    } footer: {
+                        if !AppSettingsManager.shared.blockAdsAndTrackers && !AppSettingsManager.shared.blockAnnoyingPopups {
+                            Text(NSLocalizedString("Global content blocking is disabled in Settings.", comment: ""))
+                        } else if browser.isPrivate {
+                            Text(NSLocalizedString("※ Exceptions set in Private Browsing are kept in memory and cleared when private tabs are closed.", comment: ""))
+                        } else {
+                            Text(String.localizedStringWithFormat(NSLocalizedString("Protection status for %@", comment: ""), host))
+                        }
                     }
                 }
 

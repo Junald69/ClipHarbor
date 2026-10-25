@@ -126,11 +126,38 @@ final class AppSettingsManager: ObservableObject {
         }
     }
 
+    /// 広告・トラッカーブロック (true = ブロック有効, デフォルト: true)
+    @Published var blockAdsAndTrackers: Bool {
+        didSet {
+            UserDefaults.standard.set(blockAdsAndTrackers, forKey: blockAdsAndTrackersKey)
+            ContentBlockerManager.shared.notifySettingsChanged()
+        }
+    }
+
+    /// 迷惑ポップアップブロック (true = ブロック有効, デフォルト: true)
+    @Published var blockAnnoyingPopups: Bool {
+        didSet {
+            UserDefaults.standard.set(blockAnnoyingPopups, forKey: blockAnnoyingPopupsKey)
+            ContentBlockerManager.shared.notifySettingsChanged()
+        }
+    }
+
+    /// 通常ブラウジング用の例外（ホワイトリスト）ホスト集合
+    @Published var whitelistedHosts: Set<String> {
+        didSet {
+            let array = Array(whitelistedHosts)
+            UserDefaults.standard.set(array, forKey: whitelistedHostsKey)
+        }
+    }
+
     // MARK: - キー定義
     private let searchEngineKey = "clipHarbor.settings.searchEngine"
     private let trashRetentionKey = "clipHarbor.settings.trashRetentionPeriod"
     private let hideVaultInFileListKey = "clipHarbor.settings.hideVaultInFileList"
     private let legacyStealthModePrefKey = "VaultManager.isStealthModeEnabled"
+    private let blockAdsAndTrackersKey = "clipHarbor.settings.blockAdsAndTrackers"
+    private let blockAnnoyingPopupsKey = "clipHarbor.settings.blockAnnoyingPopups"
+    private let whitelistedHostsKey = "clipHarbor.settings.whitelistedHosts"
 
     private init() {
         // 検索エンジン読み出し (デフォルト: Google)
@@ -157,6 +184,54 @@ final class AppSettingsManager: ObservableObject {
             UserDefaults.standard.set(legacyVal, forKey: hideVaultInFileListKey)
         } else {
             self.hideVaultInFileList = false
+        }
+
+        // 広告ブロック設定読み出し (デフォルト: true)
+        if let val = UserDefaults.standard.object(forKey: blockAdsAndTrackersKey) as? Bool {
+            self.blockAdsAndTrackers = val
+        } else {
+            self.blockAdsAndTrackers = true
+        }
+
+        // ポップアップブロック設定読み出し (デフォルト: true)
+        if let val = UserDefaults.standard.object(forKey: blockAnnoyingPopupsKey) as? Bool {
+            self.blockAnnoyingPopups = val
+        } else {
+            self.blockAnnoyingPopups = true
+        }
+
+        // 通常ホワイトリストホスト読み出し
+        if let hosts = UserDefaults.standard.stringArray(forKey: whitelistedHostsKey) {
+            self.whitelistedHosts = Set(hosts.map { $0.lowercased() })
+        } else {
+            self.whitelistedHosts = []
+        }
+    }
+
+    // MARK: - ホワイトリスト管理API
+
+    func isWhitelisted(host: String) -> Bool {
+        let lower = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return whitelistedHosts.contains(lower)
+    }
+
+    func setWhitelisted(_ whitelisted: Bool, for host: String) {
+        let lower = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return }
+        if whitelisted {
+            whitelistedHosts.insert(lower)
+        } else {
+            whitelistedHosts.remove(lower)
+        }
+    }
+
+    func toggleWhitelist(for host: String) {
+        let lower = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return }
+        if whitelistedHosts.contains(lower) {
+            whitelistedHosts.remove(lower)
+        } else {
+            whitelistedHosts.insert(lower)
         }
     }
 

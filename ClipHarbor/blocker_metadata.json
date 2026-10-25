@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "ruleVersion": "adaway-20261026-v1",
+  "sourceName": "AdAway Default Blocklist",
+  "sourceURL": "https://raw.githubusercontent.com/AdAway/adaway.github.io/master/hosts.txt",
+  "sourceCommit": "f39ba0a523564447dfa94e40327c1a14c02304dc",
+  "sourceLicense": "CC BY 3.0 (Creative Commons Attribution 3.0)",
+  "sourceLicenseURL": "https://creativecommons.org/licenses/by/3.0/",
+  "sourceContributors": "Kicelo, Dominik Schuermann",
+  "sourceSHA256": "8c925c37a5eaa5e1c582c76e12301797861addee5ad0fa0e6e46c9dd0136fe55",
+  "ruleCount": 6540,
+  "adaptationNote": "Converted from hosts format to WebKit Content Blocker url-filter JSON rules."
+}

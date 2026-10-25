@@ -43,9 +43,12 @@ files = [
     'PlayerControlsOverlay.swift',
     'VideoTrimmerView.swift',
     'ModernVideoPlayerView.swift',
+    'ContentBlockerManager.swift',
 ]
 resources = [
     'Localizable.xcstrings',
+    'blocker_rules.json',
+    'blocker_metadata.json',
 ]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()
@@ -63,7 +66,8 @@ out.append(f'\t\t{e("file Info.plist")} = {{isa = PBXFileReference; lastKnownFil
 for name in files:
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
 for name in resources:
-    out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = {name}; sourceTree = "<group>"; }};')
+    file_type = "text.json.xcstrings" if name.endswith('.xcstrings') else "text.json"
+    out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = {file_type}; path = {name}; sourceTree = "<group>"; }};')
 out.append(f'\t\t{e("product app")} = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; }};')
 out.append('/* End PBXFileReference section */\n')
 out.append('/* Begin PBXGroup section */')

@@ -69,6 +69,9 @@ enum TabURLPolicy {
 /// - 非アクティブタブは lazy var webView により遅延ロードされ、起動時の過剰なメモリ・通信消費を防ぐ。
 @MainActor
 final class TabManager: ObservableObject {
+    /// 共有インスタンス参照（コンテンツブロッカー等の非永続メモリ同期用）
+    static weak var shared: TabManager?
+
     /// 安全のための通常タブ上限数（過剰なメモリ消費を防止）
     static let maxTabs: Int = 20
     /// プライベートタブ上限数（メモリ保護のため同等に設定）
@@ -79,6 +82,9 @@ final class TabManager: ObservableObject {
 
     /// 管理中の全プライベートタブ（非永続、アプリ終了・全閉鎖で完全に破棄）
     @Published private(set) var privateTabs: [BrowserModel] = []
+
+    /// プライベートタブ用の例外（ホワイトリスト）ホスト集合（メモリ内のみ保持、ディスク・ログ保存なし）
+    @Published var privateWhitelistedHosts: Set<String> = []
 
     /// 現在のブラウズモード（false: 通常モード, true: 🕶️プライベートモード）
     @Published var isPrivateMode: Bool = false
@@ -163,6 +169,7 @@ final class TabManager: ObservableObject {
     }
 
     init() {
+        Self.shared = self
         let restored = Self.loadSessionFromDisk()
         if let (restoredTabs, restoredActiveID) = restored, !restoredTabs.isEmpty {
             self.tabs = restoredTabs
@@ -341,11 +348,30 @@ final class TabManager: ObservableObject {
     /// プライベートセッション用ストアを安全に再生成し、旧ストアを非同期消去する
     private func resetPrivateSessionStore() {
         let oldStore = self.privateDataStore
+        // プライベートタブ用の一時ホワイトリスト例外を完全消去（メモリ解放）
+        self.privateWhitelistedHosts.removeAll()
         // 即座に新規ストアを割り当て、直後に新規タブが開かれても旧ストアの消去に巻き込まれないようにする
         self.privateDataStore = WKWebsiteDataStore.nonPersistent()
         // 旧ストアのデータを全消去（通常ストアdefault()には一切影響なし）
         oldStore.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {
             // 非同期消去完了
+        }
+    }
+
+    // MARK: - プライベートホワイトリストAPI
+
+    func isPrivateWhitelisted(host: String) -> Bool {
+        let lower = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return privateWhitelistedHosts.contains(lower)
+    }
+
+    func togglePrivateWhitelist(for host: String) {
+        let lower = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !lower.isEmpty else { return }
+        if privateWhitelistedHosts.contains(lower) {
+            privateWhitelistedHosts.remove(lower)
+        } else {
+            privateWhitelistedHosts.insert(lower)
         }
     }
 

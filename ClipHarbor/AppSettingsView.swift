@@ -66,6 +66,17 @@ struct AppSettingsView: View {
                         .font(.caption2)
                 }
 
+                // MARK: - 【コンテンツブロック】
+                Section {
+                    Toggle(NSLocalizedString("Block Ads & Trackers", comment: ""), isOn: $settingsManager.blockAdsAndTrackers)
+                    Toggle(NSLocalizedString("Block Annoying Pop-ups", comment: ""), isOn: $settingsManager.blockAnnoyingPopups)
+                } header: {
+                    Text(NSLocalizedString("Content Blocking", comment: ""))
+                } footer: {
+                    Text(NSLocalizedString("Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation.", comment: ""))
+                        .font(.caption2)
+                }
+
                 // MARK: - 【ファイルとストレージ】
                 Section(NSLocalizedString("Files and Storage", comment: "")) {
                     HStack {
@@ -379,6 +390,20 @@ private struct AppLicensesView: View {
                         .font(.headline)
                     Text(NSLocalizedString("licenses_vault_enc_desc", comment: ""))
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section(NSLocalizedString("Content Blocker & Data Sources", comment: "")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("AdAway Default Blocklist")
+                        .font(.headline)
+                    Text(NSLocalizedString("licenses_adaway_desc", comment: ""))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(NSLocalizedString("licenses_adaway_license", comment: ""))
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
