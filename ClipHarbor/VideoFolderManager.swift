@@ -310,6 +310,7 @@ final class VideoFolderManager: ObservableObject {
 
         // HLS動画は .movpkg の場所・パスを変更せず、表示タイトルのみ変更する
         if video.isHLS {
+            VideoThumbnailManager.shared.invalidateCache(for: video)
             downloads.updateSavedVideo(id: video.id, title: cleanTitle)
             return .success(())
         }
@@ -330,10 +331,12 @@ final class VideoFolderManager: ObservableObject {
                     return .failure(.fileOperationFailed("ファイル名が不正です。"))
                 }
                 try FileManager.default.moveItem(at: currentURL, to: destURL)
+                VideoThumbnailManager.shared.invalidateCache(for: video)
                 downloads.updateSavedVideo(id: video.id, title: cleanTitle, relativePath: rel)
                 return .success(())
             }
 
+            VideoThumbnailManager.shared.invalidateCache(for: video)
             downloads.updateSavedVideo(id: video.id, title: cleanTitle)
             return .success(())
         } catch {
@@ -343,6 +346,7 @@ final class VideoFolderManager: ObservableObject {
 
     /// 動画を削除する
     func deleteVideo(_ video: SavedVideo) {
+        VideoThumbnailManager.shared.invalidateCache(for: video)
         folderMap[video.id.uuidString] = nil
         persistState()
         downloads.delete(video)
