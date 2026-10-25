@@ -95,7 +95,7 @@ struct VideoTrimmerView: View {
                         handleSaveTapped()
                     }
                     .font(.body.weight(.bold))
-                    .foregroundStyle(isExporting ? .secondary : .blue)
+                    .foregroundStyle(isExporting ? Color.secondary : Color.blue)
                     .disabled(isExporting)
                 }
             }

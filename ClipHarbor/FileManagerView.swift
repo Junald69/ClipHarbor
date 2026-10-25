@@ -2064,7 +2064,7 @@ private struct FMP4ExportJobRow: View {
 
 // MARK: - フォルダ移動シート
 
-private struct MoveToFolderSheet: View {
+struct MoveToFolderSheet: View {
     let video: SavedVideo
     let currentFolder: String
     let folders: [String]
