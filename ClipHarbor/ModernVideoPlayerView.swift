@@ -50,6 +50,12 @@ struct ModernVideoPlayerView: View {
     @State private var showShareSheet: Bool = false
     @State private var showMoveSheet: Bool = false
     @State private var toastMessage: String?
+    @State private var showVaultShareAlert: Bool = false
+
+    // 操作中状態管理・自動非表示排他制御
+    @State private var activeInteractions: Set<String> = []
+    @State private var timerGeneration: Int = 0
+    @State private var lastDoubleTapTime: Date = .distantPast
 
     // Vault一時再生URL管理
     @State private var vaultActivePlaybackURL: URL?
@@ -91,7 +97,10 @@ struct ModernVideoPlayerView: View {
                         isImage: item.isImage,
                         isHLS: item.isHLS,
                         onClose: handleClose,
-                        onEdit: { showTrimmerSheet = true },
+                        onEdit: {
+                            registerUserAction()
+                            showTrimmerSheet = true
+                        },
                         onShare: handleShareTapped,
                         onRestart: handleRestart,
                         onTogglePlay: togglePlayPause,
@@ -99,7 +108,12 @@ struct ModernVideoPlayerView: View {
                         onSeekTo: { handleSeekToTime($0) },
                         onToggleOrientation: toggleOrientation,
                         onTriggerPiP: triggerPiP,
-                        onMoveFile: { showMoveSheet = true }
+                        onMoveFile: {
+                            registerUserAction()
+                            showMoveSheet = true
+                        },
+                        onInteractionStarted: { handleInteractionStarted($0) },
+                        onInteractionEnded: { handleInteractionEnded($0) }
                     )
                     .transition(.opacity.animation(.easeInOut(duration: 0.2)))
                 }
@@ -132,6 +146,22 @@ struct ModernVideoPlayerView: View {
         .sheet(isPresented: $showMoveSheet) {
             moveFolderDestinationView
         }
+        .alert("Vaultファイルの共有について", isPresented: $showVaultShareAlert) {
+            Button("OK", role: .cancel) {
+                scheduleAutoHide(delay: 10.0)
+            }
+        } message: {
+            Text("Vault内の動画は直接共有できません。共有するには、通常フォルダへ戻してから共有してください。")
+        }
+        .onChange(of: showTrimmerSheet) { isPresented in
+            if !isPresented { scheduleAutoHide(delay: 10.0) }
+        }
+        .onChange(of: showShareSheet) { isPresented in
+            if !isPresented { scheduleAutoHide(delay: 10.0) }
+        }
+        .onChange(of: showMoveSheet) { isPresented in
+            if !isPresented { scheduleAutoHide(delay: 10.0) }
+        }
         .onChange(of: playbackRate) { newRate in
             player?.rate = isPlaying ? newRate : 0.0
         }
@@ -151,17 +181,21 @@ struct ModernVideoPlayerView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .background {
-                // ホーム画面移行時に画面照度を確実に復帰
+                // ホーム画面移行時に画面照度を確実に復帰し、タイマーと操作状態をクリア
                 UIScreen.main.brightness = originalBrightness
+                activeInteractions.removeAll()
+                stopAutoHideTimer()
             }
         }
         .onAppear {
             originalBrightness = UIScreen.main.brightness
             brightnessValue = Double(originalBrightness)
             loadCurrentItem()
-            resetAutoHideTimer()
+            scheduleAutoHide(delay: 10.0)
         }
         .onDisappear {
+            activeInteractions.removeAll()
+            stopAutoHideTimer()
             handleViewDismissed()
         }
     }
@@ -244,6 +278,7 @@ struct ModernVideoPlayerView: View {
                                 }
                             }
                             .onTapGesture(count: 1) {
+                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                                 toggleControlsVisibility()
                             }
 
@@ -252,6 +287,7 @@ struct ModernVideoPlayerView: View {
                             .frame(width: 80)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 1) {
+                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                                 toggleControlsVisibility()
                             }
 
@@ -264,6 +300,7 @@ struct ModernVideoPlayerView: View {
                                 }
                             }
                             .onTapGesture(count: 1) {
+                                guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                                 toggleControlsVisibility()
                             }
                     }
@@ -410,7 +447,7 @@ struct ModernVideoPlayerView: View {
         } else {
             p.rate = playbackRate
             isPlaying = true
-            resetAutoHideTimer()
+            scheduleAutoHide(delay: 10.0)
         }
     }
 
@@ -419,7 +456,7 @@ struct ModernVideoPlayerView: View {
         p.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
         p.rate = playbackRate
         isPlaying = true
-        resetAutoHideTimer()
+        registerUserAction()
     }
 
     private func handleSeek(offset: Double) {
@@ -427,7 +464,7 @@ struct ModernVideoPlayerView: View {
         let newTime = max(0, min(duration, currentTime + offset))
         p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = newTime
-        resetAutoHideTimer()
+        registerUserAction()
     }
 
     private func handleSeekToTime(_ targetTime: Double) {
@@ -435,10 +472,11 @@ struct ModernVideoPlayerView: View {
         let clamped = max(0, min(duration, targetTime))
         p.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = clamped
-        resetAutoHideTimer()
+        registerUserAction()
     }
 
     private func handleDoubleTapSeek(isForward: Bool) {
+        lastDoubleTapTime = Date()
         let offset: Double = isForward ? 10.0 : -10.0
         handleSeek(offset: offset)
 
@@ -458,24 +496,33 @@ struct ModernVideoPlayerView: View {
     // MARK: - スワイプ次／前ナビゲーション
 
     private func handleSwipeNext() {
+        activeInteractions.removeAll()
         guard playlistContext.canGoNext else {
             showToast("最後のファイルです")
             return
         }
         playlistContext.moveToNext()
         loadCurrentItem()
+        if areControlsVisible {
+            scheduleAutoHide(delay: 10.0)
+        }
     }
 
     private func handleSwipePrevious() {
+        activeInteractions.removeAll()
         guard playlistContext.canGoPrevious else {
             showToast("先頭のファイルです")
             return
         }
         playlistContext.moveToPrevious()
         loadCurrentItem()
+        if areControlsVisible {
+            scheduleAutoHide(delay: 10.0)
+        }
     }
 
     private func toggleFavoriteCurrentItem() {
+        registerUserAction()
         guard let item = playlistContext.currentItem else { return }
         switch item {
         case .normal(let video):
@@ -485,34 +532,75 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    // MARK: - UI表示・自動非表示
+    // MARK: - UI表示・自動非表示（10秒保持・操作中消去防止）
 
     private func toggleControlsVisibility() {
         withAnimation(.easeInOut(duration: 0.2)) {
             areControlsVisible.toggle()
         }
-        if areControlsVisible && isPlaying {
-            resetAutoHideTimer()
+        if areControlsVisible {
+            scheduleAutoHide(delay: 10.0)
         } else {
             stopAutoHideTimer()
+            activeInteractions.removeAll()
         }
     }
 
-    private func resetAutoHideTimer() {
+    private func registerUserAction() {
+        if areControlsVisible {
+            scheduleAutoHide(delay: 10.0)
+        }
+    }
+
+    private func handleInteractionStarted(_ source: String) {
+        activeInteractions.insert(source)
         stopAutoHideTimer()
-        guard isPlaying else { return }
-        autoHideTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+    }
+
+    private func handleInteractionEnded(_ source: String) {
+        activeInteractions.remove(source)
+        if activeInteractions.isEmpty && areControlsVisible && isPlaying {
+            scheduleAutoHide(delay: 10.0)
+        }
+    }
+
+    private func scheduleAutoHide(delay: Double = 10.0) {
+        stopAutoHideTimer()
+        guard areControlsVisible,
+              isPlaying,
+              activeInteractions.isEmpty,
+              !showTrimmerSheet,
+              !showShareSheet,
+              !showMoveSheet,
+              !showVaultShareAlert,
+              !UIAccessibility.isVoiceOverRunning else { return }
+
+        timerGeneration += 1
+        let currentGen = timerGeneration
+
+        let timer = Timer(timeInterval: delay, repeats: false) { _ in
             Task { @MainActor in
-                if self.isPlaying {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        self.areControlsVisible = false
-                    }
+                guard self.timerGeneration == currentGen else { return }
+                guard self.areControlsVisible,
+                      self.isPlaying,
+                      self.activeInteractions.isEmpty,
+                      !self.showTrimmerSheet,
+                      !self.showShareSheet,
+                      !self.showMoveSheet,
+                      !self.showVaultShareAlert,
+                      !UIAccessibility.isVoiceOverRunning else { return }
+
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.areControlsVisible = false
                 }
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.autoHideTimer = timer
     }
 
     private func stopAutoHideTimer() {
+        timerGeneration += 1
         autoHideTimer?.invalidate()
         autoHideTimer = nil
     }
@@ -520,6 +608,8 @@ struct ModernVideoPlayerView: View {
     // MARK: - 画面回転 (iOS 16+ API)
 
     private func toggleOrientation() {
+        activeInteractions.removeAll()
+        registerUserAction()
         let target: UIInterfaceOrientationMask = isLandscape ? .portrait : .landscapeRight
         setOrientation(target)
     }
@@ -536,6 +626,7 @@ struct ModernVideoPlayerView: View {
     // MARK: - PiP 起動
 
     private func triggerPiP() {
+        registerUserAction()
         guard !playlistContext.isVault else {
             showToast("Vault内アイテムではPiPは利用できません")
             return
@@ -546,8 +637,9 @@ struct ModernVideoPlayerView: View {
     // MARK: - 共有・書き出し
 
     private func handleShareTapped() {
+        registerUserAction()
         guard !playlistContext.isVault else {
-            showToast("Vaultアイテムの直接共有は制限されています")
+            showVaultShareAlert = true
             return
         }
         guard let url = currentPlaybackURL, FileManager.default.fileExists(atPath: url.path) else {
@@ -558,6 +650,8 @@ struct ModernVideoPlayerView: View {
     }
 
     private func handleClose() {
+        activeInteractions.removeAll()
+        stopAutoHideTimer()
         coordinator.stopAndRelease(sessionID: sessionID)
         dismiss()
     }
@@ -602,8 +696,13 @@ struct ModernVideoPlayerView: View {
             let folderManager = VideoFolderManager(downloads: .shared)
             _ = folderManager.renameVideo(video, to: newTitle)
             showToast("タイトルを変更しました")
-        case .vault:
-            showToast("Vault内タイトルの変更が完了しました")
+        case .vault(let vaultItem):
+            do {
+                try VaultManager.shared.renameVaultItem(vaultItem, to: newTitle)
+                showToast("タイトルを変更しました")
+            } catch {
+                showToast("タイトルの変更に失敗しました: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -636,8 +735,13 @@ struct ModernVideoPlayerView: View {
             DownloadCenter.shared.registerExportedVideo(newVideo)
             showToast("「\(clean)」を新しいクリップとして保存しました")
 
-        case .vault:
-            showToast("Vault内クリップの保存が完了しました")
+        case .vault(let vaultItem):
+            do {
+                _ = try await VaultManager.shared.addEncryptedClip(tempURL: tempURL, clipTitle: clipTitle, sourceVaultItem: vaultItem)
+                showToast("「\(clipTitle)」をVault内にクリップ保存しました")
+            } catch {
+                showToast("Vault内クリップ保存に失敗しました: \(error.localizedDescription)")
+            }
         }
     }
 

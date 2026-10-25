@@ -3,6 +3,7 @@ import UIKit
 import Combine
 import LocalAuthentication
 import CryptoKit
+import AVFoundation
 
 /// Private Vault（非公開保管庫）の管理マネージャー
 /// - アプリ内部安全領域 (Library/Application Support/Vault) における完全暗号化ストレージ
@@ -668,6 +669,86 @@ final class VaultManager: ObservableObject {
         guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[idx].isFavorite.toggle()
         try? saveEncryptedIndex()
+    }
+
+    /// Vaultアイテムのタイトルを変更
+    func renameVaultItem(_ item: VaultItem, to newTitle: String) throws {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else {
+            throw VaultError.fileNotFound
+        }
+        let clean = FileNaming.sanitizedBaseName(newTitle)
+        guard !clean.isEmpty else { return }
+        items[idx].originalTitle = clean
+        try saveEncryptedIndex()
+    }
+
+    /// トリミング結果（tempURL）をVault内へ暗号化保存（元アイテムは保持）
+    @discardableResult
+    func addEncryptedClip(tempURL: URL, clipTitle: String, sourceVaultItem: VaultItem) async throws -> VaultItem {
+        guard let key = masterKey, isUnlocked else {
+            throw VaultError.masterKeyMissing
+        }
+        guard fileManager.fileExists(atPath: tempURL.path) else {
+            throw VaultError.fileNotFound
+        }
+
+        let cleanTitle = FileNaming.sanitizedBaseName(clipTitle)
+        let finalTitle = cleanTitle.isEmpty ? "\(sourceVaultItem.originalTitle)_clip" : cleanTitle
+        let clipID = UUID()
+        let itemDir = itemsDirectory.appendingPathComponent(clipID.uuidString, isDirectory: true)
+
+        try fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true, attributes: [
+            .protectionKey: FileProtectionType.complete
+        ])
+
+        let encryptedVideoURL = itemDir.appendingPathComponent("video.enc")
+
+        // 暗号化
+        try await Task.detached(priority: .userInitiated) {
+            try VaultCrypto.encryptFile(at: tempURL, to: encryptedVideoURL, using: key)
+        }.value
+
+        // サムネイル生成・暗号化
+        let asset = AVURLAsset(url: tempURL)
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 400, height: 400)
+        if let cgImage = try? gen.copyCGImage(at: .zero, actualTime: nil) {
+            let thumbImage = UIImage(cgImage: cgImage)
+            if let thumbData = thumbImage.jpegData(compressionQuality: 0.8),
+               let encryptedThumbData = try? VaultCrypto.encryptData(thumbData, using: key) {
+                let thumbURL = itemDir.appendingPathComponent("thumbnail.enc")
+                try? encryptedThumbData.write(to: thumbURL, options: .atomic)
+            }
+        }
+
+        let fileSize = (try? fileManager.attributesOfItem(atPath: tempURL.path)[.size] as? Int64) ?? 0
+
+        // 一時平文ファイルを安全に消去
+        try? fileManager.removeItem(at: tempURL)
+
+        let newVaultItem = VaultItem(
+            id: clipID,
+            originalVideoID: UUID(),
+            originalTitle: finalTitle,
+            originalFileName: "\(finalTitle).mp4",
+            originalRelativePath: "",
+            originalFolderName: sourceVaultItem.originalFolderName,
+            format: .mp4,
+            byteSize: fileSize,
+            sourceHost: sourceVaultItem.sourceHost,
+            sourcePageURL: sourceVaultItem.sourcePageURL,
+            createdAt: Date(),
+            vaultAddedAt: Date(),
+            isFavorite: false
+        )
+
+        items.insert(newVaultItem, at: 0)
+        try saveEncryptedIndex()
+        return newVaultItem
     }
 
     // MARK: - 再生・編集用一時ファイル管理

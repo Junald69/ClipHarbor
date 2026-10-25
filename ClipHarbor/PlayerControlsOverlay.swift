@@ -35,6 +35,8 @@ struct PlayerControlsOverlay: View {
     let onToggleOrientation: () -> Void
     let onTriggerPiP: () -> Void
     let onMoveFile: () -> Void
+    let onInteractionStarted: (String) -> Void
+    let onInteractionEnded: (String) -> Void
 
     // スピード選択肢
     private let speedOptions: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
@@ -42,6 +44,8 @@ struct PlayerControlsOverlay: View {
     // ドラッグ中フラグ
     @State private var isScrubbing: Bool = false
     @State private var scrubTime: Double = 0.0
+    @State private var isBrightnessDragging: Bool = false
+    @State private var isVolumeDragging: Bool = false
 
     var body: some View {
         ZStack {
@@ -111,24 +115,24 @@ struct PlayerControlsOverlay: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // 編集ボタン（VaultおよびHLSトリミング制限は編集画面側で適切に制御）
-            if !isVault && !isImage {
-                Button(action: onEdit) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("編集")
-                            .font(.system(size: 13, weight: .medium))
+            HStack(spacing: 8) {
+                // 編集ボタン（動画のみ、通常・Vault両方で有効）
+                if !isImage {
+                    Button(action: onEdit) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("編集")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.black.opacity(0.4), in: Capsule())
                     }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.4), in: Capsule())
                 }
-            }
 
-            // 共有・出力ボタン（Vault内は外部共有を制限）
-            if !isVault {
+                // 共有・出力ボタン（通常・Vault両方で表示）
                 Button(action: onShare) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 14, weight: .semibold))
@@ -137,6 +141,7 @@ struct PlayerControlsOverlay: View {
                         .background(Color.black.opacity(0.4), in: Circle())
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -223,7 +228,10 @@ struct PlayerControlsOverlay: View {
                         .gesture(
                             DragGesture(minimumDistance: 0)
                                 .onChanged { value in
-                                    isScrubbing = true
+                                    if !isScrubbing {
+                                        isScrubbing = true
+                                        onInteractionStarted("scrubber")
+                                    }
                                     let p = min(1.0, max(0.0, value.location.x / sliderWidth))
                                     scrubTime = duration * p
                                 }
@@ -232,6 +240,7 @@ struct PlayerControlsOverlay: View {
                                     let finalTime = duration * p
                                     onSeekTo(finalTime)
                                     isScrubbing = false
+                                    onInteractionEnded("scrubber")
                                 }
                         )
                     }
@@ -257,14 +266,15 @@ struct PlayerControlsOverlay: View {
                     // 1. 最初から再生 (0秒へシークして即再生開始)
                     Button(action: onRestart) {
                         VStack(spacing: 3) {
-                            Image(systemName: "backward.end.fill")
-                                .font(.system(size: 15))
+                            Image(systemName: "repeat")
+                                .font(.system(size: 15, weight: .semibold))
                             Text("最初から")
                                 .font(.system(size: 9))
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                     }
+                    .accessibilityLabel("最初から再生")
                 }
 
                 // 2. お気に入り (承認済みデザインの「星」アイコン)
@@ -324,14 +334,14 @@ struct PlayerControlsOverlay: View {
                     // 5. 縦横切替
                     Button(action: onToggleOrientation) {
                         VStack(spacing: 3) {
-                            Image(systemName: "arrow.triangle.2.circlepath")
-                                .font(.system(size: 15))
-                            Text(isLandscape ? "縦画面" : "横全画面")
+                            OrientationSwitchIcon()
+                            Text("縦横切替")
                                 .font(.system(size: 9))
                         }
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                     }
+                    .accessibilityLabel("縦横切替")
                 }
 
                 // 6. … その他メニュー
@@ -346,10 +356,8 @@ struct PlayerControlsOverlay: View {
                         Label("ファイル移動", systemImage: "folder")
                     }
 
-                    if !isVault {
-                        Button(action: onShare) {
-                            Label("出力・共有", systemImage: "square.and.arrow.up")
-                        }
+                    Button(action: onShare) {
+                        Label("出力・共有", systemImage: "square.and.arrow.up")
                     }
                 } label: {
                     VStack(spacing: 3) {
@@ -396,9 +404,17 @@ struct PlayerControlsOverlay: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
+                            if !isBrightnessDragging {
+                                isBrightnessDragging = true
+                                onInteractionStarted("brightness")
+                            }
                             let p = min(1.0, max(0.0, 1.0 - (value.location.y / h)))
                             brightness = Double(p)
                             UIScreen.main.brightness = CGFloat(p)
+                        }
+                        .onEnded { _ in
+                            isBrightnessDragging = false
+                            onInteractionEnded("brightness")
                         }
                 )
             }
@@ -431,8 +447,16 @@ struct PlayerControlsOverlay: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
+                            if !isVolumeDragging {
+                                isVolumeDragging = true
+                                onInteractionStarted("volume")
+                            }
                             let p = min(1.0, max(0.0, 1.0 - (value.location.y / h)))
                             volume = Double(p)
+                        }
+                        .onEnded { _ in
+                            isVolumeDragging = false
+                            onInteractionEnded("volume")
                         }
                 )
             }
@@ -449,5 +473,48 @@ struct PlayerControlsOverlay: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+}
+
+// MARK: - 縦横切替ベクターアイコン（縦長＋横長画面＋回転矢印）
+
+struct OrientationSwitchIcon: View {
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+
+            // 縦長長方形 (左奥)
+            let portraitRect = CGRect(x: w * 0.08, y: h * 0.12, width: w * 0.42, height: h * 0.65)
+            let portraitPath = Path(roundedRect: portraitRect, cornerRadius: 2.5)
+            context.stroke(portraitPath, with: .color(.white), lineWidth: 1.4)
+
+            // 横長長方形 (右下手前)
+            let landscapeRect = CGRect(x: w * 0.36, y: h * 0.42, width: w * 0.56, height: h * 0.46)
+            let landscapePath = Path(roundedRect: landscapeRect, cornerRadius: 2.5)
+            context.stroke(landscapePath, with: .color(.white), lineWidth: 1.4)
+
+            // 上部の回転円弧矢印
+            var arrowArc = Path()
+            arrowArc.addArc(
+                center: CGPoint(x: w * 0.60, y: h * 0.28),
+                radius: w * 0.26,
+                startAngle: .degrees(170),
+                endAngle: .degrees(315),
+                clockwise: false
+            )
+            context.stroke(arrowArc, with: .color(.white), lineWidth: 1.4)
+
+            // 矢印の鏃
+            let tipAngle = 315.0 * Double.pi / 180.0
+            let tipX = w * 0.60 + (w * 0.26) * cos(tipAngle)
+            let tipY = h * 0.28 + (w * 0.26) * sin(tipAngle)
+            var arrowHead = Path()
+            arrowHead.move(to: CGPoint(x: tipX - 2.5, y: tipY - 4.5))
+            arrowHead.addLine(to: CGPoint(x: tipX, y: tipY))
+            arrowHead.addLine(to: CGPoint(x: tipX - 4.5, y: tipY - 1.5))
+            context.stroke(arrowHead, with: .color(.white), lineWidth: 1.4)
+        }
+        .frame(width: 18, height: 16)
     }
 }

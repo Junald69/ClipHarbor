@@ -382,6 +382,9 @@ final class VideoFolderManager: ObservableObject {
 
     /// ファイルシステム上のサブフォルダと保存済み動画一覧を再スキャンして同期する
     func syncWithFileSystemAndSavedVideos() {
+        // 未登録画像の安全な自動スキャン・インデックス
+        scanAndRegisterUnmanagedImages()
+
         var folderSet = Set(folders)
 
         if let root = try? Self.ensureDownloadsDirectory(),
@@ -417,6 +420,110 @@ final class VideoFolderManager: ObservableObject {
         if sorted != folders || changedMap {
             folders = sorted
             persistState()
+        }
+    }
+
+    /// Documents/Downloads 直下およびそのサブフォルダ内の未登録画像ファイルを検出し、SavedVideoとして登録
+    func scanAndRegisterUnmanagedImages() {
+        guard let root = try? Self.ensureDownloadsDirectory() else { return }
+        let fileManager = FileManager.default
+
+        // 既存の登録済み相対パス・URLパスのセット
+        let existingPaths = Set(downloads.saved.map { $0.relativePath })
+        let existingFullPaths = Set(downloads.saved.map { $0.fileURL.standardizedFileURL.path })
+
+        var directoriesToScan: [(dir: URL, folderName: String)] = [(root, "")]
+
+        // サブフォルダ（深さ1）を追加
+        if let subdirs = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for sub in subdirs {
+                if (try? sub.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    let folderName = Self.sanitizedFolderName(sub.lastPathComponent)
+                    if !folderName.isEmpty {
+                        directoriesToScan.append((sub, folderName))
+                    }
+                }
+            }
+        }
+
+        // Documents直下にユーザーが配置した画像ファイルもチェック
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        if let docsFiles = try? fileManager.contentsOfDirectory(
+            at: docs,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for file in docsFiles {
+                if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == false {
+                    processCandidateFile(file, folderName: "", existingPaths: existingPaths, existingFullPaths: existingFullPaths)
+                }
+            }
+        }
+
+        for item in directoriesToScan {
+            if let files = try? fileManager.contentsOfDirectory(
+                at: item.dir,
+                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .creationDateKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                for file in files {
+                    processCandidateFile(file, folderName: item.folderName, existingPaths: existingPaths, existingFullPaths: existingFullPaths)
+                }
+            }
+        }
+    }
+
+    private func processCandidateFile(
+        _ fileURL: URL,
+        folderName: String,
+        existingPaths: Set<String>,
+        existingFullPaths: Set<String>
+    ) {
+        let ext = fileURL.pathExtension.lowercased()
+        guard ["jpg", "jpeg", "png", "heic", "gif"].contains(ext) else { return }
+
+        // シンボリックリンクや隠しファイルを除外
+        guard !fileURL.lastPathComponent.hasPrefix(".") else { return }
+        let standardizedPath = fileURL.standardizedFileURL.path
+        guard !existingFullPaths.contains(standardizedPath) else { return }
+        guard let rel = SavedVideo.relativePath(for: fileURL), !existingPaths.contains(rel) else { return }
+
+        // サイズ確認
+        let attrs = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)) ?? [:]
+        let size = (attrs[.size] as? Int64) ?? 0
+        guard size > 0 else { return }
+
+        // フォーマット判定
+        let format: SavedVideo.Format
+        switch ext {
+        case "png": format = .png
+        case "gif": format = .gif
+        case "heic": format = .heic
+        default: format = .jpeg
+        }
+
+        let creation = (attrs[.creationDate] as? Date) ?? Date()
+        let title = fileURL.deletingPathExtension().lastPathComponent
+
+        let newSaved = SavedVideo(
+            id: UUID(),
+            title: title,
+            relativePath: rel,
+            format: format,
+            sourceHost: nil,
+            createdAt: creation,
+            byteSize: size,
+            sourcePageURL: nil,
+            isFavorite: false
+        )
+
+        downloads.addSaved(newSaved)
+        if !folderName.isEmpty {
+            setFolderName(folderName, for: newSaved)
         }
     }
 

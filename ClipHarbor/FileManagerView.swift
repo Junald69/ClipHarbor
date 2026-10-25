@@ -18,6 +18,7 @@ struct FileManagerView: View {
     @ObservedObject private var trashManager = TrashManager.shared
     @ObservedObject private var vaultManager = VaultManager.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     // ナビゲーション管理
     @State private var navigationPath: [VideoFolderManager.FolderFilter] = []
@@ -308,6 +309,11 @@ struct FileManagerView: View {
             .onAppear {
                 folderManager.syncWithFileSystemAndSavedVideos()
                 trashManager.purgeExpiredItems()
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active {
+                    folderManager.syncWithFileSystemAndSavedVideos()
+                }
             }
             .fullScreenCover(item: $playingVideo) { video in
                 let currentFilter = navigationPath.last ?? .all
@@ -1329,10 +1335,27 @@ struct FileManagerView: View {
     private func importImageData(_ data: Data, preferredName: String) async {
         guard let _ = UIImage(data: data) else { return }
 
-        // マジックバイト等でフォーマット判定
-        let format: SavedVideo.Format
-        let ext: String
-        if data.prefix(3) == Data([0xFF, 0xD8, 0xFF]) {
+        // CGImageSourceおよびマジックバイト等でフォーマット判定
+        var format: SavedVideo.Format = .jpeg
+        var ext: String = "jpg"
+
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let type = CGImageSourceGetType(source) as String? {
+            let lower = type.lowercased()
+            if lower.contains("png") {
+                format = .png
+                ext = "png"
+            } else if lower.contains("gif") {
+                format = .gif
+                ext = "gif"
+            } else if lower.contains("heic") || lower.contains("heif") {
+                format = .heic
+                ext = "heic"
+            } else {
+                format = .jpeg
+                ext = "jpg"
+            }
+        } else if data.prefix(3) == Data([0xFF, 0xD8, 0xFF]) {
             format = .jpeg
             ext = "jpg"
         } else if data.prefix(4) == Data([0x89, 0x50, 0x4E, 0x47]) {
@@ -1341,9 +1364,9 @@ struct FileManagerView: View {
         } else if data.prefix(3) == Data([0x47, 0x49, 0x46]) {
             format = .gif
             ext = "gif"
-        } else {
-            format = .jpeg
-            ext = "jpg"
+        } else if data.count >= 12, data[4...7] == Data([0x66, 0x74, 0x79, 0x70]) {
+            format = .heic
+            ext = "heic"
         }
 
         do {

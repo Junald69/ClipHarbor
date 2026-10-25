@@ -4,7 +4,7 @@ import Foundation
 struct VaultItem: Identifiable, Codable, Equatable {
     let id: UUID                     // Vault内管理用の一意ID
     let originalVideoID: UUID        // 元のSavedVideo.id
-    let originalTitle: String        // 表示用タイトル
+    var originalTitle: String        // 表示用タイトル（編集・リネーム可能）
     let originalFileName: String     // 元のファイル名（例: sample.mp4）
     let originalRelativePath: String // 元の相対パス（復元時の参照用）
     let originalFolderName: String   // 元のフォルダ名
