@@ -854,7 +854,7 @@ struct ModernVideoPlayerView: View {
                     // 元ファイルが利用可能なら読み直して元の状態へ復帰
                     loadCurrentItem(autoPlay: savedPlaying)
                     if !wasImage, let p = player {
-                        p.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                        await p.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                         currentTime = savedTime
                         p.rate = savedPlaying ? savedRate : 0.0
                         isPlaying = savedPlaying
