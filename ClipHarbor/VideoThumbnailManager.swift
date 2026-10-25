@@ -36,6 +36,11 @@ final class VideoThumbnailManager: ObservableObject {
         thumbnailCache.object(forKey: cacheKey(for: video))
     }
 
+    /// 既存のサムネイル画像をキャッシュに登録
+    func cacheThumbnail(_ image: UIImage, for video: SavedVideo) {
+        thumbnailCache.setObject(image, forKey: cacheKey(for: video))
+    }
+
     /// キャッシュ済みの再生時間（秒）を同期取得（未取得時は nil）
     func cachedDuration(for video: SavedVideo) -> Double? {
         lock.lock()
