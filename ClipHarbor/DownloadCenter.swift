@@ -557,7 +557,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     // MARK: - 永続化（URLを含まないメタデータのみ）
 
-    private func addSaved(_ video: SavedVideo) {
+    func addSaved(_ video: SavedVideo) {
         saved.insert(video, at: 0)
         persistSaved()
     }
