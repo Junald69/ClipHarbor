@@ -112,6 +112,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
+        // WebKit標準の左右スワイプによる進む・戻るジェスチャーナビゲーションを有効化（通常・プライベート共通）
         view.allowsBackForwardNavigationGestures = true
         view.backgroundColor = .systemBackground
         view.scrollView.backgroundColor = .systemBackground

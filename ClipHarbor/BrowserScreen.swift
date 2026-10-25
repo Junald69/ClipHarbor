@@ -743,43 +743,26 @@ struct BrowserMenuSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("ページ操作") {
-                    Button {
-                        dismiss()
-                        browser.goForward()
-                    } label: {
-                        Label("進む", systemImage: "chevron.right")
-                    }
-                    .disabled(!browser.canGoForward)
-
-                    Button {
-                        dismiss()
-                        browser.reload()
-                    } label: {
-                        Label("再読み込み", systemImage: "arrow.clockwise")
-                    }
-
-                    Button {
-                        dismiss()
-                        browser.goHome()
-                    } label: {
-                        Label("ホームへ移動", systemImage: "house")
-                    }
-                }
-
                 Section("動画とダウンロード") {
+                    let isCandidateDisabled = !browser.hasAnyMedia
                     Button(action: onOpenCandidateList) {
                         HStack {
-                            Label("動画の候補一覧", systemImage: "film.stack")
+                            Label {
+                                Text("動画の候補一覧")
+                                    .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.primary)
+                            } icon: {
+                                Image(systemName: "film.stack")
+                                    .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.blue)
+                            }
                             Spacer()
                             if !browser.candidateRows.isEmpty {
                                 Text("\(browser.candidateRows.count)件")
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(isCandidateDisabled ? Color.secondary.opacity(0.4) : Color.secondary)
                             }
                         }
                     }
-                    .disabled(!browser.hasAnyMedia)
+                    .disabled(isCandidateDisabled)
 
                     Button(action: onOpenDownloads) {
                         HStack {
@@ -796,6 +779,7 @@ struct BrowserMenuSheet: View {
                 }
 
                 Section {
+                    let isBookmarkDisabled = browser.isPrivate || !isCurrentPageValidURL
                     Button {
                         if browser.isPrivate {
                             dismiss()
@@ -807,12 +791,15 @@ struct BrowserMenuSheet: View {
                         dismiss()
                         toggleBookmark(url: targetURL, title: targetTitle)
                     } label: {
-                        Label(
-                            isCurrentPageBookmarked ? "ブックマークを解除" : "このページをブックマーク",
-                            systemImage: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark"
-                        )
+                        Label {
+                            Text(isCurrentPageBookmarked ? "ブックマークを解除" : "このページをブックマーク")
+                                .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.primary)
+                        } icon: {
+                            Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
+                                .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.blue)
+                        }
                     }
-                    .disabled(browser.isPrivate || !isCurrentPageValidURL)
+                    .disabled(isBookmarkDisabled)
 
                     Button(action: onOpenBookmarks) {
                         HStack {
