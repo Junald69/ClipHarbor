@@ -41,7 +41,7 @@ struct AppSettingsView: View {
             List {
                 // MARK: - 【ブラウザ】
                 Section {
-                    Picker("既定の検索エンジン", selection: $settingsManager.searchEngine) {
+                    Picker(NSLocalizedString("Default Search Engine", comment: ""), selection: $settingsManager.searchEngine) {
                         ForEach(SearchEngine.allCases) { engine in
                             Text(engine.displayName).tag(engine)
                         }
@@ -51,7 +51,7 @@ struct AppSettingsView: View {
                         showClearDataSheet = true
                     } label: {
                         HStack {
-                            Text("閲覧データの削除")
+                            Text(NSLocalizedString("Clear Browsing Data", comment: ""))
                                 .foregroundStyle(.primary)
                             Spacer()
                             Image(systemName: "chevron.right")
@@ -60,46 +60,46 @@ struct AppSettingsView: View {
                         }
                     }
                 } header: {
-                    Text("ブラウザ")
+                    Text(NSLocalizedString("Browser", comment: ""))
                 } footer: {
-                    Text("検索バーに直接URLを入力した場合は、検索を行わず直接そのWebページを開きます。")
+                    Text(NSLocalizedString("Entering a URL directly in the search bar opens the webpage without searching.", comment: ""))
                         .font(.caption2)
                 }
 
                 // MARK: - 【ファイルとストレージ】
-                Section("ファイルとストレージ") {
+                Section(NSLocalizedString("Files and Storage", comment: "")) {
                     HStack {
-                        Label("保存済み動画", systemImage: "play.rectangle")
+                        Label(NSLocalizedString("Saved Videos", comment: ""), systemImage: "play.rectangle")
                         Spacer()
-                        Text("\(downloads.saved.count) 本 (\(ByteCountFormatter.string(fromByteCount: totalSavedBytes, countStyle: .file)))")
+                        Text("\(String.localizedStringWithFormat(NSLocalizedString("%lld videos", comment: ""), Int64(downloads.saved.count))) (\(ByteCountFormatter.string(fromByteCount: totalSavedBytes, countStyle: .file)))")
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Label("フォルダ数", systemImage: "folder")
+                        Label(NSLocalizedString("Folders", comment: ""), systemImage: "folder")
                         Spacer()
-                        Text("\(folderManager.folders.count) 個")
+                        Text(String.localizedStringWithFormat(NSLocalizedString("%lld folders", comment: ""), Int64(folderManager.folders.count)))
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Label("ゴミ箱", systemImage: "trash")
+                        Label(NSLocalizedString("Trash", comment: ""), systemImage: "trash")
                         Spacer()
-                        Text("\(trashManager.items.count) 件 (\(ByteCountFormatter.string(fromByteCount: totalTrashBytes, countStyle: .file)))")
+                        Text("\(String.localizedStringWithFormat(NSLocalizedString("%lld items", comment: ""), Int64(trashManager.items.count))) (\(ByteCountFormatter.string(fromByteCount: totalTrashBytes, countStyle: .file)))")
                             .foregroundStyle(.secondary)
                     }
 
                     Button {
                         VideoThumbnailManager.shared.clearAllCache()
-                        showToast("サムネイルのメモリキャッシュを解放しました")
+                        showToast(NSLocalizedString("Cleared thumbnail memory cache", comment: ""))
                     } label: {
                         HStack {
-                            Label("サムネイルのメモリキャッシュを解放", systemImage: "photo.on.rectangle.angled")
+                            Label(NSLocalizedString("Clear Thumbnail Memory Cache", comment: ""), systemImage: "photo.on.rectangle.angled")
                             Spacer()
                         }
                     }
 
-                    Picker("ゴミ箱の保持期間", selection: $settingsManager.trashRetentionPeriod) {
+                    Picker(NSLocalizedString("Trash Retention Period", comment: ""), selection: $settingsManager.trashRetentionPeriod) {
                         ForEach(TrashRetentionPeriod.allCases) { period in
                             Text(period.title).tag(period)
                         }
@@ -111,7 +111,7 @@ struct AppSettingsView: View {
                             folderManager: folderManager
                         )
                     } label: {
-                        Label("ファイル管理の詳細設定", systemImage: "slider.horizontal.3")
+                        Label(NSLocalizedString("Advanced File Settings", comment: ""), systemImage: "slider.horizontal.3")
                     }
                 }
 
@@ -137,30 +137,30 @@ struct AppSettingsView: View {
                         }
                     }
                 } header: {
-                    Text("プライバシー")
+                    Text(NSLocalizedString("Privacy", comment: ""))
                 } footer: {
-                    Text("プライベートブラウズとPrivate Vaultは独立した機能です。プライベートタブの履歴・Cookieはタブ終了時に自動破棄されます。")
+                    Text(NSLocalizedString("Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed.", comment: ""))
                         .font(.caption2)
                 }
 
                 // MARK: - 【アプリ情報】
-                Section("アプリ情報") {
+                Section(NSLocalizedString("App Information", comment: "")) {
                     HStack {
-                        Text("アプリ名")
+                        Text(NSLocalizedString("App Name", comment: ""))
                         Spacer()
                         Text("ClipHarbor")
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Text("バージョン")
+                        Text(NSLocalizedString("Version", comment: ""))
                         Spacer()
                         Text(appVersion)
                             .foregroundStyle(.secondary)
                     }
 
                     HStack {
-                        Text("ビルド番号")
+                        Text(NSLocalizedString("Build Number", comment: ""))
                         Spacer()
                         Text(buildNumber)
                             .foregroundStyle(.secondary)
@@ -169,16 +169,16 @@ struct AppSettingsView: View {
                     NavigationLink {
                         AppLicensesView()
                     } label: {
-                        Text("ライセンスとセキュリティ方針")
+                        Text(NSLocalizedString("Licenses & Security Policy", comment: ""))
                     }
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("設定")
+            .navigationTitle(NSLocalizedString("Settings", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button(NSLocalizedString("Close", comment: "")) { dismiss() }
                 }
             }
             .sheet(isPresented: $showClearDataSheet) {
@@ -243,18 +243,18 @@ private struct ClearBrowsingDataSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("閲覧履歴 (\(historyManager.items.count)件)", isOn: $clearHistory)
-                    Toggle("Cookie・サイトデータ (ログイン情報等)", isOn: $clearCookies)
-                    Toggle("Webキャッシュ (一時保存された画像・スタイル)", isOn: $clearCache)
+                    Toggle(String.localizedStringWithFormat(NSLocalizedString("clear_history_toggle %lld", comment: ""), Int64(historyManager.items.count)), isOn: $clearHistory)
+                    Toggle(NSLocalizedString("Cookies & Site Data (Login Info, etc.)", comment: ""), isOn: $clearCookies)
+                    Toggle(NSLocalizedString("Web Cache (Cached Images & Styles)", comment: ""), isOn: $clearCache)
                 } header: {
-                    Text("削除対象の選択")
+                    Text(NSLocalizedString("Select Data to Clear", comment: ""))
                 } footer: {
                     if clearCookies {
-                        Text("※ Cookieを削除すると、ログイン中のWebサイトからログアウトされます。保存済みの動画、ブックマーク、Private Vaultには一切影響しません。")
+                        Text(NSLocalizedString("※ Clearing cookies will log you out of active website sessions. Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: ""))
                             .font(.caption2)
                             .foregroundStyle(.red)
                     } else {
-                        Text("保存済みの動画、ブックマーク、Private Vaultには一切影響しません。")
+                        Text(NSLocalizedString("Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: ""))
                             .font(.caption2)
                     }
                 }
@@ -273,7 +273,7 @@ private struct ClearBrowsingDataSheet: View {
                                 ProgressView()
                                     .padding(.trailing, 8)
                             }
-                            Text("選択した閲覧データを削除")
+                            Text(NSLocalizedString("Clear Selected Browsing Data", comment: ""))
                                 .fontWeight(.semibold)
                             Spacer()
                         }
@@ -289,21 +289,21 @@ private struct ClearBrowsingDataSheet: View {
                     }
                 }
             }
-            .navigationTitle("閲覧データの削除")
+            .navigationTitle(NSLocalizedString("Clear Browsing Data", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button(NSLocalizedString("Close", comment: "")) { dismiss() }
                         .disabled(isProcessing)
                 }
             }
-            .alert("Cookie・サイトデータの削除", isPresented: $showConfirmAlert) {
-                Button("キャンセル", role: .cancel) { }
-                Button("削除する", role: .destructive) {
+            .alert(NSLocalizedString("Clear Cookies & Site Data", comment: ""), isPresented: $showConfirmAlert) {
+                Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) { }
+                Button(NSLocalizedString("Clear", comment: ""), role: .destructive) {
                     performClear()
                 }
             } message: {
-                Text("Cookieを削除すると、Webサイトのログイン状態がリセットされます。続行しますか？")
+                Text(NSLocalizedString("Clearing cookies will reset website login sessions. Continue?", comment: ""))
             }
         }
     }
@@ -322,7 +322,7 @@ private struct ClearBrowsingDataSheet: View {
                 )
                 await MainActor.run {
                     isProcessing = false
-                    statusMessage = "選択した閲覧データを正常に削除しました。"
+                    statusMessage = NSLocalizedString("Successfully cleared selected browsing data.", comment: "")
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         dismiss()
                     }
@@ -331,7 +331,8 @@ private struct ClearBrowsingDataSheet: View {
                 await MainActor.run {
                     isProcessing = false
                     isError = true
-                    statusMessage = "削除処理中にエラーが発生しました: \(error.localizedDescription)"
+                    let format = NSLocalizedString("An error occurred while clearing data: %@", comment: "")
+                    statusMessage = String(format: format, error.localizedDescription)
                 }
             }
         }
@@ -343,47 +344,47 @@ private struct ClearBrowsingDataSheet: View {
 private struct AppLicensesView: View {
     var body: some View {
         List {
-            Section("フレームワークとライブラリ") {
+            Section(NSLocalizedString("Frameworks & Libraries", comment: "")) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Apple Native SDKs")
                         .font(.headline)
-                    Text("ClipHarborはApple標準のSwiftUI, AVFoundation, WebKit, CryptoKit, CommonCrypto, Security, LocalAuthenticationフレームワークのみを使用して構築されています。")
+                    Text(NSLocalizedString("licenses_apple_sdks_desc", comment: ""))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("サードパーティ製SDK")
+                    Text(NSLocalizedString("Third-Party SDKs", comment: ""))
                         .font(.headline)
-                    Text("外部のクラウド解析、トラッキング、広告配信SDKは一切組み込まれていません。通信はユーザー自身がアクセスするWebサイトおよび動画ホストとの間でのみ行われます。")
+                    Text(NSLocalizedString("licenses_third_party_desc", comment: ""))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
 
-            Section("セキュリティ・プライバシー保護方針") {
+            Section(NSLocalizedString("Security & Privacy Policy", comment: "")) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("トークン漏洩防止 (DL-04)")
+                    Text(NSLocalizedString("Token Leakage Prevention (DL-04)", comment: ""))
                         .font(.headline)
-                    Text("保存済み動画のメタデータには動画自体の直接URL（認証トークン等を含むURL）は永続化されず、ブラウザで閲覧していたWebページURLのみが安全に保持されます。")
+                    Text(NSLocalizedString("licenses_dl04_desc", comment: ""))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Private Vault の暗号化")
+                    Text(NSLocalizedString("Private Vault Encryption", comment: ""))
                         .font(.headline)
-                    Text("保管庫内のファイルはAES-256-GCMによりローカルでストリーム暗号化され、パスコードから導出されたマスター鍵で保護されます。外部サーバーへの鍵送信は行われません。")
+                    Text(NSLocalizedString("licenses_vault_enc_desc", comment: ""))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
         }
-        .navigationTitle("ライセンスと方針")
+        .navigationTitle(NSLocalizedString("Licenses & Policy", comment: ""))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

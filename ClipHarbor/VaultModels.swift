@@ -101,36 +101,39 @@ enum VaultError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .passcodeTooShort:
-            return "パスコードは6桁以上の数字で設定してください。"
+            return NSLocalizedString("Passcode must be at least 6 digits.", comment: "")
         case .passcodeMismatch:
-            return "確認用のパスコードが一致しません。"
+            return NSLocalizedString("Confirmation passcode does not match.", comment: "")
         case .wrongPasscode:
-            return "パスコードが正しくありません。"
+            return NSLocalizedString("Incorrect passcode.", comment: "")
         case .lockedOut(let sec):
-            let minutes = (sec + 59) / 60
-            return "試行回数の上限を超えました。あと \(minutes) 分後に再試行してください。"
+            let minutes = max(1, (sec + 59) / 60)
+            return String.localizedStringWithFormat(
+                NSLocalizedString("vault_error_locked_out %lld", comment: ""),
+                Int64(minutes)
+            )
         case .notInitialized:
-            return "Private Vaultは初期設定されていません。"
+            return NSLocalizedString("Private Vault is not initialized.", comment: "")
         case .alreadyInitialized:
-            return "Private Vaultはすでに設定済みです。"
+            return NSLocalizedString("Private Vault is already initialized.", comment: "")
         case .masterKeyMissing:
-            return "暗号化マスター鍵が見つかりません。"
+            return NSLocalizedString("Encryption master key not found.", comment: "")
         case .biometricFailed(let msg):
-            return "生体認証に失敗しました: \(msg)"
+            return String(format: NSLocalizedString("Biometric authentication failed: %@", comment: ""), msg)
         case .biometricNotAvailable:
-            return "端末の生体認証（Face ID / Touch ID）が利用できません。"
+            return NSLocalizedString("Device biometrics (Face ID / Touch ID) are not available.", comment: "")
         case .fileNotFound:
-            return "対象の動画ファイルが見つかりません。"
+            return NSLocalizedString("Target video file not found.", comment: "")
         case .hlsNotSupportedYet:
-            return "オフラインHLS形式の保護は今後のアップデートで対応予定です。現在はMP4/MOV形式のみ保護可能です。"
+            return NSLocalizedString("Offline HLS format is scheduled for a future update. Only MP4/MOV can be protected currently.", comment: "")
         case .encryptionFailed(let msg):
-            return "暗号化処理に失敗しました: \(msg)"
+            return String(format: NSLocalizedString("Encryption failed: %@", comment: ""), msg)
         case .decryptionFailed(let msg):
-            return "復号処理に失敗しました: \(msg)"
+            return String(format: NSLocalizedString("Decryption failed: %@", comment: ""), msg)
         case .integrityCheckFailed:
-            return "暗号化データの改ざんまたは破損を検出しました。"
+            return NSLocalizedString("Detected data corruption or tampering in encrypted file.", comment: "")
         case .fileOperationFailed(let msg):
-            return "ファイル操作に失敗しました: \(msg)"
+            return String(format: NSLocalizedString("File operation failed: %@", comment: ""), msg)
         }
     }
 }

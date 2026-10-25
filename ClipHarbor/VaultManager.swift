@@ -278,7 +278,7 @@ final class VaultManager: ObservableObject {
             throw VaultError.biometricNotAvailable
         }
 
-        let reason = "Private Vault（非公開保管庫）のロックを解除します"
+        let reason = NSLocalizedString("Unlock Private Vault", comment: "")
 
         do {
             let success = try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)

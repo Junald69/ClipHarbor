@@ -728,7 +728,7 @@ private struct VaultPasscodeSetupView: View {
     var body: some View {
         VStack(spacing: 24) {
             HStack {
-                Button("キャンセル", action: onCancel)
+                Button(NSLocalizedString("Cancel", comment: ""), action: onCancel)
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -747,9 +747,9 @@ private struct VaultPasscodeSetupView: View {
             }
 
             VStack(spacing: 8) {
-                Text(step == .enterFirst ? "Private Vaultの作成" : "パスコードの確認")
+                Text(step == .enterFirst ? NSLocalizedString("Create Private Vault", comment: "") : NSLocalizedString("Confirm Passcode", comment: ""))
                     .font(.title2.weight(.bold))
-                Text(step == .enterFirst ? "保管庫のパスコード（6桁の数字）を設定してください" : "確認のため、もう一度入力してください")
+                Text(step == .enterFirst ? NSLocalizedString("Set a 6-digit passcode for your Vault", comment: "") : NSLocalizedString("Re-enter your passcode to confirm", comment: ""))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -777,7 +777,7 @@ private struct VaultPasscodeSetupView: View {
             // 生体認証トグル（Face ID対応端末）
             if LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) {
                 Toggle(isOn: $enableBiometrics) {
-                    Label("Face ID / 生体認証を使用する", systemImage: "faceid")
+                    Label(NSLocalizedString("Use Face ID / Biometrics", comment: ""), systemImage: "faceid")
                         .font(.subheadline)
                 }
                 .padding(.horizontal, 40)
@@ -802,7 +802,7 @@ private struct VaultPasscodeSetupView: View {
                 shake()
             }
         } else {
-            errorMessage = "パスコードが一致しません。最初からやり直してください。"
+            errorMessage = NSLocalizedString("Passcodes do not match. Please try again from the beginning.", comment: "")
             shake()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 firstPasscode = ""
@@ -838,7 +838,7 @@ private struct VaultUnlockView: View {
     var body: some View {
         VStack(spacing: 24) {
             HStack {
-                Button("キャンセル", action: onCancel)
+                Button(NSLocalizedString("Cancel", comment: ""), action: onCancel)
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -861,13 +861,16 @@ private struct VaultUnlockView: View {
                     .font(.title2.weight(.bold))
 
                 if vaultManager.remainingLockoutSeconds > 0 {
-                    let minutes = (vaultManager.remainingLockoutSeconds + 59) / 60
-                    Text("試行回数の上限に達しました。\nあと \(minutes) 分後に再試行できます。")
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                        .multilineTextAlignment(.center)
+                    let minutes = max(1, (vaultManager.remainingLockoutSeconds + 59) / 60)
+                    Text(String.localizedStringWithFormat(
+                        NSLocalizedString("vault_unlock_lockout_warning %lld", comment: ""),
+                        Int64(minutes)
+                    ))
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
                 } else {
-                    Text("パスコードを入力してロックを解除")
+                    Text(NSLocalizedString("Enter passcode to unlock", comment: ""))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -980,6 +983,7 @@ private struct PinKeypadView: View {
                             .foregroundStyle(.indigo)
                             .frame(width: buttonSize, height: buttonSize)
                     }
+                    .accessibilityLabel(NSLocalizedString("Unlock with Face ID", comment: ""))
                 } else {
                     Spacer().frame(width: buttonSize, height: buttonSize)
                 }
@@ -998,6 +1002,7 @@ private struct PinKeypadView: View {
                         .foregroundStyle(.primary)
                         .frame(width: buttonSize, height: buttonSize)
                 }
+                .accessibilityLabel(NSLocalizedString("Delete", comment: ""))
             }
         }
     }
@@ -1014,6 +1019,7 @@ private struct PinKeypadView: View {
                 .frame(width: buttonSize, height: buttonSize)
                 .background(Color(.systemGray6), in: Circle())
         }
+        .accessibilityLabel(title)
     }
 }
 
@@ -1032,15 +1038,15 @@ struct VaultChangePasscodeView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("現在のパスコード") {
-                    SecureField("現在のパスコード（6桁）", text: $currentPasscode)
+                Section(NSLocalizedString("Current Passcode", comment: "")) {
+                    SecureField(NSLocalizedString("Current Passcode (6 digits)", comment: ""), text: $currentPasscode)
                         .keyboardType(.numberPad)
                 }
 
-                Section("新しいパスコード") {
-                    SecureField("新しいパスコード（6桁）", text: $newPasscode)
+                Section(NSLocalizedString("New Passcode", comment: "")) {
+                    SecureField(NSLocalizedString("New Passcode (6 digits)", comment: ""), text: $newPasscode)
                         .keyboardType(.numberPad)
-                    SecureField("確認のため再入力", text: $confirmPasscode)
+                    SecureField(NSLocalizedString("Re-enter to confirm", comment: ""), text: $confirmPasscode)
                         .keyboardType(.numberPad)
                 }
 
@@ -1052,14 +1058,14 @@ struct VaultChangePasscodeView: View {
                     }
                 }
             }
-            .navigationTitle("パスコード変更")
+            .navigationTitle(NSLocalizedString("Change Passcode", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("キャンセル") { dismiss() }
+                    Button(NSLocalizedString("Cancel", comment: "")) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("変更") {
+                    Button(NSLocalizedString("Change", comment: "")) {
                         applyChange()
                     }
                     .disabled(currentPasscode.count < 6 || newPasscode.count < 6 || confirmPasscode.count < 6)

@@ -128,13 +128,15 @@ struct PlayerControlsOverlay: View {
     @ViewBuilder
     private var headerView: some View {
         HStack(spacing: 12) {
-            // 閉じるボタン
+            // 閉じるボタン（見た目32pt、内部タッチ領域44pt以上確保）
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 32, height: 32)
                     .background(Color.black.opacity(0.4), in: Circle())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(NSLocalizedString("Close", comment: ""))
 
@@ -147,7 +149,7 @@ struct PlayerControlsOverlay: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
-                // 編集ボタン（動画のみ、通常・Vault両方で有効）
+                // 編集ボタン（動画のみ、通常・Vault両方で有効、見た目32pt、内部タッチ領域44pt以上確保）
                 if !isImage {
                     Button(action: onEdit) {
                         Image(systemName: "pencil")
@@ -155,17 +157,21 @@ struct PlayerControlsOverlay: View {
                             .foregroundStyle(.white)
                             .frame(width: 32, height: 32)
                             .background(Color.black.opacity(0.4), in: Circle())
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel(NSLocalizedString("Edit", comment: ""))
                 }
 
-                // 共有・出力ボタン（通常・Vault両方で表示）
+                // 共有・出力ボタン（通常・Vault両方で表示、見た目32pt、内部タッチ領域44pt以上確保）
                 Button(action: onShare) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 32, height: 32)
                         .background(Color.black.opacity(0.4), in: Circle())
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(NSLocalizedString("Share", comment: ""))
             }
