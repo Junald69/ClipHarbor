@@ -48,32 +48,32 @@ struct BookmarkView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: copyNotice)
-            .navigationTitle("ブックマーク")
+            .navigationTitle(Text("Bookmarks"))
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "タイトルまたはURLで検索")
+            .searchable(text: $searchText, prompt: Text("Search by title or URL"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完了") {
+                    Button("Done") {
                         dismiss()
                     }
                 }
             }
             .alert(
-                "ブックマーク名の変更",
+                NSLocalizedString("Rename Bookmark", comment: ""),
                 isPresented: Binding(
                     get: { renamingItem != nil },
                     set: { if !$0 { renamingItem = nil } }
                 )
             ) {
-                TextField("タイトル", text: $renameTitleInput)
-                Button("キャンセル", role: .cancel) {
+                TextField("Title", text: $renameTitleInput)
+                Button("Cancel", role: .cancel) {
                     renamingItem = nil
                 }
-                Button("保存") {
+                Button("Save") {
                     handleRenameConfirm()
                 }
             } message: {
-                Text("ブックマークの新しい表示名を入力してください。")
+                Text("Please enter a new name for the bookmark.")
             }
         }
     }
@@ -117,13 +117,13 @@ struct BookmarkView: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
 
-            Text(searchText.isEmpty ? "ブックマークはありません" : "検索結果が見つかりません")
+            Text(searchText.isEmpty ? "No Bookmarks" : "No Results Found")
                 .font(.headline)
                 .foregroundStyle(.primary)
 
             Text(searchText.isEmpty ?
-                 "よく訪れるWebページをメニューからブックマークに登録すると、ここに表示されます。" :
-                 "「\(searchText)」に一致するブックマークは見つかりませんでした。別のキーワードをお試しください。")
+                 NSLocalizedString("When you bookmark frequently visited web pages from the menu, they will appear here.", comment: "") :
+                 String(format: NSLocalizedString("No bookmarks matching \"%@\" were found. Try another keyword.", comment: ""), searchText))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -147,7 +147,7 @@ struct BookmarkView: View {
         UIPasteboard.general.string = url.absoluteString
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(.easeInOut(duration: 0.2)) {
-            copyNotice = "URLをコピーしました"
+            copyNotice = NSLocalizedString("URL copied", comment: "")
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -178,7 +178,7 @@ struct BookmarkView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.yellow)
-            Text("ファイル破損保護のためディスク永続化が無効化されています")
+            Text("Disk persistence is disabled to protect against file corruption.")
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.primary)
         }
@@ -248,19 +248,19 @@ private struct BookmarkItemRow: View {
                 Button {
                     onSelect(url, false)
                 } label: {
-                    Label("このタブで開く", systemImage: "safari")
+                    Label("Open in This Tab", systemImage: "safari")
                 }
 
                 Button {
                     onSelect(url, true)
                 } label: {
-                    Label("新しいタブで開く", systemImage: "plus.square")
+                    Label("Open in New Tab", systemImage: "plus.square")
                 }
 
                 Button {
                     onCopy(url)
                 } label: {
-                    Label("URLをコピー", systemImage: "doc.on.doc")
+                    Label("Copy URL", systemImage: "doc.on.doc")
                 }
 
                 Divider()
@@ -269,7 +269,7 @@ private struct BookmarkItemRow: View {
             Button {
                 onRename()
             } label: {
-                Label("名前を変更", systemImage: "pencil")
+                Label("Rename", systemImage: "pencil")
             }
 
             Divider()
@@ -277,14 +277,14 @@ private struct BookmarkItemRow: View {
             Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("ブックマークを削除", systemImage: "trash")
+                Label("Delete Bookmark", systemImage: "trash")
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("削除", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
         }
     }

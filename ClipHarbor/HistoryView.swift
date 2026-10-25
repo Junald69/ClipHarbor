@@ -59,19 +59,19 @@ struct HistoryView: View {
 
         var groups: [HistoryDateGroup] = []
         if !todayItems.isEmpty {
-            groups.append(HistoryDateGroup(id: "today", title: "今日", items: todayItems))
+            groups.append(HistoryDateGroup(id: "today", title: NSLocalizedString("Today", comment: ""), items: todayItems))
         }
         if !yesterdayItems.isEmpty {
-            groups.append(HistoryDateGroup(id: "yesterday", title: "昨日", items: yesterdayItems))
+            groups.append(HistoryDateGroup(id: "yesterday", title: NSLocalizedString("Yesterday", comment: ""), items: yesterdayItems))
         }
 
         let dateFormatter = DateFormatter()
         dateFormatter.locale = Locale(identifier: "ja_JP")
-        dateFormatter.dateFormat = "M月d日 (E)"
+        dateFormatter.setLocalizedDateFormatFromTemplate("MMMdE")
 
         let yearFormatter = DateFormatter()
         yearFormatter.locale = Locale(identifier: "ja_JP")
-        yearFormatter.dateFormat = "yyyy年M月d日"
+        yearFormatter.setLocalizedDateFormatFromTemplate("yMMMd")
 
         let currentYear = calendar.component(.year, from: Date())
 
@@ -99,36 +99,36 @@ struct HistoryView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: copyNotice)
-            .navigationTitle("履歴")
+            .navigationTitle(Text("History"))
             .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $searchText, prompt: "タイトルまたはURLで検索")
+            .searchable(text: $searchText, prompt: Text("Search by title or URL"))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(role: .destructive) {
                         showClearConfirm = true
                     } label: {
-                        Text("全消去")
+                        Text("Clear All")
                             .foregroundStyle(.red)
                     }
                     .disabled(historyManager.items.isEmpty)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完了") {
+                    Button("Done") {
                         dismiss()
                     }
                 }
             }
             .confirmationDialog(
-                "すべての閲覧履歴を消去しますか？",
+                NSLocalizedString("Clear all browsing history?", comment: ""),
                 isPresented: $showClearConfirm,
                 titleVisibility: .visible
             ) {
-                Button("すべての履歴を消去", role: .destructive) {
+                Button("Clear All History", role: .destructive) {
                     historyManager.clearAll()
                 }
-                Button("キャンセル", role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("この操作を取り消すことはできません。Cookieや保存済み動画は削除されません。")
+                Text("This action cannot be undone. Cookies and saved videos will not be deleted.")
             }
         }
     }
@@ -165,13 +165,13 @@ struct HistoryView: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
 
-            Text(searchText.isEmpty ? "履歴はありません" : "検索結果が見つかりません")
+            Text(searchText.isEmpty ? "No History" : "No Results Found")
                 .font(.headline)
                 .foregroundStyle(.primary)
 
             Text(searchText.isEmpty ?
-                 "Webサイトを閲覧すると、ここに履歴が表示されます。\nプライベートブラウズ中の履歴は保存されません。" :
-                 "「\(searchText)」に一致する閲覧履歴は見つかりませんでした。別のキーワードをお試しください。")
+                 NSLocalizedString("When you browse websites, your history will appear here.\nHistory is not saved during Private Browsing.", comment: "") :
+                 String(format: NSLocalizedString("No browsing history matching \"%@\" were found. Try another keyword.", comment: ""), searchText))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -185,7 +185,7 @@ struct HistoryView: View {
         UIPasteboard.general.string = url.absoluteString
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(.easeInOut(duration: 0.2)) {
-            copyNotice = "URLをコピーしました"
+            copyNotice = NSLocalizedString("URL copied", comment: "")
         }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -270,19 +270,19 @@ private struct HistoryItemRow: View {
                 Button {
                     onSelect(url, false)
                 } label: {
-                    Label("このタブで開く", systemImage: "safari")
+                    Label("Open in This Tab", systemImage: "safari")
                 }
 
                 Button {
                     onSelect(url, true)
                 } label: {
-                    Label("新しいタブで開く", systemImage: "plus.square")
+                    Label("Open in New Tab", systemImage: "plus.square")
                 }
 
                 Button {
                     onCopy(url)
                 } label: {
-                    Label("URLをコピー", systemImage: "doc.on.doc")
+                    Label("Copy URL", systemImage: "doc.on.doc")
                 }
 
                 Divider()
@@ -291,14 +291,14 @@ private struct HistoryItemRow: View {
             Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("履歴から削除", systemImage: "trash")
+                Label("Delete from History", systemImage: "trash")
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button(role: .destructive) {
                 onDelete()
             } label: {
-                Label("削除", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             }
         }
     }

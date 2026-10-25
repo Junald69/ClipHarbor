@@ -77,7 +77,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         if !pageTitle.isEmpty && pageTitle != "ClipHarbor" {
             return pageTitle
         }
-        return address.isEmpty ? "検索またはURLを入力" : address
+        return address.isEmpty ? NSLocalizedString("Search or enter website name", comment: "") : address
     }
 
     /// 現在のURLがHTTPS接続か判定
@@ -231,7 +231,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
             if let c = video.candidate {
                 detail = "\(c.formatLabel) · \(c.host)"
             } else {
-                detail = video.isMainFrame ? "ページ内の動画" : "埋め込み（iframe）内の動画"
+                detail = video.isMainFrame ? NSLocalizedString("Video in page", comment: "") : NSLocalizedString("Video in embedded iframe", comment: "")
             }
             rows.append(CandidateRow(id: "video-\(video.id)", title: video.displayTitle, detail: detail,
                                      posterURL: video.posterURL, stateLabel: video.stateLabel,
@@ -240,7 +240,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
         for c in resourceCandidates where !usedURLs.contains(c.id) {
             rows.append(CandidateRow(id: "res-\(c.id)", title: c.suggestedName,
-                                     detail: "\(c.formatLabel) · \(c.host)（ページ内の通信から検出）",
+                                     detail: String(format: NSLocalizedString("%@ · %@ (Detected from page traffic)", comment: ""), c.formatLabel, c.host),
                                      posterURL: nil, stateLabel: nil, isPlaying: false,
                                      candidate: c, reason: nil))
         }
@@ -803,7 +803,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         if previous != video { videos[id] = video }
 
         if event == "webkitbeginfullscreen" {
-            showNotice("全画面表示中は保存ボタンを表示できません。全画面を閉じると↓ボタンから保存できます。", seconds: 6)
+            showNotice(NSLocalizedString("Cannot show save button during full screen. You can save from the download button after exiting full screen.", comment: ""), seconds: 6)
         }
     }
 

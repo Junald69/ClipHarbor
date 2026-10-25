@@ -218,14 +218,14 @@ private struct ActiveBrowserContainer: View {
             )
         }
         .alert(
-            "この動画は保存できません",
+            NSLocalizedString("This video cannot be saved", comment: ""),
             isPresented: Binding(
                 get: { unsupportedMessage != nil },
                 set: { if !$0 { unsupportedMessage = nil } }
             )
         ) {
             if browser.candidateRows.contains(where: { $0.candidate != nil }) {
-                Button("他の候補を見る") {
+                Button("View other candidates") {
                     unsupportedMessage = nil
                     showCandidateList = true
                 }
@@ -280,7 +280,7 @@ private struct ActiveBrowserContainer: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                TextField("検索またはURLを入力", text: $browser.address)
+                TextField("Search or enter website name", text: $browser.address)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -301,10 +301,10 @@ private struct ActiveBrowserContainer: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("入力をクリア")
+                    .accessibilityLabel(Text("Clear text"))
                 }
 
-                Button("キャンセル") {
+                Button("Cancel") {
                     addressFocused = false
                     browser.isEditingAddress = false
                     browser.address = browser.currentURL.absoluteString
@@ -346,7 +346,7 @@ private struct ActiveBrowserContainer: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("再読み込み")
+                .accessibilityLabel(Text("Reload"))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -427,7 +427,7 @@ private struct ActiveBrowserContainer: View {
                 Image(systemName: "arrow.down.to.line.compact")
                     .font(.system(size: 18, weight: .bold))
                 if !compact {
-                    Text(isSavable ? "動画を保存" : "保存を確認")
+                    Text(isSavable ? "Save Video" : "Confirm Save")
                         .font(.system(size: 14, weight: .semibold))
                 }
             }
@@ -441,20 +441,20 @@ private struct ActiveBrowserContainer: View {
             )
             .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
         }
-        .accessibilityLabel("再生中の動画を保存")
+        .accessibilityLabel(Text("Save Playing Video"))
         .contextMenu {
             if let candidate = video.candidate {
                 Button {
                     savingCandidate = candidate
                 } label: {
-                    Label("ファイル名を指定して保存", systemImage: "arrow.down.circle")
+                    Label("Specify File Name and Save", systemImage: "arrow.down.circle")
                 }
             }
             if browser.candidateRows.count > 1 {
                 Button {
                     showCandidateList = true
                 } label: {
-                    Label("候補一覧を表示 (\(browser.candidateRows.count)件)", systemImage: "list.bullet")
+                    Label(String(format: NSLocalizedString("Show Candidates List (%lld)", comment: ""), browser.candidateRows.count), systemImage: "list.bullet")
                 }
             }
         }
@@ -467,7 +467,7 @@ private struct ActiveBrowserContainer: View {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.down.to.line.compact")
                     .font(.system(size: 17, weight: .bold))
-                Text("動画候補 (\(browser.candidateRows.count))")
+                Text(String(format: NSLocalizedString("Video Candidates (%lld)", comment: ""), browser.candidateRows.count))
                     .font(.system(size: 14, weight: .semibold))
             }
             .foregroundStyle(.white)
@@ -477,7 +477,7 @@ private struct ActiveBrowserContainer: View {
             .background(Color.blue, in: Capsule())
             .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
         }
-        .accessibilityLabel("検出された動画の候補を表示")
+        .accessibilityLabel(Text("Show detected video candidates"))
     }
 
     private func handleTapOnVideo(_ video: TrackedVideo) {
@@ -488,7 +488,7 @@ private struct ActiveBrowserContainer: View {
             showCandidateList = true
         } else {
             unsupportedMessage = video.unsupportedReason
-                ?? "動画は検出しましたが、保存用のURLを取得できません。blob/MSE・DRM・サイト専用の配信方式などには対応していません。"
+                ?? NSLocalizedString("A video was detected, but a downloadable URL could not be obtained. blob/MSE, DRM, and proprietary streaming methods are not supported.", comment: "")
         }
     }
 
@@ -530,13 +530,13 @@ private struct ActiveBrowserContainer: View {
                 tabManager.selectPrivateTab(id: newTab.id)
             }
         } else {
-            browser.showNotice("プライベートタブ上限（\(TabManager.maxPrivateTabs)件）に達しているため、新しいプライベートタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            browser.showNotice(String(format: NSLocalizedString("Cannot open a new private tab because the private tab limit (%lld) has been reached. Please close unnecessary tabs and try again.", comment: ""), TabManager.maxPrivateTabs))
         }
     }
 
     private func startDownload(candidate: MediaCandidate, displayName: String, folderName: String) {
         if browser.isPrivate {
-            browser.showNotice("💡 保存動画および保存元URLは端末ストレージに保存されます。")
+            browser.showNotice(NSLocalizedString("💡 Saved videos and source URLs are stored on local device storage.", comment: ""))
         }
         browser.makeRequestContext { context in
             let jobID = downloads.start(candidate, displayName: displayName, context: context)
@@ -563,7 +563,7 @@ private struct ActiveBrowserContainer: View {
     /// 保存先フォルダはファイルの配置場所で決まるため、DownloadCenterのonVideoSaved（フォルダ移動）は経由しない。
     private func startMP4Export(candidate: MediaCandidate, displayName: String, folderName: String) {
         if browser.isPrivate {
-            browser.showNotice("💡 保存動画および保存元URLは端末ストレージに保存されます。")
+            browser.showNotice(NSLocalizedString("💡 Saved videos and source URLs are stored on local device storage.", comment: ""))
         }
         browser.makeRequestContext { context in
             _ = exports.startFMP4Export(
@@ -648,7 +648,7 @@ private struct ActiveBrowserContainer: View {
                         .lineLimit(2)
                     Spacer(minLength: 4)
                     if hasActiveTask || !exports.exportJobs.isEmpty {
-                        Button("詳細") { showDownloads = true }
+                        Button("Details") { showDownloads = true }
                             .font(.caption.weight(.semibold))
                     }
                 }
@@ -679,7 +679,7 @@ private struct ActiveBrowserContainer: View {
                     .frame(minWidth: 44, minHeight: 44)
             }
             .disabled(!browser.canGoBack)
-            .accessibilityLabel("戻る")
+            .accessibilityLabel(Text("Back"))
 
             Spacer()
 
@@ -690,7 +690,7 @@ private struct ActiveBrowserContainer: View {
                 Image(systemName: "house")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("ホーム")
+            .accessibilityLabel(Text("Home"))
 
             Spacer()
 
@@ -701,7 +701,7 @@ private struct ActiveBrowserContainer: View {
                 Image(systemName: "line.3.horizontal")
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel("メニュー")
+            .accessibilityLabel(Text("Menu"))
 
             Spacer()
 
@@ -725,7 +725,7 @@ private struct ActiveBrowserContainer: View {
                     }
                 }
             }
-            .accessibilityLabel("ダウンロード・保存動画")
+            .accessibilityLabel(Text("Downloads & Saved Videos"))
 
             Spacer()
 
@@ -748,7 +748,7 @@ private struct ActiveBrowserContainer: View {
                         .offset(x: 10, y: 4)
                 }
             }
-            .accessibilityLabel(browser.isPrivate ? "プライベートタブ (\(tabManager.privateCount)件)" : "タブ (\(tabManager.count)件)")
+            .accessibilityLabel(browser.isPrivate ? String(format: NSLocalizedString("Private (%lld)", comment: ""), tabManager.privateCount) : String(format: NSLocalizedString("Tabs (%lld)", comment: ""), tabManager.count))
         }
         .font(.title3)
         .buttonStyle(.plain)
@@ -792,12 +792,12 @@ struct BrowserMenuSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("動画とダウンロード") {
+                Section("Videos & Downloads") {
                     let isCandidateDisabled = !browser.hasAnyMedia
                     Button(action: onOpenCandidateList) {
                         HStack {
                             Label {
-                                Text("動画の候補一覧")
+                                Text("Video Candidates")
                                     .foregroundStyle(isCandidateDisabled ? Color.blue.opacity(0.4) : Color.blue)
                             } icon: {
                                 Image(systemName: "film.stack")
@@ -805,7 +805,7 @@ struct BrowserMenuSheet: View {
                             }
                             Spacer()
                             if !browser.candidateRows.isEmpty {
-                                Text("\(browser.candidateRows.count)件")
+                                Text(String(format: NSLocalizedString("%lld items", comment: ""), browser.candidateRows.count))
                                     .font(.caption)
                                     .foregroundStyle(isCandidateDisabled ? Color.secondary.opacity(0.4) : Color.secondary)
                             }
@@ -815,11 +815,11 @@ struct BrowserMenuSheet: View {
 
                     Button(action: onOpenDownloads) {
                         HStack {
-                            Label("保存動画・フォルダ管理", systemImage: "arrow.down.to.line")
+                            Label("Saved Videos & Folders", systemImage: "arrow.down.to.line")
                             Spacer()
                             let activeCount = downloads.activeCount + exports.activeCount
                             if activeCount > 0 {
-                                Text("\(activeCount)件処理中")
+                                Text(String(format: NSLocalizedString("%lld processing", comment: ""), activeCount))
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.blue)
                             }
@@ -832,7 +832,7 @@ struct BrowserMenuSheet: View {
                     Button {
                         if browser.isPrivate {
                             dismiss()
-                            browser.showNotice("プライベートブラウジング中は、プライバシー保護のためブックマークの登録・解除は無効化されています。")
+                            browser.showNotice(NSLocalizedString("Bookmarking is disabled during Private Browsing for privacy protection.", comment: ""))
                             return
                         }
                         let targetURL = browser.currentURL
@@ -841,7 +841,7 @@ struct BrowserMenuSheet: View {
                         toggleBookmark(url: targetURL, title: targetTitle)
                     } label: {
                         Label {
-                            Text(isCurrentPageBookmarked ? "ブックマークを解除" : "このページをブックマーク")
+                            Text(isCurrentPageBookmarked ? "Remove Bookmark" : "Bookmark this Page")
                                 .foregroundStyle(isBookmarkDisabled ? Color.blue.opacity(0.4) : Color.blue)
                         } icon: {
                             Image(systemName: isCurrentPageBookmarked ? "bookmark.fill" : "bookmark")
@@ -852,40 +852,40 @@ struct BrowserMenuSheet: View {
 
                     Button(action: onOpenBookmarks) {
                         HStack {
-                            Label("ブックマーク", systemImage: "bookmark")
+                            Label("Bookmarks", systemImage: "bookmark")
                             Spacer()
                             if !bookmarkManager.items.isEmpty {
-                                Text("\(bookmarkManager.items.count)件")
+                                Text(String(format: NSLocalizedString("%lld items", comment: ""), bookmarkManager.items.count))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 } header: {
-                    Text("ブックマーク")
+                    Text("Bookmarks")
                 } footer: {
                     if browser.isPrivate {
-                        Text("※プライベートブラウジング中はブックマーク登録が無効化されます。")
+                        Text("※ Bookmarking is disabled during Private Browsing.")
                     }
                 }
 
                 Section {
                     Button(action: onOpenHistory) {
                         HStack {
-                            Label("履歴", systemImage: "clock")
+                            Label("History", systemImage: "clock")
                             Spacer()
                             if !historyManager.items.isEmpty {
-                                Text("\(historyManager.items.count)件")
+                                Text(String(format: NSLocalizedString("%lld items", comment: ""), historyManager.items.count))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 } header: {
-                    Text("履歴")
+                    Text("History")
                 } footer: {
                     if browser.isPrivate {
-                        Text("※プライベートタブでの閲覧履歴は一切保存されません。")
+                        Text("※ Browsing history is not saved in Private Tabs.")
                     }
                 }
 
@@ -936,12 +936,12 @@ struct BrowserMenuSheet: View {
                     Button(action: onOpenPrivateTab) {
                         HStack {
                             Label(
-                                browser.isPrivate ? "新しいプライベートタブを開く" : "プライベートタブを開く",
+                                browser.isPrivate ? NSLocalizedString("Open New Private Tab", comment: "") : NSLocalizedString("Open Private Tab", comment: ""),
                                 systemImage: "eyeglasses"
                             )
                             Spacer()
                             if tabManager.privateCount > 0 {
-                                Text("\(tabManager.privateCount)件")
+                                Text(String(format: NSLocalizedString("%lld items", comment: ""), tabManager.privateCount))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -950,7 +950,7 @@ struct BrowserMenuSheet: View {
 
                     Button(action: onOpenSettings) {
                         HStack {
-                            Label("設定", systemImage: "gearshape")
+                            Label("Settings", systemImage: "gearshape")
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.caption2.weight(.semibold))
@@ -958,16 +958,16 @@ struct BrowserMenuSheet: View {
                         }
                     }
                 } header: {
-                    Text("ブラウズ機能")
+                    Text("Browsing Features")
                 } footer: {
-                    Text("プライベートモードでは閲覧履歴を残さず、Cookieやキャッシュもタブ終了時に消去されます。")
+                    Text("In Private Mode, no browsing history is saved, and cookies and cache are cleared when tabs close.")
                 }
             }
-            .navigationTitle("メニュー")
+            .navigationTitle(Text("Menu"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("閉じる") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
         }
@@ -977,18 +977,18 @@ struct BrowserMenuSheet: View {
     private func toggleBookmark(url: URL, title: String) {
         if bookmarkManager.isBookmarked(url: url) {
             bookmarkManager.removeBookmark(for: url)
-            browser.showNotice("ブックマークを解除しました")
+            browser.showNotice(NSLocalizedString("Removed from Bookmarks", comment: ""))
         } else {
             guard bookmarkManager.canSave else {
-                browser.showNotice("保存領域が保護されているため、ブックマークを保存できません")
+                browser.showNotice(NSLocalizedString("Cannot save bookmark because storage is protected", comment: ""))
                 return
             }
             let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolvedTitle = trimmed.isEmpty ? (url.host ?? "新規ブックマーク") : trimmed
+            let resolvedTitle = trimmed.isEmpty ? (url.host ?? NSLocalizedString("New Bookmark", comment: "")) : trimmed
             if bookmarkManager.addBookmark(url: url, title: resolvedTitle) != nil {
-                browser.showNotice("ブックマークに追加しました")
+                browser.showNotice(NSLocalizedString("Added to Bookmarks", comment: ""))
             } else {
-                browser.showNotice("このページはブックマークに登録できません")
+                browser.showNotice(NSLocalizedString("This page cannot be bookmarked", comment: ""))
             }
         }
     }

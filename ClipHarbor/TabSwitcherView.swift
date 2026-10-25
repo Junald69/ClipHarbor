@@ -90,7 +90,7 @@ struct TabSwitcherView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "plus.circle")
                                         .font(.system(size: 18, weight: .semibold))
-                                    Text(isViewingPrivate ? "新しいプライベートタブを開く" : "新しいタブを開く")
+                                    Text(isViewingPrivate ? "Open New Private Tab" : "Open New Tab")
                                         .font(.subheadline.weight(.medium))
                                 }
                                 .foregroundStyle(
@@ -113,11 +113,11 @@ struct TabSwitcherView: View {
                 modeSwitcherFooter
             }
             .background(isViewingPrivate ? Color(red: 0.08, green: 0.09, blue: 0.12) : Color(.systemGroupedBackground))
-            .navigationTitle(isViewingPrivate ? "プライベート (\(tabManager.privateCount))" : "タブ (\(tabManager.count))")
+            .navigationTitle(isViewingPrivate ? String(format: NSLocalizedString("Private (%lld)", comment: ""), tabManager.privateCount) : String(format: NSLocalizedString("Tabs (%lld)", comment: ""), tabManager.count))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完了") {
+                    Button("Done") {
                         handleDone()
                     }
                 }
@@ -125,7 +125,7 @@ struct TabSwitcherView: View {
                 ToolbarItem(placement: .primaryAction) {
                     HStack(spacing: 16) {
                         if isViewingPrivate && !tabManager.privateTabs.isEmpty {
-                            Button("全削除") {
+                            Button("Close All") {
                                 showCloseAllAlert = true
                             }
                             .font(.subheadline)
@@ -138,23 +138,23 @@ struct TabSwitcherView: View {
                             Image(systemName: "plus")
                         }
                         .disabled(!canCreateTabForCurrentMode)
-                        .accessibilityLabel(isViewingPrivate ? "新しいプライベートタブを開く" : "新しいタブを開く")
+                        .accessibilityLabel(isViewingPrivate ? "Open New Private Tab" : "Open New Tab")
                     }
                 }
             }
             .confirmationDialog(
-                "すべてのプライベートタブを閉じますか？",
+                "Close all open private tabs?",
                 isPresented: $showCloseAllAlert,
                 titleVisibility: .visible
             ) {
-                Button("すべてのタブを閉じる", role: .destructive) {
+                Button("Close All Tabs", role: .destructive) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         tabManager.closeAllPrivateTabs()
                     }
                 }
-                Button("キャンセル", role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("開いているプライベートタブとセッションデータは完全に消去されます。")
+                Text("Open private tabs and session data will be permanently cleared.")
             }
             .onAppear {
                 tabManager.activeTab.captureSnapshot()
@@ -205,7 +205,7 @@ struct TabSwitcherView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "square.on.square")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("通常 (\(tabManager.count))")
+                        Text(String(format: NSLocalizedString("Tabs (%lld)", comment: ""), tabManager.count))
                             .font(.subheadline.weight(!isViewingPrivate ? .semibold : .regular))
                     }
                     .foregroundStyle(!isViewingPrivate ? Color.primary : Color.secondary)
@@ -228,7 +228,7 @@ struct TabSwitcherView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "eyeglasses")
                             .font(.system(size: 14, weight: .semibold))
-                        Text("プライベート (\(tabManager.privateCount))")
+                        Text(String(format: NSLocalizedString("Private (%lld)", comment: ""), tabManager.privateCount))
                             .font(.subheadline.weight(isViewingPrivate ? .semibold : .regular))
                     }
                     .foregroundStyle(isViewingPrivate ? Color.white : Color.secondary)
@@ -263,11 +263,11 @@ struct TabSwitcherView: View {
                 .foregroundStyle(Color.indigo)
                 .padding(.bottom, 4)
 
-            Text("プライベートブラウジング")
+            Text("Private Browsing")
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
 
-            Text("プライベートタブで開いたWebページは閲覧履歴に残りません。\nタブをすべて閉じるとCookieやキャッシュなどのWebデータは自動的に消去されます。")
+            Text("Web pages opened in Private Tabs will not leave browsing history. When all tabs are closed, web data such as cookies and cache are automatically erased.")
                 .font(.footnote)
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(.center)
@@ -280,7 +280,7 @@ struct TabSwitcherView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .semibold))
-                    Text("新規プライベートタブを開く")
+                    Text("Open New Private Tab")
                         .font(.subheadline.weight(.semibold))
                 }
                 .foregroundStyle(.white)
@@ -324,7 +324,7 @@ private struct TabCardView: View {
             // 下部：タイトル・ドメインと閉じる「✕」ボタン
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(tab.pageTitle.isEmpty ? (isPrivate ? "プライベートタブ" : "名称未設定") : tab.pageTitle)
+                    Text(tab.pageTitle.isEmpty ? (isPrivate ? NSLocalizedString("Private Tab", comment: "") : NSLocalizedString("Untitled", comment: "")) : tab.pageTitle)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(isPrivate ? Color.white : Color.primary)
                         .lineLimit(1)
@@ -353,7 +353,7 @@ private struct TabCardView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("タブを閉じる")
+                .accessibilityLabel(Text("Close Tab"))
             }
             .padding(.leading, 10)
             .padding(.trailing, 2)
@@ -370,7 +370,7 @@ private struct TabCardView: View {
         )
         .shadow(color: Color.black.opacity(isActive ? 0.15 : 0.05), radius: 6, x: 0, y: 2)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(tab.pageTitle.isEmpty ? (isPrivate ? "プライベートタブ" : "名称未設定") : tab.pageTitle)\(isActive ? ", 選択中" : "")")
+        .accessibilityLabel("\(tab.pageTitle.isEmpty ? (isPrivate ? NSLocalizedString("Private Tab", comment: "") : NSLocalizedString("Untitled", comment: "")) : tab.pageTitle)\(isActive ? ", " + NSLocalizedString("Selected", comment: "") : "")")
     }
 
     // MARK: - プレビュー表示（スナップショット または プレースホルダー）
@@ -392,7 +392,7 @@ private struct TabCardView: View {
                 .font(.system(size: 26))
                 .foregroundStyle(isPrivate ? Color.indigo : Color.secondary)
 
-            Text(isPrivate ? "プライベート" : "ページプレビュー")
+            Text(isPrivate ? "Private" : "Page Preview")
                 .font(.system(size: 11))
                 .foregroundStyle(isPrivate ? Color.white.opacity(0.5) : Color.secondary)
         }

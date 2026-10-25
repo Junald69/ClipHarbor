@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%@ · %@ (Detected from page traffic)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@ (Detected from page traffic)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@（ページ内の通信から検出）"
+          }
+        }
+      }
+    },
     "%lld folders": {
       "extractionState": "manual",
       "localizations": {
@@ -64,6 +81,41 @@
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld 件"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld processing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld processing"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld processing"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld件処理中"
                 }
               }
             }
@@ -140,6 +192,23 @@
         }
       }
     },
+    "30 Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 Days"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30日"
+          }
+        }
+      }
+    },
     "7 Days": {
       "extractionState": "manual",
       "localizations": {
@@ -157,19 +226,19 @@
         }
       }
     },
-    "30 Days": {
+    "A video was detected, but a downloadable URL could not be obtained. blob/MSE, DRM, and proprietary streaming methods are not supported.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "30 Days"
+            "value": "A video was detected, but a downloadable URL could not be obtained. blob/MSE, DRM, and proprietary streaming methods are not supported."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "30日"
+            "value": "動画は検出しましたが、保存用のURLを取得できません。blob/MSE・DRM・サイト専用の配信方式などには対応していません。"
           }
         }
       }
@@ -191,6 +260,23 @@
         }
       }
     },
+    "Added to Bookmarks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added to Bookmarks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークに追加しました"
+          }
+        }
+      }
+    },
     "Added to Favorites": {
       "extractionState": "manual",
       "localizations": {
@@ -204,6 +290,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "お気に入りに追加しました"
+          }
+        }
+      }
+    },
+    "Advanced File Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advanced File Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル管理の詳細設定"
+          }
+        }
+      }
+    },
+    "Allow for this site and reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow for this site and reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで許可して再読み込み"
+          }
+        }
+      }
+    },
+    "An error occurred while clearing data: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An error occurred while clearing data: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除処理中にエラーが発生しました: %@"
+          }
+        }
+      }
+    },
+    "App Information": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Information"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ情報"
+          }
+        }
+      }
+    },
+    "App Name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ名"
           }
         }
       }
@@ -242,6 +413,193 @@
         }
       }
     },
+    "Biometric authentication failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biometric authentication failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生体認証に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Block Ads & Trackers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block Ads & Trackers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広告とトラッカーをブロック"
+          }
+        }
+      }
+    },
+    "Block Annoying Pop-ups": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block Annoying Pop-ups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迷惑ポップアップをブロック"
+          }
+        }
+      }
+    },
+    "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック判定は端末内のルールで行われ、ブロック判定のために閲覧URLや履歴を外部送信しません。"
+          }
+        }
+      }
+    },
+    "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "迷惑ポップアップをブロックしました。正常な操作の場合は、このサイトで許可して再試行してください。"
+          }
+        }
+      }
+    },
+    "Bookmark this Page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bookmark this Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページをブックマーク"
+          }
+        }
+      }
+    },
+    "Bookmarking is disabled during Private Browsing for privacy protection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bookmarking is disabled during Private Browsing for privacy protection."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートブラウジング中は、プライバシー保護のためブックマークの登録・解除は無効化されています。"
+          }
+        }
+      }
+    },
+    "Bookmarks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bookmarks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマーク"
+          }
+        }
+      }
+    },
+    "Browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        }
+      }
+    },
+    "Browsing Features": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browsing Features"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウズ機能"
+          }
+        }
+      }
+    },
+    "Build Number": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build Number"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビルド番号"
+          }
+        }
+      }
+    },
     "Cache Management": {
       "extractionState": "manual",
       "localizations": {
@@ -272,6 +630,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "Cannot obtain video URL.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot obtain video URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画のURLを取得できません。"
+          }
+        }
+      }
+    },
+    "Cannot open a new private tab because the private tab limit (%lld) has been reached. Please close unnecessary tabs and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open a new private tab because the private tab limit (%lld) has been reached. Please close unnecessary tabs and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートタブ上限（%lld件）に達しているため、新しいプライベートタブを開けませんでした。不要なタブを閉じてから再度お試しください。"
+          }
+        }
+      }
+    },
+    "Cannot open a new tab because the tab limit (%lld) has been reached. Please close unnecessary tabs and try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot open a new tab because the tab limit (%lld) has been reached. Please close unnecessary tabs and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ上限（%lld件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。"
+          }
+        }
+      }
+    },
+    "Cannot save bookmark because storage is protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot save bookmark because storage is protected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存領域が保護されているため、ブックマークを保存できません"
+          }
+        }
+      }
+    },
+    "Cannot show save button during full screen. You can save from the download button after exiting full screen.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot show save button during full screen. You can save from the download button after exiting full screen."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全画面表示中は保存ボタンを表示できません。全画面を閉じると↓ボタンから保存できます。"
+          }
+        }
+      }
+    },
+    "Change": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更する"
           }
         }
       }
@@ -310,6 +770,125 @@
         }
       }
     },
+    "Clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除する"
+          }
+        }
+      }
+    },
+    "Clear All": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全消去"
+          }
+        }
+      }
+    },
+    "Clear All History": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear All History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての履歴を消去"
+          }
+        }
+      }
+    },
+    "Clear Browsing Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Browsing Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閲覧データの削除"
+          }
+        }
+      }
+    },
+    "Clear Cookies & Site Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Cookies & Site Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie・サイトデータの削除"
+          }
+        }
+      }
+    },
+    "Clear History": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を消す"
+          }
+        }
+      }
+    },
+    "Clear Selected Browsing Data": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Selected Browsing Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した閲覧データを削除"
+          }
+        }
+      }
+    },
     "Clear Thumbnail Memory Cache": {
       "extractionState": "manual",
       "localizations": {
@@ -327,19 +906,36 @@
         }
       }
     },
-    "Close": {
+    "Clear all browsing history?": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "Clear all browsing history?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閉じる"
+            "value": "すべての閲覧履歴を消去しますか？"
+          }
+        }
+      }
+    },
+    "Clear text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力をクリア"
           }
         }
       }
@@ -361,6 +957,363 @@
         }
       }
     },
+    "Clearing cookies will reset website login sessions. Continue?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clearing cookies will reset website login sessions. Continue?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookieを削除すると、Webサイトのログイン状態がリセットされます。続行しますか？"
+          }
+        }
+      }
+    },
+    "Close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "Close All": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close All"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全削除"
+          }
+        }
+      }
+    },
+    "Close All Private Tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close All Private Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプライベートタブを閉じる"
+          }
+        }
+      }
+    },
+    "Close All Tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close All Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのタブを閉じる"
+          }
+        }
+      }
+    },
+    "Close Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる"
+          }
+        }
+      }
+    },
+    "Close all open private tabs?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close all open private tabs?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプライベートタブを閉じますか？"
+          }
+        }
+      }
+    },
+    "Confirm Passcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Passcode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスコードの確認"
+          }
+        }
+      }
+    },
+    "Confirm Save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存を確認"
+          }
+        }
+      }
+    },
+    "Confirmation passcode does not match.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmation passcode does not match."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認用パスコードが一致しません。"
+          }
+        }
+      }
+    },
+    "Content Blocker & Data Sources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content Blocker & Data Sources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロック・データ出典"
+          }
+        }
+      }
+    },
+    "Content Blocking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content Blocking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロック"
+          }
+        }
+      }
+    },
+    "Cookies & Site Data (Login Info, etc.)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies & Site Data (Login Info, etc.)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie・サイトデータ (ログイン情報等)"
+          }
+        }
+      }
+    },
+    "Copy Link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをコピー"
+          }
+        }
+      }
+    },
+    "Copy URL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLをコピー"
+          }
+        }
+      }
+    },
+    "Create Private Vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create Private Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault の初期設定"
+          }
+        }
+      }
+    },
+    "Current Passcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Passcode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のパスコード"
+          }
+        }
+      }
+    },
+    "Current Passcode (6 digits)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Passcode (6 digits)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のパスコード (6桁)"
+          }
+        }
+      }
+    },
+    "Currently cannot start Picture in Picture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently cannot start Picture in Picture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在PiPを開始できません。"
+          }
+        }
+      }
+    },
+    "Decryption failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decryption failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復号処理に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Default Search Engine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Search Engine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既定の検索エンジン"
+          }
+        }
+      }
+    },
     "Delete": {
       "extractionState": "manual",
       "localizations": {
@@ -374,6 +1327,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除"
+          }
+        }
+      }
+    },
+    "Delete Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Bookmark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークを削除"
           }
         }
       }
@@ -395,6 +1365,23 @@
         }
       }
     },
+    "Delete from History": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete from History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴から削除"
+          }
+        }
+      }
+    },
     "Deleted": {
       "extractionState": "manual",
       "localizations": {
@@ -408,6 +1395,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除しました"
+          }
+        }
+      }
+    },
+    "Details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細"
+          }
+        }
+      }
+    },
+    "Detected data corruption or tampering in encrypted file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected data corruption or tampering in encrypted file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化ファイルのデータ破損または改ざんを検知しました。"
+          }
+        }
+      }
+    },
+    "Device biometrics (Face ID / Touch ID) are not available.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device biometrics (Face ID / Touch ID) are not available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末の生体認証（Face ID / Touch ID）が利用できません。"
+          }
+        }
+      }
+    },
+    "Disable Protection on This Site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Protection on This Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで保護を無効化"
+          }
+        }
+      }
+    },
+    "Disk persistence is disabled to protect against file corruption.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk persistence is disabled to protect against file corruption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル破損保護のためディスク永続化が無効化されています"
           }
         }
       }
@@ -446,6 +1518,23 @@
         }
       }
     },
+    "Downloads & Saved Videos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads & Saved Videos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード・保存動画"
+          }
+        }
+      }
+    },
     "Edit": {
       "extractionState": "manual",
       "localizations": {
@@ -459,6 +1548,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集"
+          }
+        }
+      }
+    },
+    "Enable Protection on This Site": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Protection on This Site"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイトで保護を有効化"
           }
         }
       }
@@ -497,6 +1603,74 @@
         }
       }
     },
+    "Encryption failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encryption failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化処理に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Encryption master key not found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encryption master key not found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化マスター鍵が見つかりません。再認証してください。"
+          }
+        }
+      }
+    },
+    "Enter passcode to unlock": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter passcode to unlock"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスコードを入力して解錠"
+          }
+        }
+      }
+    },
+    "Entering a URL directly in the search bar opens the webpage without searching.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entering a URL directly in the search bar opens the webpage without searching."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索バーに直接URLを入力した場合は、検索を行わず直接そのWebページを開きます。"
+          }
+        }
+      }
+    },
     "Export / Share": {
       "extractionState": "manual",
       "localizations": {
@@ -527,6 +1701,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除に失敗しました"
+          }
+        }
+      }
+    },
+    "Failed to start Picture in Picture: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to start Picture in Picture: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PiPの開始に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Failed to update content blocking rules. Preserving previous rules.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to update content blocking rules. Preserving previous rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテンツブロックルールの更新に失敗しました。以前のルールを維持します。"
           }
         }
       }
@@ -565,6 +1773,57 @@
         }
       }
     },
+    "File operation failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File operation failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル操作に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Files and Storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files and Storage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルとストレージ"
+          }
+        }
+      }
+    },
+    "Files moved to trash are kept for the configured retention period and can be restored later.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files moved to trash are kept for the configured retention period and can be restored later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に移動したファイルは設定された保持期間の間保管され、後から復元できます。"
+          }
+        }
+      }
+    },
     "Folders": {
       "extractionState": "manual",
       "localizations": {
@@ -582,6 +1841,23 @@
         }
       }
     },
+    "Frameworks & Libraries": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frameworks & Libraries"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームワークとライブラリ"
+          }
+        }
+      }
+    },
     "Frees temporary memory cache. Saved video files and data on disk will not be deleted.": {
       "extractionState": "manual",
       "localizations": {
@@ -595,6 +1871,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "メモリ上の一時キャッシュを解放します。保存済みの動画ファイルやディスク上のデータは消去されません。"
+          }
+        }
+      }
+    },
+    "Global content blocking is disabled in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global content blocking is disabled in Settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定画面でコンテンツブロックが無効化されています。"
+          }
+        }
+      }
+    },
+    "HLS will not be converted to MP4. It is saved in Apple's standard offline format and can only be played within ClipHarbor. Unsupported or DRM-protected streams cannot be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS will not be converted to MP4. It is saved in Apple's standard offline format and can only be played within ClipHarbor. Unsupported or DRM-protected streams cannot be saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLSはMP4に変換されません。Apple標準のオフライン形式で保存され、ClipHarbor内でのみ再生できます。対応していない配信やDRM保護された配信は保存できません。"
           }
         }
       }
@@ -633,6 +1943,40 @@
         }
       }
     },
+    "History": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴"
+          }
+        }
+      }
+    },
+    "Home": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホーム"
+          }
+        }
+      }
+    },
     "Important Notice": {
       "extractionState": "manual",
       "localizations": {
@@ -650,19 +1994,36 @@
         }
       }
     },
-    "iOS Files App Integration": {
+    "In Private Mode, no browsing history is saved, and cookies and cache are cleared when tabs close.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS Files App Integration"
+            "value": "In Private Mode, no browsing history is saved, and cookies and cache are cleared when tabs close."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS「ファイル」アプリ連携"
+            "value": "プライベートモードでは閲覧履歴を残さず、Cookieやキャッシュもタブ終了時に消去されます。"
+          }
+        }
+      }
+    },
+    "Incorrect passcode.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incorrect passcode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスコードが正しくありません。"
           }
         }
       }
@@ -684,6 +2045,40 @@
         }
       }
     },
+    "Licenses & Policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Licenses & Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライセンスと方針"
+          }
+        }
+      }
+    },
+    "Licenses & Security Policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Licenses & Security Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライセンスとセキュリティ方針"
+          }
+        }
+      }
+    },
     "Locked": {
       "extractionState": "manual",
       "localizations": {
@@ -697,6 +2092,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "保護中"
+          }
+        }
+      }
+    },
+    "Menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュー"
           }
         }
       }
@@ -786,6 +2198,108 @@
         }
       }
     },
+    "New Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Bookmark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ブックマーク"
+          }
+        }
+      }
+    },
+    "New Passcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Passcode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいパスコード"
+          }
+        }
+      }
+    },
+    "New Passcode (6 digits)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Passcode (6 digits)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいパスコード (6桁)"
+          }
+        }
+      }
+    },
+    "No Bookmarks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Bookmarks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークはありません"
+          }
+        }
+      }
+    },
+    "No History": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴はありません"
+          }
+        }
+      }
+    },
+    "No Results Found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Results Found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索結果が見つかりません"
+          }
+        }
+      }
+    },
     "No Subtitles": {
       "extractionState": "manual",
       "localizations": {
@@ -799,6 +2313,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "字幕トラックなし"
+          }
+        }
+      }
+    },
+    "No bookmarks matching \"%@\" were found. Try another keyword.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No bookmarks matching \"%@\" were found. Try another keyword."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」に一致するブックマークは見つかりませんでした。別のキーワードをお試しください。"
+          }
+        }
+      }
+    },
+    "No browsing history matching \"%@\" were found. Try another keyword.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No browsing history matching \"%@\" were found. Try another keyword."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」に一致する閲覧履歴は見つかりませんでした。別のキーワードをお試しください。"
           }
         }
       }
@@ -820,6 +2368,40 @@
         }
       }
     },
+    "Offline HLS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline HLS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインHLS"
+          }
+        }
+      }
+    },
+    "Offline HLS format is scheduled for a future update. Only MP4/MOV can be protected currently.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline HLS format is scheduled for a future update. Only MP4/MOV can be protected currently."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフラインHLS形式の保管庫保護は今後のアップデートで対応予定です。現在はMP4/MOV形式のみ暗号化保護できます。"
+          }
+        }
+      }
+    },
     "On app exit or background": {
       "extractionState": "manual",
       "localizations": {
@@ -833,6 +2415,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "アプリ終了・バックグラウンド移行時"
+          }
+        }
+      }
+    },
+    "Open Link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを開く"
+          }
+        }
+      }
+    },
+    "Open New Private Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open New Private Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいプライベートタブを開く"
+          }
+        }
+      }
+    },
+    "Open New Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブを開く"
+          }
+        }
+      }
+    },
+    "Open Private Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Private Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートタブを開く"
+          }
+        }
+      }
+    },
+    "Open in New Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in New Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブで開く"
+          }
+        }
+      }
+    },
+    "Open in This Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in This Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブで開く"
+          }
+        }
+      }
+    },
+    "Open private tabs and session data will be permanently cleared.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open private tabs and session data will be permanently cleared."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプライベートタブとセッションデータは完全に消去されます。"
+          }
+        }
+      }
+    },
+    "Page Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページプレビュー"
           }
         }
       }
@@ -854,6 +2572,40 @@
         }
       }
     },
+    "Passcode must be at least 6 digits.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passcode must be at least 6 digits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスコードは6桁以上で入力してください。"
+          }
+        }
+      }
+    },
+    "Passcodes do not match. Please try again from the beginning.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passcodes do not match. Please try again from the beginning."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスコードが一致しません。最初からやり直してください。"
+          }
+        }
+      }
+    },
     "Permanently delete \"%@\"?": {
       "extractionState": "manual",
       "localizations": {
@@ -867,6 +2619,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」を完全に削除しますか？"
+          }
+        }
+      }
+    },
+    "PiP is not available for Vault items.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PiP is not available for Vault items."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault内アイテムではPiPは利用できません。"
           }
         }
       }
@@ -888,6 +2657,23 @@
         }
       }
     },
+    "Picture in Picture is not supported on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture is not supported on this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いの端末はPiPに対応していません。"
+          }
+        }
+      }
+    },
     "Playback Speed": {
       "extractionState": "manual",
       "localizations": {
@@ -901,6 +2687,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "再生速度"
+          }
+        }
+      }
+    },
+    "Please enter a new name for the bookmark.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Please enter a new name for the bookmark."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークの新しい表示名を入力してください。"
+          }
+        }
+      }
+    },
+    "Privacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシー"
+          }
+        }
+      }
+    },
+    "Private": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベート"
+          }
+        }
+      }
+    },
+    "Private (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベート (%lld)"
+          }
+        }
+      }
+    },
+    "Private Browsing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Browsing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートブラウジング"
+          }
+        }
+      }
+    },
+    "Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートブラウズとPrivate Vaultは独立した機能です。プライベートタブの履歴・Cookieはタブ終了時に自動破棄されます。"
+          }
+        }
+      }
+    },
+    "Private Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートタブ"
+          }
+        }
+      }
+    },
+    "Private Vault Encryption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault Encryption"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault の暗号化"
           }
         }
       }
@@ -922,6 +2844,159 @@
         }
       }
     },
+    "Private Vault is already initialized.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault is already initialized."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault は既に初期化されています。"
+          }
+        }
+      }
+    },
+    "Private Vault is not initialized.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault is not initialized."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault が初期化されていません。"
+          }
+        }
+      }
+    },
+    "Protection Disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection Disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護解除中"
+          }
+        }
+      }
+    },
+    "Protection Enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection Enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保護有効"
+          }
+        }
+      }
+    },
+    "Protection status for %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protection status for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の保護設定"
+          }
+        }
+      }
+    },
+    "Re-enter to confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-enter to confirm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認のため再入力"
+          }
+        }
+      }
+    },
+    "Re-enter your passcode to confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-enter your passcode to confirm"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認のため、もう一度入力してください"
+          }
+        }
+      }
+    },
+    "Reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
+          }
+        }
+      }
+    },
+    "Remove Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Bookmark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークを解除"
+          }
+        }
+      }
+    },
     "Remove from Favorites": {
       "extractionState": "manual",
       "localizations": {
@@ -935,6 +3010,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "お気に入りから削除"
+          }
+        }
+      }
+    },
+    "Removed from Bookmarks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed from Bookmarks"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークを解除しました"
           }
         }
       }
@@ -956,6 +3048,40 @@
         }
       }
     },
+    "Rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        }
+      }
+    },
+    "Rename Bookmark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Bookmark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマーク名の変更"
+          }
+        }
+      }
+    },
     "Restart Playback": {
       "extractionState": "manual",
       "localizations": {
@@ -969,6 +3095,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "最初から再生"
+          }
+        }
+      }
+    },
+    "Retention Period": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retention Period"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持期間"
+          }
+        }
+      }
+    },
+    "Save Playing Video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Playing Video"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中の動画を保存"
+          }
+        }
+      }
+    },
+    "Save Video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Video"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を保存"
           }
         }
       }
@@ -990,6 +3167,91 @@
         }
       }
     },
+    "Saved Videos & Folders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Videos & Folders"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存動画・フォルダ管理"
+          }
+        }
+      }
+    },
+    "Saved videos, bookmarks, and Private Vault are completely unaffected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved videos, bookmarks, and Private Vault are completely unaffected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みの動画、ブックマーク、Private Vaultには一切影響しません。"
+          }
+        }
+      }
+    },
+    "Search by title or URL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search by title or URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルまたはURLで検索"
+          }
+        }
+      }
+    },
+    "Search or enter website name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search or enter website name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索またはURLを入力"
+          }
+        }
+      }
+    },
+    "Security & Privacy Policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Security & Privacy Policy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セキュリティ・プライバシー保護方針"
+          }
+        }
+      }
+    },
     "Security Specifications": {
       "extractionState": "manual",
       "localizations": {
@@ -1003,6 +3265,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "セキュリティ保護仕様"
+          }
+        }
+      }
+    },
+    "Select Data to Clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Data to Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除対象の選択"
+          }
+        }
+      }
+    },
+    "Selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中"
+          }
+        }
+      }
+    },
+    "Set a 6-digit passcode for your Vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set a 6-digit passcode for your Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫を保護する6桁のパスコードを設定してください"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
           }
         }
       }
@@ -1024,6 +3354,23 @@
         }
       }
     },
+    "Share…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有…"
+          }
+        }
+      }
+    },
     "Sharing Vault Files": {
       "extractionState": "manual",
       "localizations": {
@@ -1037,6 +3384,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vaultファイルの共有について"
+          }
+        }
+      }
+    },
+    "Show Candidates List (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Candidates List (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "候補一覧を表示 (%lld件)"
+          }
+        }
+      }
+    },
+    "Show detected video candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show detected video candidates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出された動画の候補を表示"
+          }
+        }
+      }
+    },
+    "Site Protection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site Protection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイトの保護設定"
+          }
+        }
+      }
+    },
+    "Specify File Name and Save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specify File Name and Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名を指定して保存"
           }
         }
       }
@@ -1075,6 +3490,142 @@
         }
       }
     },
+    "Successfully cleared selected browsing data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Successfully cleared selected browsing data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した閲覧データを正常に削除しました。"
+          }
+        }
+      }
+    },
+    "Tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常"
+          }
+        }
+      }
+    },
+    "Tabs (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常 (%lld)"
+          }
+        }
+      }
+    },
+    "Target video file not found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target video file not found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象の動画ファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "The file contents will be checked after download, and saved if it is a video file like MP4/MOV. If a web page or other content is returned, it will not be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file contents will be checked after download, and saved if it is a video file like MP4/MOV. If a web page or other content is returned, it will not be saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード後にファイルの中身を確認し、MP4/MOVなどの動画ファイルであれば保存します。Webページ等が返された場合は保存しません。"
+          }
+        }
+      }
+    },
+    "Third-Party SDKs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Third-Party SDKs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サードパーティ製SDK"
+          }
+        }
+      }
+    },
+    "This URL cannot be identified as a video file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This URL cannot be identified as a video file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画ファイルとして判定できないURLです。"
+          }
+        }
+      }
+    },
+    "This action cannot be undone. Cookies and saved videos will not be deleted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This action cannot be undone. Cookies and saved videos will not be deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この操作を取り消すことはできません。Cookieや保存済み動画は削除されません。"
+          }
+        }
+      }
+    },
     "This file will be permanently deleted. This action cannot be undone.": {
       "extractionState": "manual",
       "localizations": {
@@ -1092,6 +3643,108 @@
         }
       }
     },
+    "This page cannot be bookmarked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page cannot be bookmarked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページはブックマークに登録できません"
+          }
+        }
+      }
+    },
+    "This streaming URL format is not supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This streaming URL format is not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この配信方式のURLには対応していません。"
+          }
+        }
+      }
+    },
+    "This video cannot be saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video cannot be saved"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画は保存できません"
+          }
+        }
+      }
+    },
+    "This video is played via blob/MSE, so a downloadable URL cannot be obtained.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This video is played via blob/MSE, so a downloadable URL cannot be obtained."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この動画はblob/MSE方式で再生されているため、保存用のURLを取得できません。"
+          }
+        }
+      }
+    },
+    "Title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル"
+          }
+        }
+      }
+    },
+    "Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Today"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日"
+          }
+        }
+      }
+    },
     "Toggle Orientation": {
       "extractionState": "manual",
       "localizations": {
@@ -1105,6 +3758,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面の向きを切り替え"
+          }
+        }
+      }
+    },
+    "Token Leakage Prevention (DL-04)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token Leakage Prevention (DL-04)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トークン漏洩防止 (DL-04)"
           }
         }
       }
@@ -1143,6 +3813,74 @@
         }
       }
     },
+    "Trash Retention Period": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trash Retention Period"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱の保持期間"
+          }
+        }
+      }
+    },
+    "URL copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLをコピーしました"
+          }
+        }
+      }
+    },
+    "Unknown Host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown Host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なホスト"
+          }
+        }
+      }
+    },
+    "Unlock Private Vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock Private Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault の解錠"
+          }
+        }
+      }
+    },
     "Unlock Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -1156,6 +3894,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ロック解除設定"
+          }
+        }
+      }
+    },
+    "Unlock with Face ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock with Face ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face IDで解錠"
           }
         }
       }
@@ -1194,19 +3949,172 @@
         }
       }
     },
-    "Videos in Private Vault cannot be shared directly. Move the video back to a normal folder before sharing.": {
+    "Untitled": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Videos in Private Vault cannot be shared directly. Move the video back to a normal folder before sharing."
+            "value": "Untitled"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vault内の動画は直接共有できません。共有するには、通常フォルダへ戻してから共有してください。"
+            "value": "名称未設定"
+          }
+        }
+      }
+    },
+    "Use Face ID / Biometrics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Face ID / Biometrics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回以降 Face ID での解錠を許可"
+          }
+        }
+      }
+    },
+    "Version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン"
+          }
+        }
+      }
+    },
+    "Video Candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Candidates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の候補一覧"
+          }
+        }
+      }
+    },
+    "Video Candidates (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video Candidates (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画候補 (%lld)"
+          }
+        }
+      }
+    },
+    "Video File (Format confirmed upon save)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video File (Format confirmed upon save)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画ファイル（形式は保存時に確認）"
+          }
+        }
+      }
+    },
+    "Video in embedded iframe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video in embedded iframe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "埋め込み（iframe）内の動画"
+          }
+        }
+      }
+    },
+    "Video in page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video in page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ内の動画"
+          }
+        }
+      }
+    },
+    "Video is preparing. Please try again after playback starts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video is preparing. Please try again after playback starts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の準備中です。再生開始後に再度お試しください。"
+          }
+        }
+      }
+    },
+    "Videos & Downloads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos & Downloads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画とダウンロード"
           }
         }
       }
@@ -1224,6 +4132,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "「Downloads」配下の動画はiOS標準の「ファイル」アプリから閲覧・共有できます。ゴミ箱内のファイルは非公開領域に安全に隔離されます。"
+          }
+        }
+      }
+    },
+    "Videos in Private Vault cannot be shared directly. Move the video back to a normal folder before sharing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos in Private Vault cannot be shared directly. Move the video back to a normal folder before sharing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault内の動画は直接共有できません。共有するには、通常フォルダへ戻してから共有してください。"
+          }
+        }
+      }
+    },
+    "Videos using this playback method cannot be saved.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos using this playback method cannot be saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この再生方式の動画は保存できません。"
+          }
+        }
+      }
+    },
+    "View other candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View other candidates"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の候補を見る"
+          }
+        }
+      }
+    },
+    "Web Cache (Cached Images & Styles)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web Cache (Cached Images & Styles)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webキャッシュ (一時保存された画像・スタイル)"
+          }
+        }
+      }
+    },
+    "Web pages opened in Private Tabs will not leave browsing history. When all tabs are closed, web data such as cookies and cache are automatically erased.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web pages opened in Private Tabs will not leave browsing history. When all tabs are closed, web data such as cookies and cache are automatically erased."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートタブで開いたWebページは閲覧履歴に残りません。\nタブをすべて閉じるとCookieやキャッシュなどのWebデータは自動的に消去されます。"
+          }
+        }
+      }
+    },
+    "WebM may not play on iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebM may not play on iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebMはiPhoneで再生できない場合があります。"
+          }
+        }
+      }
+    },
+    "When you bookmark frequently visited web pages from the menu, they will appear here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you bookmark frequently visited web pages from the menu, they will appear here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "よく訪れるWebページをメニューからブックマークに登録すると、ここに表示されます。"
+          }
+        }
+      }
+    },
+    "When you browse websites, your history will appear here.\nHistory is not saved during Private Browsing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you browse websites, your history will appear here.\nHistory is not saved during Private Browsing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Webサイトを閲覧すると、ここに履歴が表示されます。\nプライベートブラウズ中の履歴は保存されません。"
+          }
+        }
+      }
+    },
+    "Yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yesterday"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨日"
           }
         }
       }
@@ -1259,6 +4320,125 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "iOS Files App Integration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS Files App Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS「ファイル」アプリ連携"
+          }
+        }
+      }
+    },
+    "licenses_adaway_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ClipHarbor adapts the open-source AdAway Default Blocklist into WebKit Content Rule List format to block known tracking and advertising domains directly on device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AdAway Default Blocklist をWebKitコンテンツルール形式に変換して採用し、既知の広告・トラッカー配信ドメインを端末内で直接ブロックします。"
+          }
+        }
+      }
+    },
+    "licenses_adaway_license": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source: AdAway (commit f39ba0a)\nLicense: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\nAdaptation: Converted hosts format to WebKit url-filter rules."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出典: AdAway (コミット f39ba0a)\nライセンス: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\n改変内容: hosts形式からWebKit url-filterルールへ変換して同梱"
+          }
+        }
+      }
+    },
+    "licenses_apple_sdks_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ClipHarbor is built solely using Apple native SwiftUI, AVFoundation, WebKit, CryptoKit, CommonCrypto, Security, and LocalAuthentication frameworks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ClipHarborはApple標準のSwiftUI, AVFoundation, WebKit, CryptoKit, CommonCrypto, Security, LocalAuthenticationフレームワークのみを使用して構築されています。"
+          }
+        }
+      }
+    },
+    "licenses_dl04_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct video stream URLs containing authorization tokens are never persisted in saved video metadata. Only the web page URL viewed in the browser is safely stored."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済み動画のメタデータには動画自体の直接URL（認証トークン等を含むURL）は永続化されず、ブラウザで閲覧していたWebページURLのみが安全に保持されます。"
+          }
+        }
+      }
+    },
+    "licenses_third_party_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No external cloud analytics, tracking, or ad distribution SDKs are integrated. Network communications only occur between the user and the websites or video hosts they visit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外部のクラウド解析、トラッキング、広告配信SDKは一切組み込まれていません。通信はユーザー自身がアクセスするWebサイトおよび動画ホストとの間でのみ行われます。"
+          }
+        }
+      }
+    },
+    "licenses_vault_enc_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files in the Vault are encrypted locally with AES-256-GCM and protected by a master key derived from your passcode. Keys are never transmitted to external servers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫内のファイルはAES-256-GCMによりローカルでストリーム暗号化され、パスコードから導出されたマスター鍵で保護されます。外部サーバーへの鍵送信は行われません。"
           }
         }
       }
@@ -1333,308 +4513,36 @@
         }
       }
     },
-    "Default Search Engine": {
+    "※ Bookmarking is disabled during Private Browsing.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default Search Engine"
+            "value": "※ Bookmarking is disabled during Private Browsing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "既定の検索エンジン"
+            "value": "※プライベートブラウジング中はブックマーク登録が無効化されます。"
           }
         }
       }
     },
-    "Clear Browsing Data": {
+    "※ Browsing history is not saved in Private Tabs.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Browsing Data"
+            "value": "※ Browsing history is not saved in Private Tabs."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "閲覧データの削除"
-          }
-        }
-      }
-    },
-    "Browser": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザ"
-          }
-        }
-      }
-    },
-    "Entering a URL directly in the search bar opens the webpage without searching.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entering a URL directly in the search bar opens the webpage without searching."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索バーに直接URLを入力した場合は、検索を行わず直接そのWebページを開きます。"
-          }
-        }
-      }
-    },
-    "Files and Storage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files and Storage"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルとストレージ"
-          }
-        }
-      }
-    },
-    "Advanced File Settings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Advanced File Settings"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイル管理の詳細設定"
-          }
-        }
-      }
-    },
-    "Trash Retention Period": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trash Retention Period"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ゴミ箱の保持期間"
-          }
-        }
-      }
-    },
-    "Privacy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Privacy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライバシー"
-          }
-        }
-      }
-    },
-    "Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プライベートブラウズとPrivate Vaultは独立した機能です。プライベートタブの履歴・Cookieはタブ終了時に自動破棄されます。"
-          }
-        }
-      }
-    },
-    "App Information": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Information"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリ情報"
-          }
-        }
-      }
-    },
-    "App Name": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "App Name"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アプリ名"
-          }
-        }
-      }
-    },
-    "Version": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Version"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "バージョン"
-          }
-        }
-      }
-    },
-    "Build Number": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Build Number"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ビルド番号"
-          }
-        }
-      }
-    },
-    "Licenses & Security Policy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Licenses & Security Policy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライセンスとセキュリティ方針"
-          }
-        }
-      }
-    },
-    "Settings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定"
-          }
-        }
-      }
-    },
-    "Cookies & Site Data (Login Info, etc.)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cookies & Site Data (Login Info, etc.)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cookie・サイトデータ (ログイン情報等)"
-          }
-        }
-      }
-    },
-    "Web Cache (Cached Images & Styles)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Web Cache (Cached Images & Styles)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Webキャッシュ (一時保存された画像・スタイル)"
-          }
-        }
-      }
-    },
-    "Select Data to Clear": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select Data to Clear"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除対象の選択"
+            "value": "※プライベートタブでの閲覧履歴は一切保存されません。"
           }
         }
       }
@@ -1656,1145 +4564,6 @@
         }
       }
     },
-    "Saved videos, bookmarks, and Private Vault are completely unaffected.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saved videos, bookmarks, and Private Vault are completely unaffected."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存済みの動画、ブックマーク、Private Vaultには一切影響しません。"
-          }
-        }
-      }
-    },
-    "Clear Selected Browsing Data": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear Selected Browsing Data"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択した閲覧データを削除"
-          }
-        }
-      }
-    },
-    "Clear Cookies & Site Data": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear Cookies & Site Data"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cookie・サイトデータの削除"
-          }
-        }
-      }
-    },
-    "Clearing cookies will reset website login sessions. Continue?": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clearing cookies will reset website login sessions. Continue?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cookieを削除すると、Webサイトのログイン状態がリセットされます。続行しますか？"
-          }
-        }
-      }
-    },
-    "Clear": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除する"
-          }
-        }
-      }
-    },
-    "Successfully cleared selected browsing data.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Successfully cleared selected browsing data."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択した閲覧データを正常に削除しました。"
-          }
-        }
-      }
-    },
-    "An error occurred while clearing data: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "An error occurred while clearing data: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除処理中にエラーが発生しました: %@"
-          }
-        }
-      }
-    },
-    "Frameworks & Libraries": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Frameworks & Libraries"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フレームワークとライブラリ"
-          }
-        }
-      }
-    },
-    "licenses_apple_sdks_desc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ClipHarbor is built solely using Apple native SwiftUI, AVFoundation, WebKit, CryptoKit, CommonCrypto, Security, and LocalAuthentication frameworks."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ClipHarborはApple標準のSwiftUI, AVFoundation, WebKit, CryptoKit, CommonCrypto, Security, LocalAuthenticationフレームワークのみを使用して構築されています。"
-          }
-        }
-      }
-    },
-    "Third-Party SDKs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Third-Party SDKs"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サードパーティ製SDK"
-          }
-        }
-      }
-    },
-    "licenses_third_party_desc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No external cloud analytics, tracking, or ad distribution SDKs are integrated. Network communications only occur between the user and the websites or video hosts they visit."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "外部のクラウド解析、トラッキング、広告配信SDKは一切組み込まれていません。通信はユーザー自身がアクセスするWebサイトおよび動画ホストとの間でのみ行われます。"
-          }
-        }
-      }
-    },
-    "Security & Privacy Policy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Security & Privacy Policy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セキュリティ・プライバシー保護方針"
-          }
-        }
-      }
-    },
-    "Token Leakage Prevention (DL-04)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Token Leakage Prevention (DL-04)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トークン漏洩防止 (DL-04)"
-          }
-        }
-      }
-    },
-    "licenses_dl04_desc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Direct video stream URLs containing authorization tokens are never persisted in saved video metadata. Only the web page URL viewed in the browser is safely stored."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存済み動画のメタデータには動画自体の直接URL（認証トークン等を含むURL）は永続化されず、ブラウザで閲覧していたWebページURLのみが安全に保持されます。"
-          }
-        }
-      }
-    },
-    "Private Vault Encryption": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault Encryption"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault の暗号化"
-          }
-        }
-      }
-    },
-    "licenses_vault_enc_desc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files in the Vault are encrypted locally with AES-256-GCM and protected by a master key derived from your passcode. Keys are never transmitted to external servers."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保管庫内のファイルはAES-256-GCMによりローカルでストリーム暗号化され、パスコードから導出されたマスター鍵で保護されます。外部サーバーへの鍵送信は行われません。"
-          }
-        }
-      }
-    },
-    "Licenses & Policy": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Licenses & Policy"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライセンスと方針"
-          }
-        }
-      }
-    },
-    "Unlock Private Vault": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unlock Private Vault"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault の解錠"
-          }
-        }
-      }
-    },
-    "Create Private Vault": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create Private Vault"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault の初期設定"
-          }
-        }
-      }
-    },
-    "Confirm Passcode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Confirm Passcode"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスコードの確認"
-          }
-        }
-      }
-    },
-    "Set a 6-digit passcode for your Vault": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set a 6-digit passcode for your Vault"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保管庫を保護する6桁のパスコードを設定してください"
-          }
-        }
-      }
-    },
-    "Re-enter your passcode to confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Re-enter your passcode to confirm"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認のため、もう一度入力してください"
-          }
-        }
-      }
-    },
-    "Use Face ID / Biometrics": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Face ID / Biometrics"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次回以降 Face ID での解錠を許可"
-          }
-        }
-      }
-    },
-    "Passcodes do not match. Please try again from the beginning.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passcodes do not match. Please try again from the beginning."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスコードが一致しません。最初からやり直してください。"
-          }
-        }
-      }
-    },
-    "Enter passcode to unlock": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enter passcode to unlock"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスコードを入力して解錠"
-          }
-        }
-      }
-    },
-    "Unlock with Face ID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unlock with Face ID"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Face IDで解錠"
-          }
-        }
-      }
-    },
-    "Current Passcode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current Passcode"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のパスコード"
-          }
-        }
-      }
-    },
-    "Current Passcode (6 digits)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current Passcode (6 digits)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のパスコード (6桁)"
-          }
-        }
-      }
-    },
-    "New Passcode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Passcode"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいパスコード"
-          }
-        }
-      }
-    },
-    "New Passcode (6 digits)": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Passcode (6 digits)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいパスコード (6桁)"
-          }
-        }
-      }
-    },
-    "Re-enter to confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Re-enter to confirm"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認のため再入力"
-          }
-        }
-      }
-    },
-    "Change": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Change"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更する"
-          }
-        }
-      }
-    },
-    "Passcode must be at least 6 digits.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passcode must be at least 6 digits."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスコードは6桁以上で入力してください。"
-          }
-        }
-      }
-    },
-    "Confirmation passcode does not match.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Confirmation passcode does not match."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "確認用パスコードが一致しません。"
-          }
-        }
-      }
-    },
-    "Incorrect passcode.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Incorrect passcode."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスコードが正しくありません。"
-          }
-        }
-      }
-    },
-    "Private Vault is not initialized.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault is not initialized."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault が初期化されていません。"
-          }
-        }
-      }
-    },
-    "Private Vault is already initialized.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault is already initialized."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Private Vault は既に初期化されています。"
-          }
-        }
-      }
-    },
-    "Encryption master key not found.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encryption master key not found."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暗号化マスター鍵が見つかりません。再認証してください。"
-          }
-        }
-      }
-    },
-    "Biometric authentication failed: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Biometric authentication failed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "生体認証に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "Device biometrics (Face ID / Touch ID) are not available.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Device biometrics (Face ID / Touch ID) are not available."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "端末の生体認証（Face ID / Touch ID）が利用できません。"
-          }
-        }
-      }
-    },
-    "Target video file not found.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Target video file not found."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "対象の動画ファイルが見つかりません。"
-          }
-        }
-      }
-    },
-    "Offline HLS format is scheduled for a future update. Only MP4/MOV can be protected currently.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Offline HLS format is scheduled for a future update. Only MP4/MOV can be protected currently."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "オフラインHLS形式の保管庫保護は今後のアップデートで対応予定です。現在はMP4/MOV形式のみ暗号化保護できます。"
-          }
-        }
-      }
-    },
-    "Detected data corruption or tampering in encrypted file.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detected data corruption or tampering in encrypted file."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暗号化ファイルのデータ破損または改ざんを検知しました。"
-          }
-        }
-      }
-    },
-    "File operation failed: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File operation failed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイル操作に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "Encryption failed: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Encryption failed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "暗号化処理に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "Decryption failed: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Decryption failed: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "復号処理に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "Currently cannot start Picture in Picture.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Currently cannot start Picture in Picture."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在PiPを開始できません。"
-          }
-        }
-      }
-    },
-    "Picture in Picture is not supported on this device.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Picture in Picture is not supported on this device."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お使いの端末はPiPに対応していません。"
-          }
-        }
-      }
-    },
-    "Video is preparing. Please try again after playback starts.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Video is preparing. Please try again after playback starts."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "動画の準備中です。再生開始後に再度お試しください。"
-          }
-        }
-      }
-    },
-    "PiP is not available for Vault items.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PiP is not available for Vault items."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vault内アイテムではPiPは利用できません。"
-          }
-        }
-      }
-    },
-    "Failed to start Picture in Picture: %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to start Picture in Picture: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PiPの開始に失敗しました: %@"
-          }
-        }
-      }
-    },
-    "Open Link": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクを開く"
-          }
-        }
-      }
-    },
-    "Open in New Tab": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Tab"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブで開く"
-          }
-        }
-      }
-    },
-    "Copy Link": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクをコピー"
-          }
-        }
-      }
-    },
-    "Share…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Share…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共有…"
-          }
-        }
-      }
-    },
-    "Content Blocking": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Content Blocking"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンテンツブロック"
-          }
-        }
-      }
-    },
-    "Block Ads & Trackers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Block Ads & Trackers"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "広告とトラッカーをブロック"
-          }
-        }
-      }
-    },
-    "Block Annoying Pop-ups": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Block Annoying Pop-ups"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "迷惑ポップアップをブロック"
-          }
-        }
-      }
-    },
-    "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Block evaluation is performed on-device using local rules. Browsing URLs and history are never sent to external servers for block evaluation."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブロック判定は端末内のルールで行われ、ブロック判定のために閲覧URLや履歴を外部送信しません。"
-          }
-        }
-      }
-    },
-    "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Blocked an annoying pop-up. If this was intentional, allow it for this site and retry."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "迷惑ポップアップをブロックしました。正常な操作の場合は、このサイトで許可して再試行してください。"
-          }
-        }
-      }
-    },
-    "Allow for this site and reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Allow for this site and reload"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このサイトで許可して再読み込み"
-          }
-        }
-      }
-    },
-    "Site Protection": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Site Protection"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイトの保護設定"
-          }
-        }
-      }
-    },
-    "Enable Protection on This Site": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable Protection on This Site"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このサイトで保護を有効化"
-          }
-        }
-      }
-    },
-    "Disable Protection on This Site": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Disable Protection on This Site"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このサイトで保護を無効化"
-          }
-        }
-      }
-    },
-    "Protection Enabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protection Enabled"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保護有効"
-          }
-        }
-      }
-    },
-    "Protection Disabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Protection Disabled"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保護解除中"
-          }
-        }
-      }
-    },
-    "Global content blocking is disabled in Settings.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Global content blocking is disabled in Settings."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設定画面でコンテンツブロックが無効化されています。"
-          }
-        }
-      }
-    },
     "※ Exceptions set in Private Browsing are kept in memory and cleared when private tabs are closed.": {
       "extractionState": "manual",
       "localizations": {
@@ -2812,121 +4581,19 @@
         }
       }
     },
-    "Protection status for %@": {
+    "💡 Saved videos and source URLs are stored on local device storage.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Protection status for %@"
+            "value": "💡 Saved videos and source URLs are stored on local device storage."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の保護設定"
-          }
-        }
-      }
-    },
-    "Content Blocker & Data Sources": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Content Blocker & Data Sources"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンテンツブロック・データ出典"
-          }
-        }
-      }
-    },
-    "licenses_adaway_desc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ClipHarbor adapts the open-source AdAway Default Blocklist into WebKit Content Rule List format to block known tracking and advertising domains directly on device."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AdAway Default Blocklist をWebKitコンテンツルール形式に変換して採用し、既知の広告・トラッカー配信ドメインを端末内で直接ブロックします。"
-          }
-        }
-      }
-    },
-    "licenses_adaway_license": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Source: AdAway (commit f39ba0a)\nLicense: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\nAdaptation: Converted hosts format to WebKit url-filter rules."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "出典: AdAway (コミット f39ba0a)\nライセンス: Creative Commons Attribution 3.0 Unported (CC BY 3.0)\n改変内容: hosts形式からWebKit url-filterルールへ変換して同梱"
-          }
-        }
-      }
-    },
-    "Retention Period": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retention Period"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持期間"
-          }
-        }
-      }
-    },
-    "Files moved to trash are kept for the configured retention period and can be restored later.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Files moved to trash are kept for the configured retention period and can be restored later."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ゴミ箱に移動したファイルは設定された保持期間の間保管され、後から復元できます。"
-          }
-        }
-      }
-    },
-    "Failed to update content blocking rules. Preserving previous rules.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to update content blocking rules. Preserving previous rules."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "コンテンツブロックルールの更新に失敗しました。以前のルールを維持します。"
+            "value": "💡 保存動画および保存元URLは端末ストレージに保存されます。"
           }
         }
       }

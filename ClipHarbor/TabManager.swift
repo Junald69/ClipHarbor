@@ -389,13 +389,13 @@ final class TabManager: ObservableObject {
             if canCreateNewPrivateTab {
                 createPrivateTab(url: url)
             } else {
-                tab.showNotice("プライベートタブ上限（\(Self.maxPrivateTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+                tab.showNotice(String(format: NSLocalizedString("Cannot open a new private tab because the private tab limit (%lld) has been reached. Please close unnecessary tabs and try again.", comment: ""), Self.maxPrivateTabs))
             }
         } else {
             if canCreateNewTab {
                 createNewTab(url: url)
             } else {
-                tab.showNotice("タブ上限（\(Self.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+                tab.showNotice(String(format: NSLocalizedString("Cannot open a new tab because the tab limit (%lld) has been reached. Please close unnecessary tabs and try again.", comment: ""), Self.maxTabs))
             }
         }
     }

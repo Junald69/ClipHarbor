@@ -24,7 +24,7 @@ struct MediaCandidate: Identifiable, Hashable {
     let videoID: String?
 
     var id: String { url.absoluteString }
-    var host: String { url.host ?? "不明なホスト" }
+    var host: String { url.host ?? NSLocalizedString("Unknown Host", comment: "") }
 
     var isHLS: Bool { if case .hls = kind { return true } else { return false } }
 
@@ -39,14 +39,14 @@ struct MediaCandidate: Identifiable, Hashable {
     /// 形式の短い表示名
     var formatLabel: String {
         switch kind {
-        case .hls: return "オフラインHLS"
+        case .hls: return NSLocalizedString("Offline HLS", comment: "")
         case .file(let type):
             switch type {
             case .mp4: return "MP4"
             case .m4v: return "M4V"
             case .mov: return "MOV"
             case .webm: return "WebM"
-            case .unknown: return "動画ファイル（形式は保存時に確認）"
+            case .unknown: return NSLocalizedString("Video File (Format confirmed upon save)", comment: "")
             }
         }
     }
@@ -55,11 +55,11 @@ struct MediaCandidate: Identifiable, Hashable {
     var formatNote: String? {
         switch kind {
         case .hls:
-            return "HLSはMP4に変換されません。Apple標準のオフライン形式で保存され、ClipHarbor内でのみ再生できます。対応していない配信やDRM保護された配信は保存できません。"
+            return NSLocalizedString("HLS will not be converted to MP4. It is saved in Apple's standard offline format and can only be played within ClipHarbor. Unsupported or DRM-protected streams cannot be saved.", comment: "")
         case .file(.webm):
-            return "WebMはiPhoneで再生できない場合があります。"
+            return NSLocalizedString("WebM may not play on iPhone.", comment: "")
         case .file(.unknown):
-            return "ダウンロード後にファイルの中身を確認し、MP4/MOVなどの動画ファイルであれば保存します。Webページ等が返された場合は保存しません。"
+            return NSLocalizedString("The file contents will be checked after download, and saved if it is a video file like MP4/MOV. If a web page or other content is returned, it will not be saved.", comment: "")
         default:
             return nil
         }
@@ -90,20 +90,20 @@ enum MediaClassifier {
     static func classify(_ raw: String, allowUnknownExtension: Bool) -> Result {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return .unsupported("動画のURLを取得できません。")
+            return .unsupported(NSLocalizedString("Cannot obtain video URL.", comment: ""))
         }
         let lowerPrefix = trimmed.prefix(12).lowercased()
         if lowerPrefix.hasPrefix("blob:") {
-            return .unsupported("この動画はblob/MSE方式で再生されているため、保存用のURLを取得できません。")
+            return .unsupported(NSLocalizedString("This video is played via blob/MSE, so a downloadable URL cannot be obtained.", comment: ""))
         }
         if lowerPrefix.hasPrefix("mediastream:") || lowerPrefix.hasPrefix("data:") {
-            return .unsupported("この再生方式の動画は保存できません。")
+            return .unsupported(NSLocalizedString("Videos using this playback method cannot be saved.", comment: ""))
         }
         guard trimmed.count <= maxURLLength,
               let url = URL(string: trimmed),
               let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
               let host = url.host, !host.isEmpty else {
-            return .unsupported("この配信方式のURLには対応していません。")
+            return .unsupported(NSLocalizedString("This streaming URL format is not supported.", comment: ""))
         }
         let path = url.path.lowercased()
         if path.hasSuffix(".m3u8") { return .supported(url, .hls) }
@@ -112,6 +112,6 @@ enum MediaClassifier {
         if path.hasSuffix(".mov") { return .supported(url, .file(.mov)) }
         if path.hasSuffix(".webm") { return .supported(url, .file(.webm)) }
         if allowUnknownExtension { return .supported(url, .file(.unknown)) }
-        return .unsupported("動画ファイルとして判定できないURLです。")
+        return .unsupported(NSLocalizedString("This URL cannot be identified as a video file.", comment: ""))
     }
 }
