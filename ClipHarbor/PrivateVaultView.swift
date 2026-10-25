@@ -16,6 +16,8 @@ struct PrivateVaultView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showChangePasscode = false
+    @State private var showVaultSettings = false
+    @State private var showImportSheet = false
     @State private var activePlayingItem: VaultItem?
     @State private var activePlaybackURL: URL?
     @State private var deletingItem: VaultItem?
@@ -117,12 +119,22 @@ struct PrivateVaultView: View {
                 if vaultManager.isUnlocked {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("閉じる") {
+                            vaultManager.lock()
                             dismiss()
                         }
                     }
 
                     ToolbarItem(placement: .topBarTrailing) {
                         HStack(spacing: 12) {
+                            Button {
+                                showImportSheet = true
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .bold))
+                                    .frame(width: 32, height: 32)
+                            }
+                            .disabled(isSelectionMode)
+
                             if !vaultManager.items.isEmpty {
                                 Button(isSelectionMode ? "完了" : "選択") {
                                     withAnimation {
@@ -135,28 +147,19 @@ struct PrivateVaultView: View {
                             }
 
                             Menu {
-                                Button(role: .destructive) {
-                                    vaultManager.lock()
+                                Button {
+                                    showVaultSettings = true
                                 } label: {
-                                    Label("今すぐロック", systemImage: "lock.fill")
+                                    Label("Vault設定", systemImage: "gearshape")
                                 }
 
                                 Divider()
 
-                                Button {
-                                    showChangePasscode = true
+                                Button(role: .destructive) {
+                                    vaultManager.lock()
+                                    dismiss()
                                 } label: {
-                                    Label("パスコード変更", systemImage: "key.fill")
-                                }
-
-                                Button {
-                                    vaultManager.setBiometricsEnabled(!vaultManager.isBiometricsEnabled)
-                                    showToast(vaultManager.isBiometricsEnabled ? "Face IDを有効にしました" : "Face IDを無効にしました")
-                                } label: {
-                                    Label(
-                                        vaultManager.isBiometricsEnabled ? "Face ID を無効化" : "Face ID を有効化",
-                                        systemImage: "faceid"
-                                    )
+                                    Label("今すぐロックして閉じる", systemImage: "lock.fill")
                                 }
                             } label: {
                                 Image(systemName: "ellipsis")
@@ -179,6 +182,18 @@ struct PrivateVaultView: View {
                 VaultChangePasscodeView {
                     showToast("パスコードを変更しました")
                 }
+            }
+            .sheet(isPresented: $showVaultSettings) {
+                VaultSettingsView()
+            }
+            .sheet(isPresented: $showImportSheet) {
+                VaultImportPickerView(
+                    downloads: downloads,
+                    folderManager: folderManager,
+                    onImport: { videos in
+                        handleImportVideos(videos)
+                    }
+                )
             }
             .alert("完全に削除", isPresented: Binding(
                 get: { deletingItem != nil },
@@ -413,6 +428,18 @@ struct PrivateVaultView: View {
             showToast("\(targetItems.count) 件を完全に削除しました")
         } catch {
             errorMessage = "一括削除に失敗しました: \(error.localizedDescription)"
+        }
+    }
+
+    private func handleImportVideos(_ videos: [SavedVideo]) {
+        guard !videos.isEmpty else { return }
+        Task {
+            let (succeeded, _) = await vaultManager.moveMultipleToVault(
+                videos: videos,
+                downloads: downloads,
+                folderManager: folderManager
+            )
+            showToast("\(succeeded) 件の動画を取り込みました")
         }
     }
 
@@ -971,7 +998,7 @@ private struct PinKeypadView: View {
 
 // MARK: - パスコード変更シート
 
-private struct VaultChangePasscodeView: View {
+struct VaultChangePasscodeView: View {
     let onCompleted: () -> Void
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var vaultManager = VaultManager.shared
@@ -1031,6 +1058,106 @@ private struct VaultChangePasscodeView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+// MARK: - Vault用動画インポートピッカー
+
+struct VaultImportPickerView: View {
+    @ObservedObject var downloads: DownloadCenter
+    @ObservedObject var folderManager: VideoFolderManager
+    let onImport: ([SavedVideo]) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedIDs = Set<UUID>()
+
+    private var availableVideos: [SavedVideo] {
+        downloads.saved.filter { !$0.isHLS }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if availableVideos.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "film")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("取り込める動画がありません")
+                            .font(.headline)
+                        Text("通常保存領域に動画がないか、すべての動画がHLS形式です。\n※ 現在HLS形式のVault暗号化は非対応です。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        Section {
+                            ForEach(availableVideos) { video in
+                                Button {
+                                    if selectedIDs.contains(video.id) {
+                                        selectedIDs.remove(video.id)
+                                    } else {
+                                        selectedIDs.insert(video.id)
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: selectedIDs.contains(video.id) ? "checkmark.circle.fill" : "circle")
+                                            .font(.title3)
+                                            .foregroundStyle(selectedIDs.contains(video.id) ? Color.indigo : Color.secondary)
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(video.title)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(1)
+                                            HStack(spacing: 6) {
+                                                Text(video.format.label)
+                                                    .font(.caption2.weight(.semibold))
+                                                if let size = video.byteSize {
+                                                    Text("· \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
+                                                        .font(.caption2)
+                                                }
+                                                let folder = folderManager.folderName(for: video)
+                                                if !folder.isEmpty {
+                                                    Text("· \(folder)")
+                                                        .font(.caption2)
+                                                }
+                                            }
+                                            .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        } footer: {
+                            Text("取り込んだ動画はAES-256暗号化され、元の通常ファイル一覧からは安全に削除されます。")
+                                .font(.caption2)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("動画を取り込む")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("キャンセル") { dismiss() }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("取り込む (\(selectedIDs.count))") {
+                        let chosen = availableVideos.filter { selectedIDs.contains($0.id) }
+                        onImport(chosen)
+                        dismiss()
+                    }
+                    .disabled(selectedIDs.isEmpty)
+                }
+            }
         }
     }
 }

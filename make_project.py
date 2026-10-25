@@ -33,6 +33,9 @@ files = [
     'VaultCrypto.swift',
     'VaultManager.swift',
     'PrivateVaultView.swift',
+    'AppSettingsManager.swift',
+    'AppSettingsView.swift',
+    'VaultSettingsView.swift',
 ]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()

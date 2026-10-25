@@ -34,6 +34,9 @@
 		76170C25CA8C19999CB617FA /* build VaultCrypto.swift */ = {isa = PBXBuildFile; fileRef = 47A5D8501CE07E79EAFF50B8 /* file VaultCrypto.swift */; };
 		51DAC3B71D90B2C3F9ABB63D /* build VaultManager.swift */ = {isa = PBXBuildFile; fileRef = A18BD5A3DC682329BD6433F9 /* file VaultManager.swift */; };
 		539842EA5D0E4A9A0D913AC1 /* build PrivateVaultView.swift */ = {isa = PBXBuildFile; fileRef = 38F732981CE2BCDD2BBA06AF /* file PrivateVaultView.swift */; };
+		D2A06984234A00232130ED0A /* build AppSettingsManager.swift */ = {isa = PBXBuildFile; fileRef = 659B22DA6EC3FA79A694CFFE /* file AppSettingsManager.swift */; };
+		5A48AD84EB90C9F4FD4632ED /* build AppSettingsView.swift */ = {isa = PBXBuildFile; fileRef = C12A21B1F3C3D69FDD329A14 /* file AppSettingsView.swift */; };
+		53CDEF14D4DBC54749D0DAD6 /* build VaultSettingsView.swift */ = {isa = PBXBuildFile; fileRef = 2165229BE619CF88B0150592 /* file VaultSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +69,9 @@
 		47A5D8501CE07E79EAFF50B8 /* file VaultCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultCrypto.swift; sourceTree = "<group>"; };
 		A18BD5A3DC682329BD6433F9 /* file VaultManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultManager.swift; sourceTree = "<group>"; };
 		38F732981CE2BCDD2BBA06AF /* file PrivateVaultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultView.swift; sourceTree = "<group>"; };
+		659B22DA6EC3FA79A694CFFE /* file AppSettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsManager.swift; sourceTree = "<group>"; };
+		C12A21B1F3C3D69FDD329A14 /* file AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
+		2165229BE619CF88B0150592 /* file VaultSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSettingsView.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -107,6 +113,9 @@
 				47A5D8501CE07E79EAFF50B8 /* file VaultCrypto.swift */,
 				A18BD5A3DC682329BD6433F9 /* file VaultManager.swift */,
 				38F732981CE2BCDD2BBA06AF /* file PrivateVaultView.swift */,
+				659B22DA6EC3FA79A694CFFE /* file AppSettingsManager.swift */,
+				C12A21B1F3C3D69FDD329A14 /* file AppSettingsView.swift */,
+				2165229BE619CF88B0150592 /* file VaultSettingsView.swift */,
 			);
 			path = ClipHarbor;
 			sourceTree = "<group>";
@@ -187,6 +196,9 @@
 				76170C25CA8C19999CB617FA /* build VaultCrypto.swift */,
 				51DAC3B71D90B2C3F9ABB63D /* build VaultManager.swift */,
 				539842EA5D0E4A9A0D913AC1 /* build PrivateVaultView.swift */,
+				D2A06984234A00232130ED0A /* build AppSettingsManager.swift */,
+				5A48AD84EB90C9F4FD4632ED /* build AppSettingsView.swift */,
+				53CDEF14D4DBC54749D0DAD6 /* build VaultSettingsView.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

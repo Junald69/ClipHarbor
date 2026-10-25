@@ -9,6 +9,7 @@ struct FileManagerSettingsView: View {
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var folderManager: VideoFolderManager
     @ObservedObject var trashManager = TrashManager.shared
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var toastMessage: String?
@@ -50,33 +51,34 @@ struct FileManagerSettingsView: View {
                 }
 
                 // セクション 2: キャッシュ管理
-                Section("キャッシュ管理") {
+                Section {
                     Button {
                         VideoThumbnailManager.shared.clearAllCache()
-                        showToast("サムネイルキャッシュを消去しました")
+                        showToast("サムネイルのメモリキャッシュを解放しました")
                     } label: {
                         HStack {
-                            Label("サムネイルキャッシュを消去", systemImage: "photo.on.rectangle.angled")
+                            Label("サムネイルのメモリキャッシュを解放", systemImage: "photo.on.rectangle.angled")
                             Spacer()
-                            Text("メモリ解放")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
+                } header: {
+                    Text("キャッシュ管理")
+                } footer: {
+                    Text("メモリ上の一時キャッシュを解放します。保存済みの動画ファイルやディスク上のデータは消去されません。")
+                        .font(.caption2)
                 }
 
-                // セクション 3: ゴミ箱の自動削除設定（将来対応予定の告知）
+                // セクション 3: ゴミ箱の自動削除設定
                 Section {
-                    HStack {
-                        Text("保持期間")
-                        Spacer()
-                        Text("3日間 (初期値)")
-                            .foregroundStyle(.secondary)
+                    Picker("保持期間", selection: $settingsManager.trashRetentionPeriod) {
+                        ForEach(TrashRetentionPeriod.allCases) { period in
+                            Text(period.title).tag(period)
+                        }
                     }
                 } header: {
                     Text("ゴミ箱の自動削除設定")
                 } footer: {
-                    Text("削除から3日経過後、次回のアプリ起動時などに完全削除されます。\n※ 将来のアップデートにて、1日・3日・7日・30日・自動削除なしの選択に対応予定です（現在は3日間固定）。")
+                    Text("設定を変更すると、今後ゴミ箱に移動した動画から適用されます。既にゴミ箱にある動画の期限は変更されません。「自動削除しない」を選択した場合、手動で削除するまで端末の容量を消費し続けます。")
                         .font(.caption2)
                 }
 

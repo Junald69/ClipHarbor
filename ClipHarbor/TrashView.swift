@@ -145,7 +145,7 @@ struct TrashView: View {
                 .font(.caption)
                 .foregroundStyle(.blue)
 
-            Text("削除から3日経過後、次回のアプリ起動時などに完全削除されます")
+            Text("設定された保持期間（現在: \(AppSettingsManager.shared.trashRetentionPeriod.title)）が経過した動画は次回起動時などに自動削除されます")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -169,7 +169,7 @@ struct TrashView: View {
                 .foregroundStyle(.secondary)
             Text("ゴミ箱は空です")
                 .font(.headline)
-            Text("削除した動画はここに保管されます。\n削除から3日経過後、次回のアプリ起動時などに完全削除されます。")
+            Text("削除した動画はここに保管されます。\n設定された保持期間が経過すると自動削除されます（設定から変更可能）。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

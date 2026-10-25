@@ -35,6 +35,7 @@ private struct ActiveBrowserContainer: View {
     @State private var pendingBookmarkAction: HistoryNavigationAction?
     @State private var pendingMenuAction: (() -> Void)?
     @State private var showMenu = false
+    @State private var showSettings = false
     @State private var showTabSwitcher = false
     @State private var unsupportedMessage: String?
     @FocusState private var addressFocused: Bool
@@ -155,6 +156,10 @@ private struct ActiveBrowserContainer: View {
                         handleOpenPrivateTab()
                     }
                     showMenu = false
+                },
+                onOpenSettings: {
+                    pendingMenuAction = { showSettings = true }
+                    showMenu = false
                 }
             )
         }
@@ -196,6 +201,14 @@ private struct ActiveBrowserContainer: View {
             browser.showToolbar()
         }) {
             TabSwitcherView(tabManager: tabManager)
+        }
+        .sheet(isPresented: $showSettings, onDismiss: {
+            browser.showToolbar()
+        }) {
+            AppSettingsView(
+                downloads: downloads,
+                folderManager: folderManager
+            )
         }
         .alert(
             "この動画は保存できません",
@@ -722,6 +735,7 @@ struct BrowserMenuSheet: View {
     let onOpenHistory: () -> Void
     let onOpenBookmarks: () -> Void
     let onOpenPrivateTab: () -> Void
+    let onOpenSettings: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -856,14 +870,15 @@ struct BrowserMenuSheet: View {
                         }
                     }
 
-                    HStack {
-                        Label("設定", systemImage: "gearshape")
-                        Spacer()
-                        Text("Step 8で実装予定")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    Button(action: onOpenSettings) {
+                        HStack {
+                            Label("設定", systemImage: "gearshape")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .foregroundStyle(.secondary)
                 } header: {
                     Text("ブラウズ機能")
                 } footer: {

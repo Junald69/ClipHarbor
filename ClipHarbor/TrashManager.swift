@@ -13,15 +13,19 @@ struct TrashItem: Identifiable, Codable, Equatable {
     let sourceHost: String?          // 配信元ホスト
     let sourcePageURL: String?       // 元WebページURL
     let deletedAt: Date              // ゴミ箱移動日時
-    let expiresAt: Date              // 完全削除予定日時（72時間後）
+    let expiresAt: Date?             // 完全削除予定日時（nilは自動削除なし）
     let fileName: String             // 実際のファイル名またはパッケージ名
 
     var isExpired: Bool {
-        Date() >= expiresAt
+        guard let expiresAt = expiresAt else { return false }
+        return Date() >= expiresAt
     }
 
     /// 完全削除までの残り時間表示
     var remainingTimeDescription: String {
+        guard let expiresAt = expiresAt else {
+            return "自動削除なし（手動で削除するまで保持）"
+        }
         let remaining = expiresAt.timeIntervalSince(Date())
         if remaining <= 0 {
             return "期限切れ (次回起動時などに削除)"
@@ -38,6 +42,61 @@ struct TrashItem: Identifiable, Codable, Equatable {
             } else {
                 return "残り \(max(1, mins))分"
             }
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, originalVideoID, originalTitle, originalRelativePath, originalFolderName
+        case format, byteSize, sourceHost, sourcePageURL, deletedAt, expiresAt, fileName
+    }
+
+    init(
+        id: UUID,
+        originalVideoID: UUID,
+        originalTitle: String,
+        originalRelativePath: String,
+        originalFolderName: String,
+        format: SavedVideo.Format,
+        byteSize: Int64?,
+        sourceHost: String?,
+        sourcePageURL: String?,
+        deletedAt: Date,
+        expiresAt: Date?,
+        fileName: String
+    ) {
+        self.id = id
+        self.originalVideoID = originalVideoID
+        self.originalTitle = originalTitle
+        self.originalRelativePath = originalRelativePath
+        self.originalFolderName = originalFolderName
+        self.format = format
+        self.byteSize = byteSize
+        self.sourceHost = sourceHost
+        self.sourcePageURL = sourcePageURL
+        self.deletedAt = deletedAt
+        self.expiresAt = expiresAt
+        self.fileName = fileName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        originalVideoID = try container.decode(UUID.self, forKey: .originalVideoID)
+        originalTitle = try container.decode(String.self, forKey: .originalTitle)
+        originalRelativePath = try container.decode(String.self, forKey: .originalRelativePath)
+        originalFolderName = try container.decode(String.self, forKey: .originalFolderName)
+        format = try container.decode(SavedVideo.Format.self, forKey: .format)
+        byteSize = try container.decodeIfPresent(Int64.self, forKey: .byteSize)
+        sourceHost = try container.decodeIfPresent(String.self, forKey: .sourceHost)
+        sourcePageURL = try container.decodeIfPresent(String.self, forKey: .sourcePageURL)
+        deletedAt = try container.decode(Date.self, forKey: .deletedAt)
+        fileName = try container.decode(String.self, forKey: .fileName)
+
+        if container.contains(.expiresAt) {
+            expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+        } else {
+            // 旧データに期限がない場合は、従来どおり削除日時＋72時間とする
+            expiresAt = deletedAt.addingTimeInterval(72 * 3600)
         }
     }
 }
@@ -204,6 +263,7 @@ final class TrashManager: ObservableObject {
 
         // 移動前のキャッシュサムネイルを取得
         let preCachedThumb = VideoThumbnailManager.shared.cachedThumbnail(for: video)
+        let retentionPeriod = await MainActor.run { AppSettingsManager.shared.trashRetentionPeriod }
 
         return await withCheckedContinuation { continuation in
             ioQueue.async { [weak self] in
@@ -232,7 +292,7 @@ final class TrashManager: ObservableObject {
                     }
 
                     let now = Date()
-                    let expiresAt = now.addingTimeInterval(Self.expirationInterval)
+                    let expiresAt = retentionPeriod.timeInterval.map { now.addingTimeInterval($0) }
                     let trashItem = TrashItem(
                         id: trashID,
                         originalVideoID: video.id,
@@ -536,15 +596,14 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - 自動期限切れパージ（72時間経過・競合保護）
+    // MARK: - 自動期限切れパージ（設定保持期間経過・競合保護）
 
     func purgeExpiredItems() {
         ioQueue.async { [weak self] in
             guard let self = self else { return }
-            let now = Date()
 
-            // 期限切れかつ現在UI操作中ではないアイテムを抽出
-            let candidates = self.items.filter { $0.expiresAt <= now }
+            // 期限切れかつ現在UI操作中ではないアイテムを抽出（自動削除しないアイテムは除外）
+            let candidates = self.items.filter { $0.isExpired }
             guard !candidates.isEmpty else { return }
 
             var successfullyDeletedIDs = Set<UUID>()
@@ -630,7 +689,7 @@ final class TrashManager: ObservableObject {
             let attrs = try? fileManager.attributesOfItem(atPath: firstFile.path)
             let byteSize = attrs?[.size] as? Int64
             let deletedAt = (attrs?[.creationDate] as? Date) ?? Date()
-            let expiresAt = deletedAt.addingTimeInterval(Self.expirationInterval)
+            let expiresAt = deletedAt.addingTimeInterval(72 * 3600)
 
             let item = TrashItem(
                 id: id,

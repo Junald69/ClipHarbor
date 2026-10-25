@@ -284,9 +284,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         } else if !trimmed.contains(" "), trimmed.contains("."), !trimmed.contains("://") {
             target = URL(string: "https://" + trimmed)
         } else {
-            var components = URLComponents(string: "https://www.google.com/search")
-            components?.queryItems = [URLQueryItem(name: "q", value: trimmed)]
-            target = components?.url
+            target = AppSettingsManager.shared.searchEngine.searchURL(for: trimmed)
         }
         guard let target = target else { return }
         webView.load(URLRequest(url: target))
@@ -309,7 +307,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
 
     func goHome() {
         showToolbar()
-        webView.load(URLRequest(url: Self.homeURL))
+        webView.load(URLRequest(url: AppSettingsManager.shared.searchEngine.homeURL))
     }
 
     /// ダウンロード時に使う、ページの最小限の通信情報（メモリ上のみ）

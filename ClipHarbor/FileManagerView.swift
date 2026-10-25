@@ -179,6 +179,25 @@ struct FileManagerView: View {
             .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if isSelecting {
+                        Text("\(selectedVideoIDs.count) 件選択中")
+                            .font(.headline)
+                    } else if navigationPath.isEmpty {
+                        Text("ファイル")
+                            .font(.headline)
+                            .contentShape(Rectangle())
+                            .onLongPressGesture(minimumDuration: 2.0) {
+                                let generator = UIImpactFeedbackGenerator(style: .medium)
+                                generator.impactOccurred()
+                                showPrivateVaultSheet = true
+                            }
+                            .accessibilityAction(named: "保管庫を開く") {
+                                showPrivateVaultSheet = true
+                            }
+                    }
+                }
+
                 ToolbarItem(placement: .topBarLeading) {
                     if isSelecting {
                         Button("キャンセル") {
@@ -226,10 +245,12 @@ struct FileManagerView: View {
                                 Label("設定", systemImage: "gearshape")
                             }
 
-                            Button {
-                                showPrivateVaultSheet = true
-                            } label: {
-                                Label("Private Vault", systemImage: "lock.shield")
+                            if !vaultManager.isStealthModeEnabled {
+                                Button {
+                                    showPrivateVaultSheet = true
+                                } label: {
+                                    Label("Private Vault", systemImage: "lock.shield")
+                                }
                             }
 
                             Divider()
@@ -460,8 +481,10 @@ struct FileManagerView: View {
 
         return Group {
             LazyVGrid(columns: gridColumns, spacing: 18) {
-                // Private Vaultカード（非公開保管庫）
-                privateVaultCard
+                // Private Vaultカード（非公開保管庫、隠しモード無効時のみ表示）
+                if !vaultManager.isStealthModeEnabled {
+                    privateVaultCard
+                }
 
                 // 未分類フォルダカード（未分類動画がある、またはフォルダが作成されている場合に表示）
                 if hasUncategorized || hasFolders {
@@ -721,7 +744,7 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: {
+                                    onMoveToVault: vaultManager.isStealthModeEnabled ? nil : {
                                         handleMoveToVault(video: video)
                                     },
                                     onDelete: {
@@ -896,7 +919,7 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: {
+                                    onMoveToVault: vaultManager.isStealthModeEnabled ? nil : {
                                         handleMoveToVault(video: video)
                                     },
                                     onDelete: {
@@ -1076,17 +1099,19 @@ struct FileManagerView: View {
                 }
                 .disabled(selectedVideoIDs.isEmpty)
 
-                // 一括Private Vault移動
-                Button {
-                    handleBatchMoveToVault()
-                } label: {
-                    Image(systemName: "lock.shield")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
-                        .frame(width: 34, height: 34)
-                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                // 一括Private Vault移動（隠しモード時は非表示）
+                if !vaultManager.isStealthModeEnabled {
+                    Button {
+                        handleBatchMoveToVault()
+                    } label: {
+                        Image(systemName: "lock.shield")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
+                            .frame(width: 34, height: 34)
+                            .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                    }
+                    .disabled(selectedVideoIDs.isEmpty)
                 }
-                .disabled(selectedVideoIDs.isEmpty)
 
                 // 一括ゴミ箱移動
                 Button {
