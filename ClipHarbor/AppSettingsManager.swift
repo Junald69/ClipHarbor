@@ -151,7 +151,7 @@ final class AppSettingsManager: ObservableObject {
     /// - 注意: ブックマーク、保存済み動画、Private Vaultのデータには一切影響しません。
     func clearBrowsingData(clearHistory: Bool, clearCookies: Bool, clearCache: Bool) async throws {
         if clearHistory {
-            HistoryManager.shared.clearAllHistory()
+            HistoryManager.shared.clearAll()
         }
 
         var dataTypes = Set<String>()

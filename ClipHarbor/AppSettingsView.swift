@@ -245,7 +245,7 @@ private struct ClearBrowsingDataSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle("閲覧履歴 (\(historyManager.entries.count)件)", isOn: $clearHistory)
+                    Toggle("閲覧履歴 (\(historyManager.items.count)件)", isOn: $clearHistory)
                     Toggle("Cookie・サイトデータ (ログイン情報等)", isOn: $clearCookies)
                     Toggle("Webキャッシュ (一時保存された画像・スタイル)", isOn: $clearCache)
                 } header: {
