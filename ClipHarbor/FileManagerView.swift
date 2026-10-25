@@ -175,6 +175,10 @@ struct FileManagerView: View {
     }
 
     var body: some View {
+        applyAlerts(to: applySheets(to: fileManagerRootNavigation))
+    }
+
+    private var fileManagerRootNavigation: some View {
         NavigationStack(path: $navigationPath) {
             ZStack(alignment: .bottom) {
                 rootScrollView
@@ -186,122 +190,7 @@ struct FileManagerView: View {
             .navigationTitle(isSelecting ? "\(selectedVideoIDs.count) 件選択中" : "ファイル")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    if isSelecting {
-                        Text("\(selectedVideoIDs.count) 件選択中")
-                            .font(.headline)
-                    } else if navigationPath.isEmpty {
-                        Text("ファイル")
-                            .font(.headline)
-                            .contentShape(Rectangle())
-                            .onLongPressGesture(minimumDuration: 2.0) {
-                                let generator = UIImpactFeedbackGenerator(style: .medium)
-                                generator.impactOccurred()
-                                showPrivateVaultSheet = true
-                            }
-                            .accessibilityAction(named: "保管庫を開く") {
-                                showPrivateVaultSheet = true
-                            }
-                    }
-                }
-
-                ToolbarItem(placement: .topBarLeading) {
-                    if isSelecting {
-                        Button("キャンセル") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSelecting = false
-                                selectedVideoIDs.removeAll()
-                            }
-                        }
-                    } else {
-                        Button {
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 32, height: 32)
-                                .background(Color(.secondarySystemBackground), in: Circle())
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if isSelecting {
-                        Button("完了") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSelecting = false
-                                selectedVideoIDs.removeAll()
-                            }
-                        }
-                        .font(.body.weight(.semibold))
-                    } else {
-                        Menu {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    isSelecting = true
-                                    selectedVideoIDs.removeAll()
-                                }
-                            } label: {
-                                Label("選択", systemImage: "checkmark.circle")
-                            }
-                            .disabled(downloads.saved.isEmpty)
-
-                            Button {
-                                showSettingsSheet = true
-                            } label: {
-                                Label("設定", systemImage: "gearshape")
-                            }
-
-                            if !vaultManager.isStealthModeEnabled {
-                                Button {
-                                    showPrivateVaultSheet = true
-                                } label: {
-                                    Label("Private Vault", systemImage: "lock.shield")
-                                }
-                            }
-
-                            Divider()
-
-                            Button {
-                                showTrashSheet = true
-                            } label: {
-                                Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
-                            }
-
-                            Divider()
-
-                            Button {
-                                showPhotosPicker = true
-                            } label: {
-                                Label("写真をインポート", systemImage: "photo.on.rectangle")
-                            }
-                            Button {
-                                showFileImporter = true
-                            } label: {
-                                Label("ファイルからインポート", systemImage: "doc.badge.plus")
-                            }
-                            Button {
-                                newFolderName = ""
-                                showNewFolderAlert = true
-                            } label: {
-                                Label("新規フォルダ作成", systemImage: "folder.badge.plus")
-                            }
-                            Button {
-                                folderManager.syncWithFileSystemAndSavedVideos()
-                            } label: {
-                                Label("表示を更新", systemImage: "arrow.clockwise")
-                            }
-                            Divider()
-                            pocVerificationMenu
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.primary)
-                                .frame(width: 32, height: 32)
-                                .background(Color(.secondarySystemBackground), in: Circle())
-                        }
-                    }
-                }
+                rootToolbarContent
             }
             .navigationDestination(for: VideoFolderManager.FolderFilter.self) { filter in
                 folderDetailView(for: filter)
@@ -337,6 +226,146 @@ struct FileManagerView: View {
             ) { result in
                 handleFileImport(result: result)
             }
+            .onChange(of: vaultManager.isUnlocked) { isUnlocked in
+                if isUnlocked && !pendingVaultVideos.isEmpty {
+                    let toMove = pendingVaultVideos
+                    pendingVaultVideos = []
+                    Task {
+                        let (succeeded, _) = await vaultManager.moveMultipleToVault(
+                            videos: toMove,
+                            downloads: downloads,
+                            folderManager: folderManager
+                        )
+                        copyNotice = "\(succeeded) 件の動画をPrivate Vaultへ移動しました"
+                    }
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var rootToolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            if isSelecting {
+                Text("\(selectedVideoIDs.count) 件選択中")
+                    .font(.headline)
+            } else if navigationPath.isEmpty {
+                Text("ファイル")
+                    .font(.headline)
+                    .contentShape(Rectangle())
+                    .onLongPressGesture(minimumDuration: 2.0) {
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                        showPrivateVaultSheet = true
+                    }
+                    .accessibilityAction(named: "保管庫を開く") {
+                        showPrivateVaultSheet = true
+                    }
+            }
+        }
+
+        ToolbarItem(placement: .topBarLeading) {
+            if isSelecting {
+                Button("キャンセル") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSelecting = false
+                        selectedVideoIDs.removeAll()
+                    }
+                }
+            } else {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                }
+            }
+        }
+        ToolbarItem(placement: .topBarTrailing) {
+            if isSelecting {
+                Button("完了") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSelecting = false
+                        selectedVideoIDs.removeAll()
+                    }
+                }
+                .font(.body.weight(.semibold))
+            } else {
+                Menu {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSelecting = true
+                            selectedVideoIDs.removeAll()
+                        }
+                    } label: {
+                        Label("選択", systemImage: "checkmark.circle")
+                    }
+                    .disabled(downloads.saved.isEmpty)
+
+                    Button {
+                        showSettingsSheet = true
+                    } label: {
+                        Label("設定", systemImage: "gearshape")
+                    }
+
+                    if !vaultManager.isStealthModeEnabled {
+                        Button {
+                            showPrivateVaultSheet = true
+                        } label: {
+                            Label("Private Vault", systemImage: "lock.shield")
+                        }
+                    }
+
+                    Divider()
+
+                    Button {
+                        showTrashSheet = true
+                    } label: {
+                        Label("ゴミ箱 (\(trashManager.items.count)件)", systemImage: "trash")
+                    }
+
+                    Divider()
+
+                    Button {
+                        showPhotosPicker = true
+                    } label: {
+                        Label("写真をインポート", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Label("ファイルからインポート", systemImage: "doc.badge.plus")
+                    }
+                    Button {
+                        newFolderName = ""
+                        showNewFolderAlert = true
+                    } label: {
+                        Label("新規フォルダ作成", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        folderManager.syncWithFileSystemAndSavedVideos()
+                    } label: {
+                        Label("表示を更新", systemImage: "arrow.clockwise")
+                    }
+                    Divider()
+                    pocVerificationMenu
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 32, height: 32)
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func applySheets(to content: some View) -> some View {
+        content
             .sheet(item: $movingVideo) { video in
                 MoveToFolderSheet(
                     video: video,
@@ -368,20 +397,6 @@ struct FileManagerView: View {
                     folderManager: folderManager
                 )
             }
-            .onChange(of: vaultManager.isUnlocked) { isUnlocked in
-                if isUnlocked && !pendingVaultVideos.isEmpty {
-                    let toMove = pendingVaultVideos
-                    pendingVaultVideos = []
-                    Task {
-                        let (succeeded, _) = await vaultManager.moveMultipleToVault(
-                            videos: toMove,
-                            downloads: downloads,
-                            folderManager: folderManager
-                        )
-                        copyNotice = "\(succeeded) 件の動画をPrivate Vaultへ移動しました"
-                    }
-                }
-            }
             .sheet(isPresented: $showBatchMoveSheet) {
                 BatchMoveToFolderSheet(
                     count: selectedVideoIDs.count,
@@ -391,6 +406,11 @@ struct FileManagerView: View {
                     }
                 )
             }
+    }
+
+    @ViewBuilder
+    private func applyAlerts(to content: some View) -> some View {
+        content
             .alert("選択した動画をゴミ箱へ移動", isPresented: $showBatchDeleteAlert) {
                 Button("キャンセル", role: .cancel) { }
                 Button("ゴミ箱へ移動", role: .destructive) {
@@ -426,7 +446,6 @@ struct FileManagerView: View {
                     if let old = renamingFolder {
                         switch folderManager.renameFolder(from: old, to: renameFolderInput) {
                         case .success(let updated):
-                            // ナビゲーション階層内に開いていた場合はパスを更新
                             if let idx = navigationPath.firstIndex(of: .folder(old)) {
                                 navigationPath[idx] = .folder(updated)
                             }
@@ -476,7 +495,6 @@ struct FileManagerView: View {
                     renamingVideo = nil
                 }
             }
-            // ルートビュー用のゴミ箱移動確認ダイアログ
             .confirmationDialog(
                 "動画をゴミ箱へ移動",
                 isPresented: Binding(
@@ -510,7 +528,6 @@ struct FileManagerView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
-        }
     }
 
     // MARK: - ルート画面のフォルダ・動画グリッド
