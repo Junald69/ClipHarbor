@@ -3,7 +3,7 @@ import AVKit
 
 /// Aloha Browser風のモダンなファイル・動画管理画面
 /// - 2カラムのカードグリッドUI
-/// - 動画入りフォルダのモザイクプレビュー表示
+/// - 動画入りフォルダのモザイクプレビュー表示（中央トリミング・枠内厳格フィット）
 /// - サムネイル・動画時間の非同期取得・NSCacheメモリ管理
 /// - フローティング操作バー（検索・並び替え・新規フォルダ作成・追加）
 /// - カードタップと「…」メニューのジェスチャー完全分離（誤再生・誤遷移防止）
@@ -338,7 +338,7 @@ struct FileManagerView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                // カード本体タップで遷移
+                // カード本体タップで遷移（frame先行で枠内に中央トリミング固定）
                 Button {
                     navigationPath.append(filter)
                 } label: {
@@ -347,6 +347,7 @@ struct FileManagerView: View {
                             .frame(height: 140)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     } else {
                         ZStack {
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -357,6 +358,8 @@ struct FileManagerView: View {
                         }
                         .frame(height: 140)
                         .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
                 }
                 .buttonStyle(.plain)
@@ -396,6 +399,7 @@ struct FileManagerView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .frame(height: 140)
 
             // フォルダタイトルとアイテム数（タップで遷移）
             Button {
@@ -783,52 +787,50 @@ struct FileManagerView: View {
     }
 }
 
-// MARK: - フォルダ内モザイクプレビュー表示（Aloha風の1〜3枚コラージュ）
+// MARK: - フォルダ内モザイクプレビュー表示（Aloha風の1〜3枚コラージュ・枠内厳格フィット）
 
 private struct FolderMosaicView: View {
     let videos: [SavedVideo]
 
     var body: some View {
         GeometryReader { proxy in
-            let w = proxy.size.width
-            let h = proxy.size.height
+            let w = max(1, proxy.size.width)
+            let h = max(1, proxy.size.height)
 
             if videos.count == 1 {
-                VideoThumbnailAsyncImage(video: videos[0])
-                    .frame(width: w, height: h)
-                    .clipped()
+                ClippedThumbnailTileView(video: videos[0], width: w, height: h)
             } else if videos.count == 2 {
+                let leftW = max(1, (w - 2) / 2)
+                let rightW = max(1, w - 2 - leftW)
                 HStack(spacing: 2) {
-                    VideoThumbnailAsyncImage(video: videos[0])
-                        .frame(width: (w - 2) / 2, height: h)
-                        .clipped()
-                    VideoThumbnailAsyncImage(video: videos[1])
-                        .frame(width: (w - 2) / 2, height: h)
-                        .clipped()
+                    ClippedThumbnailTileView(video: videos[0], width: leftW, height: h)
+                    ClippedThumbnailTileView(video: videos[1], width: rightW, height: h)
                 }
             } else {
+                let leftW = max(1, (w - 2) / 2)
+                let rightW = max(1, w - 2 - leftW)
+                let topH = max(1, (h - 2) / 2)
+                let bottomH = max(1, h - 2 - topH)
+
                 HStack(spacing: 2) {
                     // 左側: 大きな代表サムネイル
-                    VideoThumbnailAsyncImage(video: videos[0])
-                        .frame(width: (w - 2) / 2, height: h)
-                        .clipped()
+                    ClippedThumbnailTileView(video: videos[0], width: leftW, height: h)
 
                     // 右側: 縦積み2枚
                     VStack(spacing: 2) {
-                        VideoThumbnailAsyncImage(video: videos[1])
-                            .frame(width: (w - 2) / 2, height: (h - 2) / 2)
-                            .clipped()
-                        VideoThumbnailAsyncImage(video: videos[2])
-                            .frame(width: (w - 2) / 2, height: (h - 2) / 2)
-                            .clipped()
+                        ClippedThumbnailTileView(video: videos[1], width: rightW, height: topH)
+                        ClippedThumbnailTileView(video: videos[2], width: rightW, height: bottomH)
                     }
                 }
             }
         }
+        .frame(height: 140)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
-// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化）
+// MARK: - Aloha風動画カード（再生タップ領域と「…」メニューを独立化・枠内厳格フィット）
 
 private struct AlohaVideoCardView: View {
     let video: SavedVideo
@@ -852,12 +854,21 @@ private struct AlohaVideoCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                // サムネイルタップで動画再生
+                // サムネイルタップで動画再生（frame先行で枠内に中央トリミング固定）
                 Button(action: onPlay) {
-                    VideoThumbnailAsyncImage(video: video)
-                        .frame(height: 140)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    GeometryReader { geo in
+                        let w = max(1, geo.size.width)
+                        ClippedThumbnailTileView(
+                            video: video,
+                            width: w,
+                            height: 140,
+                            cornerRadius: 16
+                        )
+                    }
+                    .frame(height: 140)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -869,6 +880,7 @@ private struct AlohaVideoCardView: View {
                         VideoDurationBadge(video: video)
                     }
                 }
+                .frame(height: 140)
                 .allowsHitTesting(false) // タップを下のサムネイル再生ボタンへ透過
 
                 // 右上: 「…」メニューボタン（再生ボタンの外側に配置し誤再生を防止）
@@ -921,6 +933,7 @@ private struct AlohaVideoCardView: View {
                 }
                 .buttonStyle(.plain)
             }
+            .frame(height: 140)
 
             // タイトルと詳細（タップで動画再生）
             Button(action: onPlay) {
@@ -949,10 +962,14 @@ private struct AlohaVideoCardView: View {
     }
 }
 
-// MARK: - 非同期サムネイル画像コンポーネント
+// MARK: - 枠に合わせて中央トリミングし、はみ出しを確実に防止するサムネイルタイルコンポーネント
 
-private struct VideoThumbnailAsyncImage: View {
+private struct ClippedThumbnailTileView: View {
     let video: SavedVideo
+    let width: CGFloat
+    let height: CGFloat
+    var cornerRadius: CGFloat = 0
+
     @State private var image: UIImage? = nil
 
     var body: some View {
@@ -961,19 +978,22 @@ private struct VideoThumbnailAsyncImage: View {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
+                    .frame(width: max(1, width), height: max(1, height))
+                    .clipped()
             } else {
-                // 安全なフォールバックプレースホルダー
                 fallbackPlaceholder
             }
         }
+        .frame(width: max(1, width), height: max(1, height))
+        .clipped()
         .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .task(id: video.id) {
-            // キャッシュ確認
             if let cached = VideoThumbnailManager.shared.cachedThumbnail(for: video) {
                 self.image = cached
                 return
             }
-            // 非同期取得
             let loaded = await VideoThumbnailManager.shared.loadThumbnail(for: video)
             if let loaded = loaded {
                 withAnimation(.easeIn(duration: 0.15)) {
@@ -990,18 +1010,22 @@ private struct VideoThumbnailAsyncImage: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 Image(systemName: video.isHLS ? "film.stack" : "play.circle.fill")
-                    .font(.system(size: 28))
+                    .font(.system(size: min(width, height) > 80 ? 28 : 18))
                     .foregroundStyle(.white.opacity(0.7))
-                Text(video.format.label)
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.12), in: Capsule())
+                if height > 55 && width > 55 {
+                    Text(video.format.label)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.white.opacity(0.12), in: Capsule())
+                }
             }
         }
+        .frame(width: max(1, width), height: max(1, height))
+        .clipped()
     }
 }
 
