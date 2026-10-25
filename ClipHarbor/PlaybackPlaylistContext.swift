@@ -103,6 +103,25 @@ final class PlaybackPlaylistContext: ObservableObject, Equatable {
         return currentItem
     }
 
+    /// 指定されたIDのアイテムをプレイリストから除外し、次のアイテムへ進む（末尾なら前へ、0件ならnil）
+    @discardableResult
+    func removeItem(id: UUID) -> PlaybackMediaItem? {
+        guard let index = items.firstIndex(where: { $0.id == id }) else {
+            return currentItem
+        }
+        items.remove(at: index)
+        if items.isEmpty {
+            currentIndex = 0
+            return nil
+        }
+        if index >= items.count {
+            currentIndex = items.count - 1
+        } else {
+            currentIndex = index
+        }
+        return currentItem
+    }
+
     static func == (lhs: PlaybackPlaylistContext, rhs: PlaybackPlaylistContext) -> Bool {
         lhs.isVault == rhs.isVault &&
         lhs.currentIndex == rhs.currentIndex &&

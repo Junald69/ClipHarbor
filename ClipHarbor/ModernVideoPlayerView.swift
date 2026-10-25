@@ -59,6 +59,10 @@ struct ModernVideoPlayerView: View {
     @State private var toastMessage: String?
     @State private var showVaultShareAlert: Bool = false
 
+    // 削除処理状態
+    @State private var itemPendingDeletion: PlaybackMediaItem?
+    @State private var isDeletingItem: Bool = false
+
     // 操作中状態管理・自動非表示排他制御
     @State private var activeInteractions: Set<String> = []
     @State private var timerGeneration: Int = 0
@@ -124,6 +128,7 @@ struct ModernVideoPlayerView: View {
                             registerUserAction()
                             showMoveSheet = true
                         },
+                        onDeleteFile: handleDeleteTapped,
                         onInteractionStarted: { handleInteractionStarted($0) },
                         onInteractionEnded: { handleInteractionEnded($0) }
                     )
@@ -164,6 +169,33 @@ struct ModernVideoPlayerView: View {
             }
         } message: {
             Text("Vault内の動画は直接共有できません。共有するには、通常フォルダへ戻してから共有してください。")
+        }
+        .alert(
+            itemPendingDeletion != nil
+                ? (playlistContext.isVault
+                    ? "「\(itemPendingDeletion?.title ?? "")」を削除しますか？"
+                    : "「\(itemPendingDeletion?.title ?? "")」をゴミ箱へ移動しますか？")
+                : "",
+            isPresented: Binding(
+                get: { itemPendingDeletion != nil },
+                set: { if !$0 && !isDeletingItem { itemPendingDeletion = nil; scheduleAutoHide(delay: 10.0) } }
+            )
+        ) {
+            Button("キャンセル", role: .cancel) {
+                itemPendingDeletion = nil
+                scheduleAutoHide(delay: 10.0)
+            }
+            if let item = itemPendingDeletion {
+                Button(playlistContext.isVault ? "削除" : "ゴミ箱へ移動", role: .destructive) {
+                    executeDeletion(for: item)
+                }
+            }
+        } message: {
+            if playlistContext.isVault {
+                Text("このファイルを削除します。この操作は取り消せません。")
+            } else {
+                Text("ゴミ箱に移動したファイルは、設定された保持期間の間保管され、後から復元できます。")
+            }
         }
         .onChange(of: showTrimmerSheet) { isPresented in
             if !isPresented { scheduleAutoHide(delay: 10.0) }
@@ -264,9 +296,11 @@ struct ModernVideoPlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         handleDoubleTapSeek(isForward: false)
                     }
                     .onTapGesture(count: 1) {
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -276,6 +310,7 @@ struct ModernVideoPlayerView: View {
                     .frame(width: max(60, w * 0.2))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 1) {
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -284,9 +319,11 @@ struct ModernVideoPlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         handleDoubleTapSeek(isForward: true)
                     }
                     .onTapGesture(count: 1) {
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -294,6 +331,7 @@ struct ModernVideoPlayerView: View {
             .gesture(
                 DragGesture(minimumDistance: 30)
                     .onEnded { value in
+                        guard !isDeletingItem && itemPendingDeletion == nil else { return }
                         let horizontal = value.translation.width
                         let vertical = value.translation.height
                         // 水平優位性判定（垂直スクロールや斜めドラッグを確実に除外）
@@ -547,6 +585,8 @@ struct ModernVideoPlayerView: View {
     }
 
     private func navigateToItem(isNext: Bool) {
+        guard !isDeletingItem && itemPendingDeletion == nil else { return }
+
         // 1. 境界チェック（リソース破棄前に行う。境界到達時はトーストを出さず再生停止もしない）
         let canNavigate = isNext ? playlistContext.canGoNext : playlistContext.canGoPrevious
         guard canNavigate else { return }
@@ -633,6 +673,8 @@ struct ModernVideoPlayerView: View {
         guard areControlsVisible,
               isPlaying,
               activeInteractions.isEmpty,
+              itemPendingDeletion == nil,
+              !isDeletingItem,
               !showTrimmerSheet,
               !showShareSheet,
               !showMoveSheet,
@@ -648,6 +690,8 @@ struct ModernVideoPlayerView: View {
                 guard self.areControlsVisible,
                       self.isPlaying,
                       self.activeInteractions.isEmpty,
+                      self.itemPendingDeletion == nil,
+                      !self.isDeletingItem,
                       !self.showTrimmerSheet,
                       !self.showShareSheet,
                       !self.showMoveSheet,
@@ -711,6 +755,116 @@ struct ModernVideoPlayerView: View {
             return
         }
         showShareSheet = true
+    }
+
+    // MARK: - ファイル削除処理
+
+    private func handleDeleteTapped() {
+        guard !isDeletingItem, itemPendingDeletion == nil else { return }
+        stopAutoHideTimer()
+        itemPendingDeletion = playlistContext.currentItem
+    }
+
+    private func executeDeletion(for targetItem: PlaybackMediaItem) {
+        guard !isDeletingItem else { return }
+        let targetID = targetItem.id
+        let savedTime = currentTime
+        let savedRate = playbackRate
+        let savedPlaying = isPlaying
+        let wasImage = targetItem.isImage
+        let isVault = playlistContext.isVault
+
+        // 1. Vaultロック状態の事前検証
+        if isVault && !VaultManager.shared.isUnlocked {
+            itemPendingDeletion = nil
+            handleClose()
+            return
+        }
+
+        // 2. 状態更新と再生・リソースの確実な解放
+        isDeletingItem = true
+        stopAutoHideTimer()
+        activeInteractions.removeAll()
+        tearDownPlayer()
+
+        // 3. 削除処理の非同期実行
+        Task { @MainActor in
+            var deleteSuccess = false
+            var errorMessage: String? = nil
+
+            switch targetItem {
+            case .normal(let video):
+                let folder = VideoFolderManager(downloads: .shared).folderName(for: video)
+                let result = await TrashManager.shared.moveToTrash(
+                    video: video,
+                    folderName: folder,
+                    downloads: .shared,
+                    folderManager: VideoFolderManager(downloads: .shared)
+                )
+                switch result {
+                case .success:
+                    deleteSuccess = true
+                case .failure(let error):
+                    deleteSuccess = false
+                    errorMessage = error.localizedDescription
+                }
+
+            case .vault(let vaultItem):
+                // 実行直前の解錠状態検証
+                guard VaultManager.shared.isUnlocked else {
+                    isDeletingItem = false
+                    itemPendingDeletion = nil
+                    handleClose()
+                    return
+                }
+                do {
+                    try VaultManager.shared.deletePermanently(item: vaultItem)
+                    deleteSuccess = true
+                } catch {
+                    deleteSuccess = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+
+            // 4. 成功確定後のプレイリスト除外と次ファイル遷移
+            if deleteSuccess {
+                isDeletingItem = false
+                itemPendingDeletion = nil
+
+                let nextItem = playlistContext.removeItem(id: targetID)
+                if nextItem == nil {
+                    // 残り0件なら一覧へ戻る
+                    handleClose()
+                } else {
+                    // 削除後の自動切り替え先は一時停止状態にし、画像ならそのまま表示
+                    loadCurrentItem(autoPlay: false)
+                    if areControlsVisible {
+                        scheduleAutoHide(delay: 10.0)
+                    }
+                }
+            } else {
+                // 5. 削除失敗時の復帰処理
+                isDeletingItem = false
+                itemPendingDeletion = nil
+                showToast("削除に失敗しました: \(errorMessage ?? "不明なエラー")")
+
+                if isVault && !VaultManager.shared.isUnlocked {
+                    handleClose()
+                } else {
+                    // 元ファイルが利用可能なら読み直して元の状態へ復帰
+                    loadCurrentItem(autoPlay: savedPlaying)
+                    if !wasImage, let p = player {
+                        p.seek(to: CMTime(seconds: savedTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                        currentTime = savedTime
+                        p.rate = savedPlaying ? savedRate : 0.0
+                        isPlaying = savedPlaying
+                    }
+                    if areControlsVisible && savedPlaying {
+                        scheduleAutoHide(delay: 10.0)
+                    }
+                }
+            }
+        }
     }
 
     private func handleClose() {

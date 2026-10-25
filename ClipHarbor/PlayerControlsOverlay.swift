@@ -38,6 +38,7 @@ struct PlayerControlsOverlay: View {
     let onToggleOrientation: () -> Void
     let onTriggerPiP: () -> Void
     let onMoveFile: () -> Void
+    let onDeleteFile: () -> Void
     let onInteractionStarted: (String) -> Void
     let onInteractionEnded: (String) -> Void
 
@@ -71,8 +72,10 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                // MARK: - 中央コントロール（前ファイル／再生・停止／次ファイル）
-                centerControlsView
+                // MARK: - 中央コントロール（動画のみ表示、画像時は非表示）
+                if !isImage {
+                    centerControlsView
+                }
 
                 Spacer()
 
@@ -374,6 +377,15 @@ struct PlayerControlsOverlay: View {
 
                     Button(action: onShare) {
                         Label("出力・共有", systemImage: "square.and.arrow.up")
+                    }
+
+                    Divider()
+
+                    Button(role: .destructive, action: onDeleteFile) {
+                        Label(
+                            isVault ? "完全に削除" : "ゴミ箱へ移動",
+                            systemImage: "trash"
+                        )
                     }
                 } label: {
                     VStack(spacing: 3) {
