@@ -72,7 +72,11 @@ final class ContentBlockerManager: ObservableObject {
     func prepareRuleList() {
         guard !isCompiling else { return }
 
-        let store = WKContentRuleListStore.default()
+        guard let store = WKContentRuleListStore.default() else {
+            self.state = .failed("WKContentRuleListStore is unavailable")
+            return
+        }
+
         isCompiling = true
         state = .preparing
 
@@ -100,7 +104,12 @@ final class ContentBlockerManager: ObservableObject {
             return
         }
 
-        let store = WKContentRuleListStore.default()
+        guard let store = WKContentRuleListStore.default() else {
+            self.isCompiling = false
+            self.state = .failed("WKContentRuleListStore is unavailable")
+            return
+        }
+
         store.compileContentRuleList(forIdentifier: ruleListIdentifier, encodedContentRuleList: ruleJSONString) { [weak self] ruleList, error in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
@@ -118,6 +127,11 @@ final class ContentBlockerManager: ObservableObject {
     }
 
     private func compileFallbackRules(originalError: String) {
+        guard let store = WKContentRuleListStore.default() else {
+            self.state = .failed("WKContentRuleListStore is unavailable")
+            return
+        }
+
         // 最小限のフォールバックルール（主要広告配信ドメイン）
         let fallbackJSON = """
         [
@@ -127,7 +141,6 @@ final class ContentBlockerManager: ObservableObject {
           }
         ]
         """
-        let store = WKContentRuleListStore.default()
         store.compileContentRuleList(forIdentifier: fallbackRuleListIdentifier, encodedContentRuleList: fallbackJSON) { [weak self] ruleList, error in
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
