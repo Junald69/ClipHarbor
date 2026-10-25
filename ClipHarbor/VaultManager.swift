@@ -641,7 +641,14 @@ final class VaultManager: ObservableObject {
     // MARK: - 永久削除
 
     /// Vault内の動画を永久削除
-    func deletePermanently(item: VaultItem) throws {
+    func deletePermanently(item: VaultItem, expectedSessionToken: UUID? = nil) throws {
+        if let token = expectedSessionToken {
+            guard isUnlocked, sessionToken == token else {
+                throw NSError(domain: "VaultManager", code: 401, userInfo: [
+                    NSLocalizedDescriptionKey: "保管庫のセッションが無効です。再度ロック解除してください。"
+                ])
+            }
+        }
         let itemDir = itemsDirectory.appendingPathComponent(item.id.uuidString, isDirectory: true)
         try? fileManager.removeItem(at: itemDir)
 
