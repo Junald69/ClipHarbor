@@ -2437,6 +2437,91 @@
           }
         }
       }
+    },
+    "Currently cannot start Picture in Picture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently cannot start Picture in Picture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在PiPを開始できません。"
+          }
+        }
+      }
+    },
+    "Picture in Picture is not supported on this device.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture in Picture is not supported on this device."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お使いの端末はPiPに対応していません。"
+          }
+        }
+      }
+    },
+    "Video is preparing. Please try again after playback starts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video is preparing. Please try again after playback starts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画の準備中です。再生開始後に再度お試しください。"
+          }
+        }
+      }
+    },
+    "PiP is not available for Vault items.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PiP is not available for Vault items."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault内アイテムではPiPは利用できません。"
+          }
+        }
+      }
+    },
+    "Failed to start Picture in Picture: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to start Picture in Picture: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PiPの開始に失敗しました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

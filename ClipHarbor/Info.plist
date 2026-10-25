@@ -8,5 +8,9 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Private Vault（非公開保管庫）の生体認証ロック解除に使用します。</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>

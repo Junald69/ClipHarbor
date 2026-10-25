@@ -16,13 +16,15 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
     @Published private(set) var currentSessionID: UUID = UUID()
     @Published private(set) var isPiPActive: Bool = false
     @Published var isTransitioningToPiP: Bool = false
-    @Published var shouldRestoreUIFromPiP: Bool = false
+    @Published var shouldDismissPlayerForPiP: Bool = false
+    @Published var pipErrorMessage: String? = nil
 
     // 再生状態・コンテキストの保持
     private(set) var activeMediaContext: PlaybackPlaylistContext?
     private var pipController: AVPictureInPictureController?
     private var retainedPlayerLayer: AVPlayerLayer?
     private var restoreCompletionHandler: ((Bool) -> Void)?
+    private(set) var isRestoringUI: Bool = false
 
     private override init() {
         super.init()
@@ -51,12 +53,16 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
     ) -> (AVPlayer, UUID) {
         // 先行する別セッション（PiP含む）を安全に停止
         stopAndReleaseCurrentSession()
+        setupAudioSession()
 
         let sessionID = UUID()
         self.currentSessionID = sessionID
         self.activeMediaContext = context
         self.isTransitioningToPiP = false
         self.isPiPActive = false
+        self.shouldDismissPlayerForPiP = false
+        self.pipErrorMessage = nil
+        self.isRestoringUI = false
 
         let player = AVPlayer(url: url)
         player.actionAtItemEnd = .pause
@@ -78,6 +84,17 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         return (player, sessionID)
     }
 
+    /// 既存の再生セッションを再利用してUIを再接続する（startPlaybackSession による再初期化を防止）
+    func reconnectSession(for context: PlaybackPlaylistContext) -> (AVPlayer, UUID)? {
+        guard let player = activePlayer,
+              let activeContext = activeMediaContext,
+              !activeContext.isVault,
+              !context.isVault else {
+            return nil
+        }
+        return (player, currentSessionID)
+    }
+
     /// PiPコントローラーのバインド
     func attachPiPController(_ controller: AVPictureInPictureController, forLayer layer: AVPlayerLayer, sessionID: UUID) {
         guard sessionID == currentSessionID else { return }
@@ -88,10 +105,24 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
 
     /// PiPの開始要求
     func startPictureInPicture(sessionID: UUID) {
-        guard sessionID == currentSessionID, let controller = pipController else { return }
-        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
-        guard controller.isPictureInPicturePossible else { return }
+        guard sessionID == currentSessionID, let controller = pipController else {
+            pipErrorMessage = NSLocalizedString("Currently cannot start Picture in Picture.", comment: "")
+            return
+        }
+        guard AVPictureInPictureController.isPictureInPictureSupported() else {
+            pipErrorMessage = NSLocalizedString("Picture in Picture is not supported on this device.", comment: "")
+            return
+        }
+        guard controller.isPictureInPicturePossible else {
+            if let player = activePlayer, player.currentItem?.status != .readyToPlay {
+                pipErrorMessage = NSLocalizedString("Video is preparing. Please try again after playback starts.", comment: "")
+            } else {
+                pipErrorMessage = NSLocalizedString("Currently cannot start Picture in Picture.", comment: "")
+            }
+            return
+        }
 
+        setupAudioSession()
         isTransitioningToPiP = true
         controller.startPictureInPicture()
     }
@@ -119,7 +150,8 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
 
         isPiPActive = false
         isTransitioningToPiP = false
-        shouldRestoreUIFromPiP = false
+        shouldDismissPlayerForPiP = false
+        isRestoringUI = false
         restoreCompletionHandler = nil
     }
 
@@ -135,6 +167,8 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         Task { @MainActor in
             self.isPiPActive = true
             self.isTransitioningToPiP = false
+            // PiPウィンドウの展開が確定した後に画面を閉じる指示を発行
+            self.shouldDismissPlayerForPiP = true
         }
     }
 
@@ -145,6 +179,8 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         Task { @MainActor in
             self.isTransitioningToPiP = false
             self.isPiPActive = false
+            let format = NSLocalizedString("Failed to start Picture in Picture: %@", comment: "")
+            self.pipErrorMessage = String(format: format, error.localizedDescription)
             print("[VideoPlaybackCoordinator] PiP開始失敗: \(error.localizedDescription)")
         }
     }
@@ -154,25 +190,50 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
     ) {
         Task { @MainActor in
-            self.restoreCompletionHandler = completionHandler
-            self.shouldRestoreUIFromPiP = true
+            self.isRestoringUI = true
+            guard let context = self.activeMediaContext, !context.isVault else {
+                self.isRestoringUI = false
+                completionHandler(false)
+                return
+            }
+            self.presentRestoredUI(context: context, completion: completionHandler)
         }
     }
 
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         Task { @MainActor in
             self.isPiPActive = false
-            if !self.shouldRestoreUIFromPiP {
+            if !self.isRestoringUI {
                 // UI復帰を伴わない終了（PiP小窓の「×」タップなど）はリソースを完全解放
                 self.stopAndReleaseCurrentSession()
             }
         }
     }
 
-    /// UI復帰が正常に完了したことをシート側から通知し、PiP完了ハンドラーを呼び出す
-    func notifyUIRestoredSuccessfully() {
-        shouldRestoreUIFromPiP = false
-        restoreCompletionHandler?(true)
-        restoreCompletionHandler = nil
+    // MARK: - PiP画面復帰UIの提示
+
+    private func presentRestoredUI(context: PlaybackPlaylistContext, completion: @escaping (Bool) -> Void) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            self.isRestoringUI = false
+            completion(false)
+            return
+        }
+
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+
+        let playerView = ModernVideoPlayerView(playlistContext: context) { [weak topVC] in
+            topVC?.dismiss(animated: true)
+        }
+        let host = UIHostingController(rootView: playerView)
+        host.modalPresentationStyle = .fullScreen
+
+        topVC.present(host, animated: true) {
+            self.isRestoringUI = false
+            completion(true)
+        }
     }
 }

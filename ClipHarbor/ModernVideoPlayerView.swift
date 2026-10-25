@@ -36,6 +36,7 @@ struct ModernVideoPlayerView: View {
     @State private var originalBrightness: CGFloat = 0.5
     @State private var brightnessValue: Double = 0.5
     @State private var volumeValue: Double = 1.0
+    @State private var isDismissingDueToPiP: Bool = false
 
     // 画像閲覧状態
     private enum ImageLoadState: Equatable {
@@ -227,15 +228,17 @@ struct ModernVideoPlayerView: View {
         .onChange(of: volumeValue) { newVol in
             player?.volume = Float(newVol)
         }
-        .onChange(of: coordinator.isTransitioningToPiP) { isTrans in
-            if isTrans {
-                // PiP移行が成立したためシートを閉じる（再生リソースはCoordinatorが維持）
+        .onChange(of: coordinator.shouldDismissPlayerForPiP) { shouldDismiss in
+            if shouldDismiss {
+                coordinator.shouldDismissPlayerForPiP = false
+                isDismissingDueToPiP = true
                 dismiss()
             }
         }
-        .onChange(of: coordinator.shouldRestoreUIFromPiP) { shouldRestore in
-            if shouldRestore {
-                coordinator.notifyUIRestoredSuccessfully()
+        .onChange(of: coordinator.pipErrorMessage) { errorMsg in
+            if let msg = errorMsg {
+                showToast(msg)
+                coordinator.pipErrorMessage = nil
             }
         }
         .onChange(of: scenePhase) { phase in
@@ -257,6 +260,11 @@ struct ModernVideoPlayerView: View {
             activeInteractions.removeAll()
             isCurrentDragSwipeEligible = nil
             stopAutoHideTimer()
+            // 画面を離れる際の明るさ復元など、再生停止とは無関係な後始末は常に維持
+            UIScreen.main.brightness = originalBrightness
+            if isLandscape {
+                setOrientation(.portrait)
+            }
             handleViewDismissed()
         }
     }
@@ -485,6 +493,28 @@ struct ModernVideoPlayerView: View {
     }
 
     private func setupVideoPlayer(url: URL, isVault: Bool, autoPlay: Bool) {
+        // PiP中または復帰中の既存セッションがある場合は再利用（startPlaybackSession による再初期化を防止）
+        if !isVault,
+           (coordinator.isPiPActive || coordinator.isRestoringUI),
+           let (existingPlayer, existingSID) = coordinator.reconnectSession(for: playlistContext) {
+            self.player = existingPlayer
+            self.sessionID = existingSID
+            self.isPlaying = (existingPlayer.rate > 0)
+            existingPlayer.volume = Float(volumeValue)
+            let currentSecs = CMTimeGetSeconds(existingPlayer.currentTime())
+            if !currentSecs.isNaN && !currentSecs.isInfinite {
+                self.currentTime = max(0, currentSecs)
+            }
+            if let d = existingPlayer.currentItem?.duration {
+                let secs = CMTimeGetSeconds(d)
+                if !secs.isNaN && !secs.isInfinite && secs > 0 {
+                    self.duration = secs
+                }
+            }
+            attachTimeObserver(for: existingPlayer)
+            return
+        }
+
         let (p, sid) = coordinator.startPlaybackSession(
             url: url,
             context: playlistContext,
@@ -500,7 +530,14 @@ struct ModernVideoPlayerView: View {
             p.pause()
         }
 
-        // 再生時間の監視
+        attachTimeObserver(for: p)
+    }
+
+    private func attachTimeObserver(for p: AVPlayer) {
+        if let token = timeObserverToken {
+            p.removeTimeObserver(token)
+            timeObserverToken = nil
+        }
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserverToken = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak p] time in
             guard let player = p else { return }
@@ -533,14 +570,20 @@ struct ModernVideoPlayerView: View {
     }
 
     private func handleViewDismissed() {
+        if isDismissingDueToPiP || coordinator.isPiPActive {
+            // PiPへ移行したため全画面を閉じるケース:
+            // AVPlayerとCoordinatorの再生セッションを破棄せず保持する
+            if let token = timeObserverToken, let p = player {
+                p.removeTimeObserver(token)
+                timeObserverToken = nil
+            }
+            player = nil
+            onDismiss()
+            return
+        }
+
         tearDownPlayer()
         coordinator.stopAndRelease(sessionID: sessionID)
-        UIScreen.main.brightness = originalBrightness
-
-        // 縦画面へ確実に復帰
-        if isLandscape {
-            setOrientation(.portrait)
-        }
         onDismiss()
     }
 
@@ -764,7 +807,7 @@ struct ModernVideoPlayerView: View {
     private func triggerPiP() {
         registerUserAction()
         guard !playlistContext.isVault else {
-            showToast("Vault内アイテムではPiPは利用できません")
+            showToast(NSLocalizedString("PiP is not available for Vault items.", comment: ""))
             return
         }
         coordinator.startPictureInPicture(sessionID: sessionID)
@@ -926,6 +969,7 @@ struct ModernVideoPlayerView: View {
     private func handleClose() {
         activeInteractions.removeAll()
         stopAutoHideTimer()
+        isDismissingDueToPiP = false
         coordinator.stopAndRelease(sessionID: sessionID)
         dismiss()
     }
