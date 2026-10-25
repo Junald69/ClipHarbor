@@ -35,6 +35,8 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
     private let customWebsiteDataStore: WKWebsiteDataStore?
     /// ナビゲーション完了時（通常遷移およびSPA遷移）の通知コールバック（TabManager等のセッション同期用）
     var onNavigationFinished: (() -> Void)? = nil
+    /// リンク長押しメニュー等から新しいタブを開く要求コールバック
+    var onRequestOpenInNewTab: ((URL) -> Void)? = nil
     private(set) var isWebViewCreated = false
     private(set) var isTornDown = false
     private var noticeTask: Task<Void, Never>?
@@ -290,6 +292,12 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         webView.load(URLRequest(url: target))
     }
 
+    /// URLを直接指定して現在のタブで読み込む
+    func loadURL(_ url: URL) {
+        showToolbar()
+        webView.load(URLRequest(url: url))
+    }
+
     func goBack() {
         showToolbar()
         if webView.canGoBack { webView.goBack() }
@@ -367,6 +375,7 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         isTornDown = true
 
         onNavigationFinished = nil
+        onRequestOpenInNewTab = nil
         snapshot = nil
 
         noticeTask?.cancel()
@@ -456,6 +465,91 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if navigationAction.targetFrame == nil { webView.load(navigationAction.request) }
         return nil
+    }
+
+    // MARK: - リンク長押しコンテキストメニュー
+
+    func webView(
+        _ webView: WKWebView,
+        contextMenuConfigurationForElement elementInfo: WKContextMenuElementInfo,
+        completionHandler: @escaping (UIContextMenuConfiguration?) -> Void
+    ) {
+        guard let url = elementInfo.linkURL else {
+            // リンク以外の要素（画像、テキスト選択等）はWebKitデフォルトのメニューを維持
+            completionHandler(nil)
+            return
+        }
+
+        let scheme = url.scheme?.lowercased() ?? ""
+        guard ["http", "https"].contains(scheme) else {
+            // HTTP/HTTPS以外のスキーム（tel, mailto等）は無理にWebViewへ読み込まず既存のスキーム方針を維持
+            completionHandler(nil)
+            return
+        }
+
+        let config = UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self = self else { return UIMenu() }
+
+            // 1. リンクを開く / Open Link (ClipHarborの現在のタブで開く)
+            let openAction = UIAction(
+                title: NSLocalizedString("Open Link", comment: ""),
+                image: UIImage(systemName: "safari")
+            ) { [weak self] _ in
+                self?.loadURL(url)
+            }
+
+            // 2. 新しいタブで開く / Open in New Tab (ClipHarbor内の新しいタブで開き、そのタブへ切り替える)
+            let openNewTabAction = UIAction(
+                title: NSLocalizedString("Open in New Tab", comment: ""),
+                image: UIImage(systemName: "plus.square.on.square")
+            ) { [weak self] _ in
+                self?.onRequestOpenInNewTab?(url)
+            }
+
+            // 3. リンクをコピー / Copy Link
+            let copyAction = UIAction(
+                title: NSLocalizedString("Copy Link", comment: ""),
+                image: UIImage(systemName: "doc.on.doc")
+            ) { _ in
+                UIPasteboard.general.url = url
+                UIPasteboard.general.string = url.absoluteString
+            }
+
+            // 4. 共有… / Share…
+            let shareAction = UIAction(
+                title: NSLocalizedString("Share…", comment: ""),
+                image: UIImage(systemName: "square.and.arrow.up")
+            ) { [weak self] _ in
+                self?.presentShareSheet(for: url)
+            }
+
+            return UIMenu(title: url.absoluteString, children: [
+                openAction,
+                openNewTabAction,
+                copyAction,
+                shareAction
+            ])
+        }
+
+        completionHandler(config)
+    }
+
+    private func presentShareSheet(for url: URL) {
+        guard let windowScene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+              let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            return
+        }
+        var topVC = rootVC
+        while let presented = topVC.presentedViewController {
+            topVC = presented
+        }
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        if let popover = activityVC.popoverPresentationController {
+            popover.sourceView = webView
+            popover.sourceRect = CGRect(x: webView.bounds.midX, y: webView.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        topVC.present(activityVC, animated: true)
     }
 
     // MARK: - WKScriptMessageHandler

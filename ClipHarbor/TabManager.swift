@@ -351,12 +351,38 @@ final class TabManager: ObservableObject {
 
     // MARK: - 内部処理と永続化
 
+    /// URLを新しいタブで開き、そのタブをアクティブにする（プライベート状態を継承）
+    func openURLInNewTab(_ url: URL, from tab: BrowserModel) {
+        guard let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, !host.isEmpty else {
+            return
+        }
+        if tab.isPrivate {
+            if canCreateNewPrivateTab {
+                createPrivateTab(url: url)
+            } else {
+                tab.showNotice("プライベートタブ上限（\(Self.maxPrivateTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            }
+        } else {
+            if canCreateNewTab {
+                createNewTab(url: url)
+            } else {
+                tab.showNotice("タブ上限（\(Self.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
+            }
+        }
+    }
+
     private func setupTab(_ tab: BrowserModel) {
         tab.onNavigationFinished = { [weak self, weak tab] in
             guard let self = self, let tab = tab else { return }
             if !tab.isPrivate {
                 self.scheduleSave()
             }
+        }
+        tab.onRequestOpenInNewTab = { [weak self, weak tab] url in
+            guard let self = self, let tab = tab else { return }
+            self.openURLInNewTab(url, from: tab)
         }
     }
 

@@ -514,24 +514,7 @@ private struct ActiveBrowserContainer: View {
     }
 
     private func handleOpenURLInNewTab(_ url: URL) {
-        guard let scheme = url.scheme?.lowercased(),
-              ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty else {
-            return
-        }
-        if browser.isPrivate {
-            if tabManager.canCreateNewPrivateTab {
-                tabManager.createPrivateTab(url: url)
-            } else {
-                browser.showNotice("プライベートタブ上限（\(TabManager.maxPrivateTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
-            }
-        } else {
-            if tabManager.canCreateNewTab {
-                tabManager.createNewTab(url: url)
-            } else {
-                browser.showNotice("タブ上限（\(TabManager.maxTabs)件）に達しているため、新しいタブを開けませんでした。不要なタブを閉じてから再度お試しください。")
-            }
-        }
+        tabManager.openURLInNewTab(url, from: browser)
     }
 
     private func handleOpenPrivateTab() {
