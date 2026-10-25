@@ -2,6 +2,27 @@ import SwiftUI
 import AVKit
 import AVFoundation
 
+/// プレイヤーコントロールの実際のレイアウト領域を背景ジェスチャーへ通知するPreference Key
+struct ControlExclusionFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [CGRect] = []
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+extension View {
+    func reportControlFrame(in coordinateSpace: String) -> some View {
+        self.background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: ControlExclusionFramesPreferenceKey.self,
+                    value: [geo.frame(in: .named(coordinateSpace))]
+                )
+            }
+        )
+    }
+}
+
 /// 刷新されたAloha風メディアプレイヤー用コントロールオーバーレイ
 /// - カプセル型フローティングヘッダー（閉じる、省略ファイル名、編集、共有）
 /// - 中央 10秒戻し／再生・一時停止／10秒送りボタン
@@ -68,6 +89,7 @@ struct PlayerControlsOverlay: View {
             VStack(spacing: 0) {
                 // MARK: - 上部ヘッダー
                 headerView
+                    .reportControlFrame(in: "playerContainer")
                     .padding(.top, isLandscape ? 8 : 4)
 
                 Spacer()
@@ -75,12 +97,14 @@ struct PlayerControlsOverlay: View {
                 // MARK: - 中央コントロール（動画のみ表示、画像時は非表示）
                 if !isImage {
                     centerControlsView
+                        .reportControlFrame(in: "playerContainer")
                 }
 
                 Spacer()
 
                 // MARK: - 下部コントロールパネル
                 bottomControlsView
+                    .reportControlFrame(in: "playerContainer")
                     .padding(.bottom, isLandscape ? 12 : 8)
             }
             .padding(.horizontal, isLandscape ? 24 : 16)
@@ -89,8 +113,10 @@ struct PlayerControlsOverlay: View {
             if !isImage {
                 HStack {
                     verticalBrightnessSlider
+                        .reportControlFrame(in: "playerContainer")
                     Spacer()
                     verticalVolumeSlider
+                        .reportControlFrame(in: "playerContainer")
                 }
                 .padding(.horizontal, isLandscape ? 24 : 12)
             }
@@ -242,7 +268,7 @@ struct PlayerControlsOverlay: View {
                                 .frame(width: 12, height: 12)
                                 .offset(x: max(0, min(sliderWidth * progress - 6, sliderWidth - 12)))
                         }
-                        .frame(height: 16)
+                        .frame(height: 44)
                         .contentShape(Rectangle())
                         .gesture(
                             DragGesture(minimumDistance: 0)
@@ -263,7 +289,7 @@ struct PlayerControlsOverlay: View {
                                 }
                         )
                     }
-                    .frame(height: 16)
+                    .frame(height: 44)
 
                     // 時間表示
                     HStack {

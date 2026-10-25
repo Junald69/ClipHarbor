@@ -71,6 +71,8 @@ struct ModernVideoPlayerView: View {
 
     // 操作中状態管理・自動非表示排他制御
     @State private var activeInteractions: Set<String> = []
+    @State private var controlExclusionFrames: [CGRect] = []
+    @State private var isCurrentDragSwipeEligible: Bool? = nil
     @State private var timerGeneration: Int = 0
     @State private var lastDoubleTapTime: Date = .distantPast
 
@@ -157,6 +159,10 @@ struct ModernVideoPlayerView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .coordinateSpace(name: "playerContainer")
+        .onPreferenceChange(ControlExclusionFramesPreferenceKey.self) { frames in
+            self.controlExclusionFrames = frames
+        }
         .statusBarHidden(isLandscape || !areControlsVisible)
         .sheet(isPresented: $showTrimmerSheet) {
             trimmerDestinationView
@@ -234,6 +240,7 @@ struct ModernVideoPlayerView: View {
                 // ホーム画面移行時に画面照度を確実に復帰し、タイマーと操作状態をクリア
                 UIScreen.main.brightness = originalBrightness
                 activeInteractions.removeAll()
+                isCurrentDragSwipeEligible = nil
                 stopAutoHideTimer()
             }
         }
@@ -245,6 +252,7 @@ struct ModernVideoPlayerView: View {
         }
         .onDisappear {
             activeInteractions.removeAll()
+            isCurrentDragSwipeEligible = nil
             stopAutoHideTimer()
             handleViewDismissed()
         }
@@ -335,9 +343,19 @@ struct ModernVideoPlayerView: View {
                     }
             }
             .gesture(
-                DragGesture(minimumDistance: 30)
+                DragGesture(minimumDistance: 25, coordinateSpace: .named("playerContainer"))
+                    .onChanged { value in
+                        if isCurrentDragSwipeEligible == nil {
+                            let startPoint = value.startLocation
+                            let isControlActive = !activeInteractions.isEmpty
+                            let isInsideControl = areControlsVisible && controlExclusionFrames.contains { $0.contains(startPoint) }
+                            let isBlocked = isDeletingItem || pendingDeletionContext != nil || isControlActive || isInsideControl
+                            isCurrentDragSwipeEligible = !isBlocked
+                        }
+                    }
                     .onEnded { value in
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        defer { isCurrentDragSwipeEligible = nil }
+                        guard isCurrentDragSwipeEligible == true else { return }
                         let horizontal = value.translation.width
                         let vertical = value.translation.height
                         // 水平優位性判定（垂直スクロールや斜めドラッグを確実に除外）
@@ -723,6 +741,7 @@ struct ModernVideoPlayerView: View {
 
     private func toggleOrientation() {
         activeInteractions.removeAll()
+        isCurrentDragSwipeEligible = nil
         registerUserAction()
         let target: UIInterfaceOrientationMask = isLandscape ? .portrait : .landscapeRight
         setOrientation(target)
