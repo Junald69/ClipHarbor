@@ -47,6 +47,7 @@ files = [
 ]
 resources = [
     'Localizable.xcstrings',
+    'InfoPlist.xcstrings',
     'blocker_rules.json',
     'blocker_metadata.json',
 ]

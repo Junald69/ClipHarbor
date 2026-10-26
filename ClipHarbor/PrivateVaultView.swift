@@ -35,7 +35,7 @@ struct PrivateVaultView: View {
                     // 1. 初回セットアップ画面
                     VaultPasscodeSetupView(
                         onCompleted: {
-                            showToast("Private Vaultを設定しました")
+                            showToast(NSLocalizedString("Private Vault configured", comment: ""))
                         },
                         onCancel: {
                             dismiss()
@@ -45,7 +45,7 @@ struct PrivateVaultView: View {
                     // 2. ロック解除画面
                     VaultUnlockView(
                         onUnlocked: {
-                            showToast("保管庫のロックを解除しました")
+                            showToast(NSLocalizedString("Vault unlocked", comment: ""))
                         },
                         onCancel: {
                             dismiss()
@@ -73,7 +73,7 @@ struct PrivateVaultView: View {
             .toolbar {
                 if vaultManager.isUnlocked {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("閉じる") {
+                        Button("Close") {
                             vaultManager.lock()
                             dismiss()
                         }
@@ -91,7 +91,7 @@ struct PrivateVaultView: View {
                             .disabled(isSelectionMode)
 
                             if !vaultManager.items.isEmpty {
-                                Button(isSelectionMode ? "完了" : "選択") {
+                                Button(isSelectionMode ? NSLocalizedString("Done", comment: "") : NSLocalizedString("Select", comment: "")) {
                                     withAnimation {
                                         isSelectionMode.toggle()
                                         if !isSelectionMode {
@@ -105,7 +105,7 @@ struct PrivateVaultView: View {
                                 Button {
                                     showVaultSettings = true
                                 } label: {
-                                    Label("Vault設定", systemImage: "gearshape")
+                                    Label("Vault Settings", systemImage: "gearshape")
                                 }
 
                                 Divider()
@@ -114,7 +114,7 @@ struct PrivateVaultView: View {
                                     vaultManager.lock()
                                     dismiss()
                                 } label: {
-                                    Label("今すぐロックして閉じる", systemImage: "lock.fill")
+                                    Label("Lock and Close Now", systemImage: "lock.fill")
                                 }
                             } label: {
                                 Image(systemName: "ellipsis")
@@ -130,7 +130,7 @@ struct PrivateVaultView: View {
             }
             .sheet(isPresented: $showChangePasscode) {
                 VaultChangePasscodeView {
-                    showToast("パスコードを変更しました")
+                    showToast(NSLocalizedString("Passcode changed", comment: ""))
                 }
             }
             .sheet(isPresented: $showVaultSettings) {
@@ -145,28 +145,28 @@ struct PrivateVaultView: View {
                     }
                 )
             }
-            .alert("完全に削除", isPresented: Binding(
+            .alert(NSLocalizedString("Delete Permanently", comment: ""), isPresented: Binding(
                 get: { deletingItem != nil },
                 set: { if !$0 { deletingItem = nil } }
             )) {
-                Button("キャンセル", role: .cancel) { deletingItem = nil }
-                Button("完全に削除", role: .destructive) {
+                Button("Cancel", role: .cancel) { deletingItem = nil }
+                Button(NSLocalizedString("Delete Permanently", comment: ""), role: .destructive) {
                     if let item = deletingItem {
                         performDelete(item)
                     }
                 }
             } message: {
-                Text("「\(deletingItem?.originalTitle ?? "")」を端末から完全に削除しますか？\n暗号化データは復元できなくなります。")
+                Text(String(format: NSLocalizedString("Are you sure you want to permanently delete \"%@\" from this device?\nEncrypted data cannot be recovered.", comment: ""), deletingItem?.originalTitle ?? ""))
             }
-            .alert("選択したアイテムを削除", isPresented: $showBatchDeleteAlert) {
-                Button("キャンセル", role: .cancel) { }
-                Button("完全に削除", role: .destructive) {
+            .alert(NSLocalizedString("Delete Selected Items", comment: ""), isPresented: $showBatchDeleteAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button(NSLocalizedString("Delete Permanently", comment: ""), role: .destructive) {
                     performBatchDelete()
                 }
             } message: {
-                Text("選択された \(selectedItemIDs.count) 件の動画を完全に削除しますか？\nこの操作は取り消せません。")
+                Text(String(format: NSLocalizedString("Are you sure you want to permanently delete %lld selected videos?\nThis action cannot be undone.", comment: ""), selectedItemIDs.count))
             }
-            .alert("エラー", isPresented: Binding(
+            .alert(NSLocalizedString("Error", comment: ""), isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
@@ -230,7 +230,7 @@ struct PrivateVaultView: View {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: 56))
                         .foregroundStyle(.indigo)
-                    Text("Private Vault 保護中")
+                    Text("Private Vault Protected")
                         .font(.headline)
                 }
             }
@@ -312,7 +312,7 @@ struct PrivateVaultView: View {
                 .font(.caption)
                 .foregroundStyle(.indigo)
 
-            Text("AES-256-GCM暗号化により保護されています。iOSファイル共有や外部アプリからは参照できません。")
+            Text("Protected with AES-256-GCM encryption. Inaccessible from iOS file sharing and external apps.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
@@ -334,9 +334,9 @@ struct PrivateVaultView: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 52))
                 .foregroundStyle(.indigo)
-            Text("Private Vault は空です")
+            Text("Private Vault is Empty")
                 .font(.headline)
-            Text("ファイル一覧の「…」メニューから動画をVaultへ移動すると、AES-256暗号化されてここに安全に保管されます。")
+            Text("When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -352,7 +352,7 @@ struct PrivateVaultView: View {
             Button {
                 performBatchRestore()
             } label: {
-                Label("復元 (\(selectedItemIDs.count))", systemImage: "arrow.uturn.backward")
+                Label(String(format: NSLocalizedString("Restore (%lld)", comment: ""), selectedItemIDs.count), systemImage: "arrow.uturn.backward")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
@@ -363,7 +363,7 @@ struct PrivateVaultView: View {
             Button(role: .destructive) {
                 showBatchDeleteAlert = true
             } label: {
-                Label("削除 (\(selectedItemIDs.count))", systemImage: "trash")
+                Label(String(format: NSLocalizedString("Delete (%lld)", comment: ""), selectedItemIDs.count), systemImage: "trash")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
@@ -387,7 +387,7 @@ struct PrivateVaultView: View {
             activePlaybackURL = tempURL
             activePlayingItem = item
         } catch {
-            errorMessage = "再生の準備に失敗しました: \(error.localizedDescription)"
+            errorMessage = String(format: NSLocalizedString("Failed to prepare playback: %@", comment: ""), error.localizedDescription)
         }
     }
 
@@ -402,9 +402,9 @@ struct PrivateVaultView: View {
                     downloads: downloads,
                     folderManager: folderManager
                 )
-                showToast("「\(item.originalTitle)」を復元しました")
+                showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), item.originalTitle))
             } catch {
-                errorMessage = "復元に失敗しました: \(error.localizedDescription)"
+                errorMessage = String(format: NSLocalizedString("Failed to restore: %@", comment: ""), error.localizedDescription)
             }
             isOperating = false
         }
@@ -413,9 +413,9 @@ struct PrivateVaultView: View {
     private func performDelete(_ item: VaultItem) {
         do {
             try vaultManager.deletePermanently(item: item)
-            showToast("完全に削除しました")
+            showToast(NSLocalizedString("Permanently deleted", comment: ""))
         } catch {
-            errorMessage = "削除に失敗しました: \(error.localizedDescription)"
+            errorMessage = String(format: NSLocalizedString("Failed to delete: %@", comment: ""), error.localizedDescription)
         }
         deletingItem = nil
     }
@@ -436,7 +436,7 @@ struct PrivateVaultView: View {
             isSelectionMode = false
             selectedItemIDs.removeAll()
             isOperating = false
-            showToast("\(result.succeeded) 件の動画を復元しました")
+            showToast(String(format: NSLocalizedString("Restored %lld videos", comment: ""), result.succeeded))
         }
     }
 
@@ -446,9 +446,9 @@ struct PrivateVaultView: View {
             try vaultManager.deleteMultiplePermanently(items: targetItems)
             isSelectionMode = false
             selectedItemIDs.removeAll()
-            showToast("\(targetItems.count) 件を完全に削除しました")
+            showToast(String(format: NSLocalizedString("Permanently deleted %lld items", comment: ""), targetItems.count))
         } catch {
-            errorMessage = "一括削除に失敗しました: \(error.localizedDescription)"
+            errorMessage = String(format: NSLocalizedString("Batch deletion failed: %@", comment: ""), error.localizedDescription)
         }
     }
 
@@ -460,7 +460,7 @@ struct PrivateVaultView: View {
                 downloads: downloads,
                 folderManager: folderManager
             )
-            showToast("\(succeeded) 件の動画を取り込みました")
+            showToast(String(format: NSLocalizedString("Imported %lld videos", comment: ""), succeeded))
         }
     }
 
@@ -522,17 +522,17 @@ private struct AlohaVaultCardView: View {
                 if !isSelectionMode {
                     Menu {
                         Button(action: onPlay) {
-                            Label("再生", systemImage: "play.fill")
+                            Label("Play", systemImage: "play.fill")
                         }
 
                         Button(action: onRestore) {
-                            Label("通常一覧へ復元", systemImage: "arrow.uturn.backward")
+                            Label("Restore to Files", systemImage: "arrow.uturn.backward")
                         }
 
                         Divider()
 
                         Button(role: .destructive, action: onDelete) {
-                            Label("完全に削除", systemImage: "trash")
+                            Label(NSLocalizedString("Delete Permanently", comment: ""), systemImage: "trash")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -553,7 +553,7 @@ private struct AlohaVaultCardView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "lock.fill")
                                 .font(.system(size: 9))
-                            Text("暗号化")
+                            Text("Encrypted")
                                 .font(.system(size: 10, weight: .semibold))
                         }
                         .foregroundStyle(.white)
@@ -586,7 +586,7 @@ private struct AlohaVaultCardView: View {
                 .foregroundStyle(.secondary)
                 .frame(height: subtitleHeight, alignment: .leading)
 
-                Text("保管: \(item.vaultAddedAt.formatted(date: .numeric, time: .omitted))")
+                Text(String(format: NSLocalizedString("Stored: %@", comment: ""), item.vaultAddedAt.formatted(date: .numeric, time: .omitted)))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -665,7 +665,7 @@ private struct VaultVideoPlayerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") {
+                    Button("Close") {
                         dismiss()
                     }
                     .tint(.white)
@@ -1111,9 +1111,9 @@ struct VaultImportPickerView: View {
                         Image(systemName: "film")
                             .font(.system(size: 48))
                             .foregroundStyle(.secondary)
-                        Text("取り込める動画がありません")
+                        Text("No Videos Available to Import")
                             .font(.headline)
-                        Text("通常保存領域に動画がないか、すべての動画がHLS形式または画像ファイルです。\n※ 現在HLS形式および画像ファイルのVault暗号化は非対応です。")
+                        Text("There are no videos in normal storage, or all videos are HLS format or images.\n*Vault encryption for HLS format and images is currently not supported.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -1163,21 +1163,21 @@ struct VaultImportPickerView: View {
                                 .buttonStyle(.plain)
                             }
                         } footer: {
-                            Text("取り込んだ動画はAES-256暗号化され、元の通常ファイル一覧からは安全に削除されます。")
+                            Text("Imported videos are encrypted with AES-256 and safely removed from the normal file list.")
                                 .font(.caption2)
                         }
                     }
                 }
             }
-            .navigationTitle("動画を取り込む")
+            .navigationTitle(Text("Import Videos"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("取り込む (\(selectedIDs.count))") {
+                    Button(String(format: NSLocalizedString("Import (%lld)", comment: ""), selectedIDs.count)) {
                         let chosen = availableVideos.filter { selectedIDs.contains($0.id) }
                         onImport(chosen)
                         dismiss()

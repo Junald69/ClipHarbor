@@ -501,6 +501,23 @@
         }
       }
     },
+    "AES-256-GCM (1MB Chunks)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AES-256-GCM (1MB Chunks)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AES-256-GCM (1MBチャンク)"
+          }
+        }
+      }
+    },
     "Aborted because data gap or duplication detected in %@ segment %lld (%@).": {
       "extractionState": "manual",
       "localizations": {
@@ -807,6 +824,23 @@
         }
       }
     },
+    "Are you sure you want to permanently delete \"%@\" from this device?\nEncrypted data cannot be recovered.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to permanently delete \"%@\" from this device?\nEncrypted data cannot be recovered."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を端末から完全に削除しますか？\n暗号化データは復元できなくなります。"
+          }
+        }
+      }
+    },
     "Are you sure you want to permanently delete \"%@\" from this device?\nThis action cannot be undone.": {
       "extractionState": "manual",
       "localizations": {
@@ -820,6 +854,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」を端末から完全に削除しますか？\nこの操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Are you sure you want to permanently delete %lld selected videos?\nThis action cannot be undone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to permanently delete %lld selected videos?\nThis action cannot be undone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択された %lld 件の動画を完全に削除しますか？\nこの操作は取り消せません。"
           }
         }
       }
@@ -858,6 +909,23 @@
         }
       }
     },
+    "Authentication failed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Authentication failed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "認証に失敗しました。"
+          }
+        }
+      }
+    },
     "Auto-Lock": {
       "extractionState": "manual",
       "localizations": {
@@ -888,6 +956,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "戻る"
+          }
+        }
+      }
+    },
+    "Batch deletion failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Batch deletion failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一括削除に失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Because the encryption master key is derived solely from the entered passcode, if you forget your passcode, no one—including the developer—can decrypt or recover videos in the vault. Please make sure to choose a passcode you will not forget.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Because the encryption master key is derived solely from the entered passcode, if you forget your passcode, no one—including the developer—can decrypt or recover videos in the vault. Please make sure to choose a passcode you will not forget."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化マスター鍵は入力されたパスコードのみから導出されるため、パスコードを忘れた場合は開発者を含め誰も保管庫内の動画を復号・復旧することはできません。必ず忘れない番号をご設定ください。"
           }
         }
       }
@@ -2252,6 +2354,23 @@
         }
       }
     },
+    "Decrypting \"%@\"…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrypting \"%@\"…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を復号中..."
+          }
+        }
+      }
+    },
     "Decryption failed: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -2299,6 +2418,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除"
+          }
+        }
+      }
+    },
+    "Delete (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除 (%lld)"
           }
         }
       }
@@ -2384,6 +2520,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "完全に削除"
+          }
+        }
+      }
+    },
+    "Delete Selected Items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Selected Items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したアイテムを削除"
           }
         }
       }
@@ -2554,6 +2707,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "このサイトで保護を無効化"
+          }
+        }
+      }
+    },
+    "Disabled Face ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disabled Face ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face IDを無効にしました"
           }
         }
       }
@@ -2898,6 +3068,23 @@
         }
       }
     },
+    "Enabled Face ID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabled Face ID"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Face IDを有効にしました"
+          }
+        }
+      }
+    },
     "Encrypted": {
       "extractionState": "manual",
       "localizations": {
@@ -2911,6 +3098,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "暗号化保護"
+          }
+        }
+      }
+    },
+    "Encrypting \"%@\"…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypting \"%@\"…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を暗号化中..."
           }
         }
       }
@@ -4037,6 +4241,40 @@
         }
       }
     },
+    "Image files do not support Vault encryption.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image files do not support Vault encryption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像ファイルはVault暗号化に対応していません。"
+          }
+        }
+      }
+    },
+    "Import (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り込む (%lld)"
+          }
+        }
+      }
+    },
     "Import Photos": {
       "extractionState": "manual",
       "localizations": {
@@ -4050,6 +4288,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "写真をインポート"
+          }
+        }
+      }
+    },
+    "Import Videos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Videos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動画を取り込む"
           }
         }
       }
@@ -4101,6 +4356,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」を取り込みました"
+          }
+        }
+      }
+    },
+    "Imported %lld videos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %lld videos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件の動画を取り込みました"
+          }
+        }
+      }
+    },
+    "Imported videos are encrypted with AES-256 and safely removed from the normal file list.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported videos are encrypted with AES-256 and safely removed from the normal file list."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り込んだ動画はAES-256暗号化され、元の通常ファイル一覧からは安全に削除されます。"
           }
         }
       }
@@ -4339,6 +4628,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "今すぐロック"
+          }
+        }
+      }
+    },
+    "Lock and Close Now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock and Close Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐロックして閉じる"
           }
         }
       }
@@ -5057,6 +5363,23 @@
         }
       }
     },
+    "No Videos Available to Import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Videos Available to Import"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り込める動画がありません"
+          }
+        }
+      }
+    },
     "No auto-delete (Kept until deleted manually)": {
       "extractionState": "manual",
       "localizations": {
@@ -5533,6 +5856,23 @@
         }
       }
     },
+    "PBKDF2 (SHA-256, 100,000 iterations)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PBKDF2 (SHA-256, 100,000 iterations)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PBKDF2 (SHA-256, 10万回)"
+          }
+        }
+      }
+    },
     "Page Preview": {
       "extractionState": "manual",
       "localizations": {
@@ -5716,6 +6056,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除から7日後に完全削除"
+          }
+        }
+      }
+    },
+    "Permanently deleted %lld items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permanently deleted %lld items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件を完全に削除しました"
           }
         }
       }
@@ -6162,6 +6519,40 @@
         }
       }
     },
+    "Private Vault configured": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault configured"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vaultを設定しました"
+          }
+        }
+      }
+    },
+    "Private Vault is Empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault is Empty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault は空です"
+          }
+        }
+      }
+    },
     "Private Vault is already initialized.": {
       "extractionState": "manual",
       "localizations": {
@@ -6209,6 +6600,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "保護されたコンテンツ（DRM）は保存できません。"
+          }
+        }
+      }
+    },
+    "Protected with AES-256-GCM encryption. Inaccessible from iOS file sharing and external apps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protected with AES-256-GCM encryption. Inaccessible from iOS file sharing and external apps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AES-256-GCM暗号化により保護されています。iOSファイル共有や外部アプリからは参照できません。"
           }
         }
       }
@@ -6345,6 +6753,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "表示を更新"
+          }
+        }
+      }
+    },
+    "Registering into file list…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registering into file list…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル一覧に登録中..."
           }
         }
       }
@@ -6536,6 +6961,40 @@
         }
       }
     },
+    "Restore (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元 (%lld)"
+          }
+        }
+      }
+    },
+    "Restore to Files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore to Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常一覧へ復元"
+          }
+        }
+      }
+    },
     "Restored \"%@\"": {
       "extractionState": "manual",
       "localizations": {
@@ -6549,6 +7008,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "「%@」を復元しました"
+          }
+        }
+      }
+    },
+    "Restored %lld videos": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored %lld videos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 件の動画を復元しました"
           }
         }
       }
@@ -6583,6 +7059,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再試行"
+          }
+        }
+      }
+    },
+    "Safely removing original file…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safely removing original file…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルを安全に削除中..."
           }
         }
       }
@@ -7471,6 +7964,23 @@
         }
       }
     },
+    "Stored: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管: %@"
+          }
+        }
+      }
+    },
     "Stream structure cannot be converted to standard MP4 with AVAssetExportSession (%@).": {
       "extractionState": "manual",
       "localizations": {
@@ -7671,6 +8181,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ダウンロード後にファイルの中身を確認し、MP4/MOVなどの動画ファイルであれば保存します。Webページ等が返された場合は保存しません。"
+          }
+        }
+      }
+    },
+    "There are no videos in normal storage, or all videos are HLS format or images.\n*Vault encryption for HLS format and images is currently not supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no videos in normal storage, or all videos are HLS format or images.\n*Vault encryption for HLS format and images is currently not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常保存領域に動画がないか、すべての動画がHLS形式または画像ファイルです。\n※ 現在HLS形式および画像ファイルのVault暗号化は非対応です。"
           }
         }
       }
@@ -8338,6 +8865,57 @@
         }
       }
     },
+    "Vault Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault設定"
+          }
+        }
+      }
+    },
+    "Vault session is invalid. Please unlock again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault session is invalid. Please unlock again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫のセッションが無効です。再度ロック解除してください。"
+          }
+        }
+      }
+    },
+    "Vault unlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault unlocked"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫のロックを解除しました"
+          }
+        }
+      }
+    },
     "Version": {
       "extractionState": "manual",
       "localizations": {
@@ -8776,6 +9354,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Webサイトを閲覧すると、ここに履歴が表示されます。\nプライベートブラウズ中の履歴は保存されません。"
+          }
+        }
+      }
+    },
+    "When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル一覧の「…」メニューから動画をVaultへ移動すると、AES-256暗号化されてここに安全に保管されます。"
           }
         }
       }

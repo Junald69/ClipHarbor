@@ -50,3 +50,8 @@
 - 【プライバシー】Private Vault設定（隠しモード時は設定項目自体を完全非表示化）
 - 【Vault隠しモード】通常一覧・メニュー・設定・移動先からのVault完全隠蔽、ルートタイトル「ファイル」2秒長押しによる認証起動、VoiceOver代替アクション、Vault内からの動画取り込みピッカー
 - 【アプリ情報】実際のアプリバージョン・ビルド番号表示、ライセンス・セキュリティ方針表記
+
+
+## ブラウザ日常利用確認および検証ステータス記録（2026-10-26）
+- コミット `93a83fc` (`backup/v2.6-browser-usable-verified`) にて、新規タブ作成時のフリーズ・クラッシュ解消およびAdAway Default Blocklistによる広告・トラッカー遮断が日常利用可能であることを実機確認。
+- 詳細な実機確認済み範囲および限定保証／未検証事項は [docs/browser_verification_and_usable_status.md](docs/browser_verification_and_usable_status.md) を参照。

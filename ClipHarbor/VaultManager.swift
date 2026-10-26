@@ -292,7 +292,7 @@ final class VaultManager: ObservableObject {
                 clearLockout()
                 try loadEncryptedIndex()
             } else {
-                throw VaultError.biometricFailed("認証に失敗しました。")
+                throw VaultError.biometricFailed(NSLocalizedString("Authentication failed.", comment: ""))
             }
         } catch let vaultErr as VaultError {
             throw vaultErr
@@ -399,7 +399,7 @@ final class VaultManager: ObservableObject {
         }
 
         guard video.format.isVideo else {
-            throw VaultError.fileOperationFailed("画像ファイルはVault暗号化に対応していません。")
+            throw VaultError.fileOperationFailed(NSLocalizedString("Image files do not support Vault encryption.", comment: ""))
         }
 
         let sourceURL = video.fileURL
@@ -409,7 +409,7 @@ final class VaultManager: ObservableObject {
 
         isProcessing = true
         processingProgress = 0.0
-        processingMessage = "「\(video.title)」を暗号化中..."
+        processingMessage = String(format: NSLocalizedString("Encrypting \"%@\"…", comment: ""), video.title)
 
         let itemID = UUID()
         let itemDir = itemsDirectory.appendingPathComponent(itemID.uuidString, isDirectory: true)
@@ -458,7 +458,7 @@ final class VaultManager: ObservableObject {
             items.insert(vaultItem, at: 0)
             try saveEncryptedIndex()
 
-            processingMessage = "元のファイルを安全に削除中..."
+            processingMessage = NSLocalizedString("Safely removing original file…", comment: "")
 
             // ★アトミック保証: 暗号化とインデックス保存が完全に完了したため、通常一覧および平文実ファイルを削除
             try? fileManager.removeItem(at: sourceURL)
@@ -521,7 +521,7 @@ final class VaultManager: ObservableObject {
 
         isProcessing = true
         processingProgress = 0.0
-        processingMessage = "「\(item.originalTitle)」を復号中..."
+        processingMessage = String(format: NSLocalizedString("Decrypting \"%@\"…", comment: ""), item.originalTitle)
 
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let downloadsDir = docs.appendingPathComponent("Downloads", isDirectory: true)
@@ -563,7 +563,7 @@ final class VaultManager: ObservableObject {
 
             guard let newRelativePath = SavedVideo.relativePath(for: destURL) else {
                 try? fileManager.removeItem(at: destURL)
-                throw VaultError.fileOperationFailed("復元先パスの算出に失敗しました。")
+                throw VaultError.fileOperationFailed(NSLocalizedString("Failed to determine destination path for restore.", comment: ""))
             }
 
             let restoredVideo = SavedVideo(
@@ -578,7 +578,7 @@ final class VaultManager: ObservableObject {
                 isFavorite: item.isFavorite
             )
 
-            processingMessage = "ファイル一覧に登録中..."
+            processingMessage = NSLocalizedString("Registering into file list…", comment: "")
 
             // DownloadCenter & FolderManagerへ追加
             downloads.restoreSavedVideo(restoredVideo)
@@ -636,7 +636,7 @@ final class VaultManager: ObservableObject {
         if let token = expectedSessionToken {
             guard isUnlocked, sessionToken == token else {
                 throw NSError(domain: "VaultManager", code: 401, userInfo: [
-                    NSLocalizedDescriptionKey: "保管庫のセッションが無効です。再度ロック解除してください。"
+                    NSLocalizedDescriptionKey: NSLocalizedString("Vault session is invalid. Please unlock again.", comment: "")
                 ])
             }
         }

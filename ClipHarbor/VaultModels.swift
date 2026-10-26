@@ -65,7 +65,7 @@ struct VaultItem: Identifiable, Codable, Equatable {
 
     /// 表示用のファイルサイズ文字列
     var formattedSize: String {
-        guard let size = byteSize else { return "不明" }
+        guard let size = byteSize else { return NSLocalizedString("Unknown", comment: "") }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 

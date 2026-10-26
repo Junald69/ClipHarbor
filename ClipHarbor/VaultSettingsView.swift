@@ -24,7 +24,7 @@ struct VaultSettingsView: View {
                             get: { vaultManager.isBiometricsEnabled },
                             set: { enabled in
                                 vaultManager.setBiometricsEnabled(enabled)
-                                showToast(enabled ? "Face IDを有効にしました" : "Face IDを無効にしました")
+                                showToast(enabled ? NSLocalizedString("Enabled Face ID", comment: "") : NSLocalizedString("Disabled Face ID", comment: ""))
                             }
                         )) {
                             Label(NSLocalizedString("Unlock with Face ID / Biometrics", comment: ""), systemImage: "faceid")
@@ -62,7 +62,7 @@ struct VaultSettingsView: View {
                     HStack {
                         Text(NSLocalizedString("Encryption", comment: ""))
                         Spacer()
-                        Text("AES-256-GCM (1MBチャンク)")
+                        Text("AES-256-GCM (1MB Chunks)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -70,7 +70,7 @@ struct VaultSettingsView: View {
                     HStack {
                         Text(NSLocalizedString("Key Derivation", comment: ""))
                         Spacer()
-                        Text("PBKDF2 (SHA-256, 10万回)")
+                        Text("PBKDF2 (SHA-256, 100,000 iterations)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -91,7 +91,7 @@ struct VaultSettingsView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.orange)
 
-                        Text("暗号化マスター鍵は入力されたパスコードのみから導出されるため、パスコードを忘れた場合は開発者を含め誰も保管庫内の動画を復号・復旧することはできません。必ず忘れない番号をご設定ください。")
+                        Text("Because the encryption master key is derived solely from the entered passcode, if you forget your passcode, no one—including the developer—can decrypt or recover videos in the vault. Please make sure to choose a passcode you will not forget.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -109,7 +109,7 @@ struct VaultSettingsView: View {
             }
             .sheet(isPresented: $showChangePasscode) {
                 VaultChangePasscodeView {
-                    showToast("パスコードを変更しました")
+                    showToast(NSLocalizedString("Passcode changed", comment: ""))
                 }
             }
             .overlay(alignment: .top) {
