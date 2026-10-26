@@ -40,9 +40,21 @@ enum PlaybackMediaItem: Identifiable, Equatable {
     }
 
     var isFavorite: Bool {
-        switch self {
-        case .normal(let v): return v.isFavorite
-        case .vault(let item): return item.isFavorite
+        get {
+            switch self {
+            case .normal(let v): return v.isFavorite
+            case .vault(let item): return item.isFavorite
+            }
+        }
+        set {
+            switch self {
+            case .normal(var v):
+                v.isFavorite = newValue
+                self = .normal(v)
+            case .vault(var item):
+                item.isFavorite = newValue
+                self = .vault(item)
+            }
         }
     }
 }
@@ -50,12 +62,14 @@ enum PlaybackMediaItem: Identifiable, Equatable {
 final class PlaybackPlaylistContext: ObservableObject, Equatable {
     let contextTitle: String
     let isVault: Bool
+    let vaultSessionToken: UUID?
     @Published private(set) var items: [PlaybackMediaItem]
     @Published private(set) var currentIndex: Int
 
-    init(contextTitle: String, isVault: Bool, items: [PlaybackMediaItem], initialIndex: Int) {
+    init(contextTitle: String, isVault: Bool, vaultSessionToken: UUID? = nil, items: [PlaybackMediaItem], initialIndex: Int) {
         self.contextTitle = contextTitle
         self.isVault = isVault
+        self.vaultSessionToken = vaultSessionToken
         self.items = items
         self.currentIndex = max(0, min(initialIndex, max(0, items.count - 1)))
     }
@@ -63,13 +77,13 @@ final class PlaybackPlaylistContext: ObservableObject, Equatable {
     convenience init(normalVideos: [SavedVideo], initialVideo: SavedVideo, folderTitle: String) {
         let mapped = normalVideos.map { PlaybackMediaItem.normal($0) }
         let idx = normalVideos.firstIndex(where: { $0.id == initialVideo.id }) ?? 0
-        self.init(contextTitle: folderTitle, isVault: false, items: mapped, initialIndex: idx)
+        self.init(contextTitle: folderTitle, isVault: false, vaultSessionToken: nil, items: mapped, initialIndex: idx)
     }
 
-    convenience init(vaultItems: [VaultItem], initialItem: VaultItem) {
+    convenience init(vaultItems: [VaultItem], initialItem: VaultItem, sessionToken: UUID) {
         let mapped = vaultItems.map { PlaybackMediaItem.vault($0) }
         let idx = vaultItems.firstIndex(where: { $0.id == initialItem.id }) ?? 0
-        self.init(contextTitle: "Private Vault", isVault: true, items: mapped, initialIndex: idx)
+        self.init(contextTitle: "Private Vault", isVault: true, vaultSessionToken: sessionToken, items: mapped, initialIndex: idx)
     }
 
     var currentItem: PlaybackMediaItem? {
@@ -122,8 +136,16 @@ final class PlaybackPlaylistContext: ObservableObject, Equatable {
         return currentItem
     }
 
+    /// 指定されたIDのアイテムのお気に入り状態を同期・更新
+    func updateFavorite(id: UUID, isFavorite: Bool) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[idx].isFavorite != isFavorite else { return }
+        items[idx].isFavorite = isFavorite
+    }
+
     static func == (lhs: PlaybackPlaylistContext, rhs: PlaybackPlaylistContext) -> Bool {
         lhs.isVault == rhs.isVault &&
+        lhs.vaultSessionToken == rhs.vaultSessionToken &&
         lhs.currentIndex == rhs.currentIndex &&
         lhs.items == rhs.items
     }

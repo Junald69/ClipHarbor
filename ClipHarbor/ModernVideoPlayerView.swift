@@ -109,10 +109,7 @@ struct ModernVideoPlayerView: View {
                         playbackRate: $playbackRate,
                         brightness: $brightnessValue,
                         volume: $volumeValue,
-                        isFavorite: Binding(
-                            get: { item.isFavorite },
-                            set: { _ in toggleFavoriteCurrentItem() }
-                        ),
+                        isFavorite: item.isFavorite,
                         isLandscape: $isLandscape,
                         title: item.title,
                         isVault: playlistContext.isVault,
@@ -138,6 +135,7 @@ struct ModernVideoPlayerView: View {
                             showMoveSheet = true
                         },
                         onDeleteFile: handleDeleteTapped,
+                        onToggleFavorite: toggleFavoriteCurrentItem,
                         onInteractionStarted: { handleInteractionStarted($0) },
                         onInteractionEnded: { handleInteractionEnded($0) }
                     )
@@ -700,9 +698,23 @@ struct ModernVideoPlayerView: View {
         guard let item = playlistContext.currentItem else { return }
         switch item {
         case .normal(let video):
-            VideoFolderManager(downloads: .shared).toggleFavorite(for: video)
+            do {
+                let newFavorite = try VideoFolderManager(downloads: .shared).toggleFavorite(for: video)
+                playlistContext.updateFavorite(id: video.id, isFavorite: newFavorite)
+            } catch {
+                showToast(String(format: NSLocalizedString("Failed to update favorite: %@", comment: ""), error.localizedDescription))
+            }
         case .vault(let vaultItem):
-            VaultManager.shared.toggleFavorite(for: vaultItem)
+            guard let token = playlistContext.vaultSessionToken else {
+                showToast(NSLocalizedString("Vault session is invalid. Please unlock again.", comment: ""))
+                return
+            }
+            do {
+                let newFavorite = try VaultManager.shared.toggleFavorite(for: vaultItem, expectedSessionToken: token)
+                playlistContext.updateFavorite(id: vaultItem.id, isFavorite: newFavorite)
+            } catch {
+                showToast(String(format: NSLocalizedString("Failed to update favorite: %@", comment: ""), error.localizedDescription))
+            }
         }
     }
 

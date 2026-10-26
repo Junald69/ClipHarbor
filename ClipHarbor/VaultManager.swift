@@ -663,10 +663,32 @@ final class VaultManager: ObservableObject {
     // MARK: - お気に入り操作
 
     /// Vaultアイテムのお気に入り状態を切り替えて暗号化インデックスを更新
-    func toggleFavorite(for item: VaultItem) {
-        guard let idx = items.firstIndex(where: { $0.id == item.id }) else { return }
-        items[idx].isFavorite.toggle()
-        try? saveEncryptedIndex()
+    @discardableResult
+    func toggleFavorite(for item: VaultItem, expectedSessionToken: UUID) throws -> Bool {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        guard sessionToken == expectedSessionToken else {
+            throw NSError(domain: "VaultManager", code: 401, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Vault session is invalid. Please unlock again.", comment: "")
+            ])
+        }
+        guard let idx = items.firstIndex(where: { $0.id == item.id }) else {
+            throw VaultError.fileNotFound
+        }
+
+        let targetState = !items[idx].isFavorite
+        items[idx].isFavorite = targetState
+        do {
+            try saveEncryptedIndex()
+            return targetState
+        } catch {
+            // セッションが変わっていない場合のみ安全にロールバック
+            if isUnlocked && sessionToken == expectedSessionToken, items.indices.contains(idx), items[idx].id == item.id {
+                items[idx].isFavorite = !targetState
+            }
+            throw error
+        }
     }
 
     /// Vaultアイテムのタイトルを変更

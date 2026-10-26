@@ -9802,6 +9802,23 @@
           }
         }
       }
+    },
+    "Failed to update favorite: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to update favorite: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お気に入りの更新に失敗しました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

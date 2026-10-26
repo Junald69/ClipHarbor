@@ -36,7 +36,7 @@ struct PlayerControlsOverlay: View {
     @Binding var playbackRate: Float
     @Binding var brightness: Double
     @Binding var volume: Double
-    @Binding var isFavorite: Bool
+    let isFavorite: Bool
     @Binding var isLandscape: Bool
 
     // 表示・権限情報
@@ -60,6 +60,7 @@ struct PlayerControlsOverlay: View {
     let onTriggerPiP: () -> Void
     let onMoveFile: () -> Void
     let onDeleteFile: () -> Void
+    let onToggleFavorite: () -> Void
     let onInteractionStarted: (String) -> Void
     let onInteractionEnded: (String) -> Void
 
@@ -325,7 +326,7 @@ struct PlayerControlsOverlay: View {
 
                 // 2. お気に入り (承認済みデザインの「星」アイコン)
                 Button {
-                    isFavorite.toggle()
+                    onToggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "star.fill" : "star")
                         .font(.system(size: 16))

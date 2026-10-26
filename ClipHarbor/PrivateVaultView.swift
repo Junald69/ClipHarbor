@@ -241,7 +241,11 @@ struct PrivateVaultView: View {
 
     @ViewBuilder
     private func vaultPlayerCover(for item: VaultItem) -> some View {
-        PrivateVaultPlayerSheet(vaultItems: vaultManager.items, initialItem: item) {
+        PrivateVaultPlayerSheet(
+            vaultItems: vaultManager.items,
+            initialItem: item,
+            sessionToken: vaultManager.sessionToken
+        ) {
             activePlaybackURL = nil
             vaultManager.cleanupPlaybackTemp(itemID: item.id)
             activePlayingItem = nil
@@ -1195,11 +1199,12 @@ private struct PrivateVaultPlayerSheet: View {
     @StateObject private var playlistContext: PlaybackPlaylistContext
     let onDismiss: () -> Void
 
-    init(vaultItems: [VaultItem], initialItem: VaultItem, onDismiss: @escaping () -> Void) {
+    init(vaultItems: [VaultItem], initialItem: VaultItem, sessionToken: UUID, onDismiss: @escaping () -> Void) {
         self.onDismiss = onDismiss
         _playlistContext = StateObject(wrappedValue: PlaybackPlaylistContext(
             vaultItems: vaultItems,
-            initialItem: initialItem
+            initialItem: initialItem,
+            sessionToken: sessionToken
         ))
     }
 

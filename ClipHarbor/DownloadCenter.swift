@@ -134,7 +134,26 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             }
         }
         saved.removeAll { $0.id == item.id }
-        persistSaved()
+        try? persistSaved()
+    }
+
+    /// 指定IDの保存済みアイテムのお気に入り状態を反転して永続化し、新しい状態を返す
+    @discardableResult
+    func toggleFavorite(id: UUID) throws -> Bool {
+        guard let idx = saved.firstIndex(where: { $0.id == id }) else {
+            throw NSError(domain: "ClipHarbor.DownloadCenter", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: "Item not found in saved list"
+            ])
+        }
+        let targetState = !saved[idx].isFavorite
+        saved[idx].isFavorite = targetState
+        do {
+            try persistSaved()
+            return targetState
+        } catch {
+            saved[idx].isFavorite = !targetState
+            throw error
+        }
     }
 
     /// フォルダ管理層（VideoFolderManager）による名前変更・MP4フォルダ移動・お気に入り更新後にメタデータを更新する
@@ -143,20 +162,20 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if let title = title { saved[idx].title = title }
         if let relativePath = relativePath { saved[idx].relativePath = relativePath }
         if let isFavorite = isFavorite { saved[idx].isFavorite = isFavorite }
-        persistSaved()
+        try? persistSaved()
     }
 
     /// ゴミ箱移動時に、実ファイルを削除せずに保存済み一覧からのみ除外する
     func removeSavedVideoWithoutDeletingFile(id: UUID) {
         saved.removeAll { $0.id == id }
-        persistSaved()
+        try? persistSaved()
     }
 
     /// ゴミ箱からの復元時に、保存済み動画を再登録する
     func restoreSavedVideo(_ video: SavedVideo) {
         if !saved.contains(where: { $0.id == video.id }) {
             saved.insert(video, at: 0)
-            persistSaved()
+            try? persistSaved()
         }
     }
 
@@ -559,12 +578,16 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     func addSaved(_ video: SavedVideo) {
         saved.insert(video, at: 0)
-        persistSaved()
+        try? persistSaved()
     }
 
-    private func persistSaved() {
-        if let data = try? JSONEncoder().encode(saved) {
+    private func persistSaved() throws {
+        do {
+            let data = try JSONEncoder().encode(saved)
             UserDefaults.standard.set(data, forKey: Self.savedKey)
+        } catch {
+            print("[DownloadCenter] Failed to encode saved videos: \(error)")
+            throw error
         }
     }
 

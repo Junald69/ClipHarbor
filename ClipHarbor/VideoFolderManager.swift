@@ -344,9 +344,10 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
-    /// 動画・画像のお気に入り状態を切り替える
-    func toggleFavorite(for video: SavedVideo) {
-        downloads.updateSavedVideo(id: video.id, isFavorite: !video.isFavorite)
+    /// 動画・画像のお気に入り状態を切り替える（正本配列に基づいてトグルし、新状態を返す）
+    @discardableResult
+    func toggleFavorite(for video: SavedVideo) throws -> Bool {
+        try downloads.toggleFavorite(id: video.id)
     }
 
     /// 動画を削除する
