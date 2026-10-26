@@ -206,8 +206,8 @@ struct PlayerControlsOverlay: View {
             }
             .disabled(!canGoPrevious)
             .opacity(canGoPrevious ? 1.0 : 0.3)
-            .accessibilityLabel("前のファイル")
-            .accessibilityHint(canGoPrevious ? "前のファイルを表示します" : "先頭のファイルです")
+            .accessibilityLabel(NSLocalizedString("Previous File", comment: ""))
+            .accessibilityHint(canGoPrevious ? NSLocalizedString("Show previous file", comment: "") : NSLocalizedString("First file", comment: ""))
 
             // 再生・一時停止（動画のみ表示、画像時はレイアウトバランス保持のため透明枠）
             if !isImage {
@@ -219,7 +219,7 @@ struct PlayerControlsOverlay: View {
                         .background(Color.white.opacity(0.25), in: Circle())
                         .background(.ultraThinMaterial.opacity(0.4), in: Circle())
                 }
-                .accessibilityLabel(isPlaying ? "一時停止" : "再生")
+                .accessibilityLabel(isPlaying ? NSLocalizedString("Pause", comment: "") : NSLocalizedString("Play", comment: ""))
             } else {
                 Color.clear
                     .frame(width: 72, height: 72)
@@ -238,8 +238,8 @@ struct PlayerControlsOverlay: View {
             }
             .disabled(!canGoNext)
             .opacity(canGoNext ? 1.0 : 0.3)
-            .accessibilityLabel("次のファイル")
-            .accessibilityHint(canGoNext ? "次のファイルを表示します" : "最後のファイルです")
+            .accessibilityLabel(NSLocalizedString("Next File", comment: ""))
+            .accessibilityHint(canGoNext ? NSLocalizedString("Show next file", comment: "") : NSLocalizedString("Last file", comment: ""))
         }
     }
 

@@ -242,7 +242,7 @@ final class VideoThumbnailManager: ObservableObject {
 
     static func formatDuration(_ seconds: Double) -> String {
         guard seconds > 0, !seconds.isNaN, !seconds.isInfinite else {
-            return "不明"
+            return NSLocalizedString("Unknown", comment: "")
         }
         let totalSeconds = Int(seconds.rounded())
         let hours = totalSeconds / 3600

@@ -37,21 +37,21 @@ struct TrackedVideo: Identifiable, Equatable {
         let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty { return t }
         let f = frameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        return f.isEmpty ? "動画" : f
+        return f.isEmpty ? NSLocalizedString("Video", comment: "") : f
     }
 
     var stateLabel: String {
-        if isPlaying { return "再生中" }
-        if hasEnded { return "再生終了" }
-        if hasPlayed { return "一時停止" }
-        return "未再生"
+        if isPlaying { return NSLocalizedString("Playing", comment: "") }
+        if hasEnded { return NSLocalizedString("Playback Ended", comment: "") }
+        if hasPlayed { return NSLocalizedString("Paused", comment: "") }
+        return NSLocalizedString("Not Played", comment: "")
     }
 
     /// 内部の候補・理由を再計算する
     mutating func resolveCandidate(pageTitle: String) {
         if isProtected {
             candidate = nil
-            unsupportedReason = "保護されたコンテンツ（DRM）は保存できません。"
+            unsupportedReason = NSLocalizedString("Protected content (DRM) cannot be saved.", comment: "")
             return
         }
         var urls: [String] = []
@@ -70,7 +70,7 @@ struct TrackedVideo: Identifiable, Equatable {
             }
         }
         candidate = nil
-        unsupportedReason = firstReason ?? "動画のURLを取得できません。"
+        unsupportedReason = firstReason ?? NSLocalizedString("Cannot obtain video URL.", comment: "")
     }
 }
 

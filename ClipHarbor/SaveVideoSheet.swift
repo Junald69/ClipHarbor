@@ -103,7 +103,7 @@ struct SaveVideoSheet: View {
     }
 
     private var formatDisplayLabel: String {
-        isMP4Selected ? "MP4（HLSから変換）" : candidate.formatLabel
+        isMP4Selected ? NSLocalizedString("MP4 (Converted from HLS)", comment: "") : candidate.formatLabel
     }
 
     private var destinationLabel: String {
@@ -112,14 +112,14 @@ struct SaveVideoSheet: View {
             : "ClipHarbor / Documents / Downloads / \(resolvedFolderName)"
         if candidate.isHLS && !isMP4Selected {
             return resolvedFolderName.isEmpty
-                ? "ClipHarbor内（オフラインHLS）"
-                : "ClipHarbor内（オフラインHLS）· アプリ内フォルダ「\(resolvedFolderName)」"
+                ? NSLocalizedString("In ClipHarbor (Offline HLS)", comment: "")
+                : String(format: NSLocalizedString("In ClipHarbor (Offline HLS) · In-app folder \"%@\"", comment: ""), resolvedFolderName)
         }
         return filesPath
     }
 
     private var startButtonTitle: String {
-        isMP4Selected ? "MP4として保存を開始" : "ダウンロード"
+        isMP4Selected ? NSLocalizedString("Start Saving as MP4", comment: "") : NSLocalizedString("Download", comment: "")
     }
 
     // MARK: - 画面
@@ -127,9 +127,9 @@ struct SaveVideoSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("動画名") {
+                Section("Video Name") {
                     HStack {
-                        TextField("動画名を入力", text: $videoName)
+                        TextField("Enter video title", text: $videoName)
                             .focused($nameFocused)
                             .submitLabel(.done)
                         if !videoName.isEmpty {
@@ -140,34 +140,34 @@ struct SaveVideoSheet: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("入力をクリア")
+                            .accessibilityLabel(Text("Clear text"))
                         }
                     }
-                    LabeledContent("保存名プレビュー", value: previewFilename)
+                    LabeledContent(NSLocalizedString("Save Name Preview", comment: ""), value: previewFilename)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 if offersMP4Option {
                     Section {
-                        Picker("保存形式", selection: $saveFormat) {
-                            Text("オフラインHLS").tag(SaveFormat.offlineHLS)
+                        Picker("Save Format", selection: $saveFormat) {
+                            Text("Offline HLS").tag(SaveFormat.offlineHLS)
                             Text("MP4").tag(SaveFormat.mp4)
                         }
                         .pickerStyle(.segmented)
                     } header: {
-                        Text("保存形式")
+                        Text("Save Format")
                     } footer: {
                         Text(isMP4Selected
-                             ? "映像と音声を取得してMP4ファイルを生成します。品質検証に合格した場合のみ保存され、「ファイル」アプリからも利用できます。変換中はClipHarborを開いたままにしてください。"
-                             : "Apple標準のオフライン形式で保存します（従来どおりの保存方法・推奨）。ClipHarbor内で再生できます。")
+                             ? NSLocalizedString("Fetches video and audio to create an MP4 file. Saved only if quality verification passes, accessible from the \"Files\" app. Please keep ClipHarbor open during conversion.", comment: "")
+                             : NSLocalizedString("Saves in Apple's standard offline format (recommended standard method). Playable within ClipHarbor.", comment: ""))
                     }
                 }
 
-                Section("保存先フォルダ") {
+                Section("Destination Folder") {
                     if !isCreatingNewFolder {
-                        Picker("フォルダ", selection: $selectedFolder) {
-                            Text("Downloads（標準）").tag("")
+                        Picker("Folder", selection: $selectedFolder) {
+                            Text("Downloads (Standard)").tag("")
                             ForEach(existingFolders, id: \.self) { folder in
                                 Text(folder).tag(folder)
                             }
@@ -175,15 +175,15 @@ struct SaveVideoSheet: View {
                         Button {
                             isCreatingNewFolder = true
                         } label: {
-                            Label("新規フォルダを作成して保存", systemImage: "folder.badge.plus")
+                            Label("Create New Folder and Save", systemImage: "folder.badge.plus")
                                 .font(.subheadline)
                         }
                     } else {
                         HStack {
                             Image(systemName: "folder.badge.plus")
                                 .foregroundStyle(.blue)
-                            TextField("新しいフォルダ名", text: $newFolderName)
-                            Button("一覧から選ぶ") {
+                            TextField("New Folder Name", text: $newFolderName)
+                            Button("Choose from List") {
                                 isCreatingNewFolder = false
                                 newFolderName = ""
                             }
@@ -196,10 +196,10 @@ struct SaveVideoSheet: View {
                     mp4CompatibilitySection
                 }
 
-                Section("保存情報") {
-                    LabeledContent("保存形式", value: formatDisplayLabel)
-                    LabeledContent("配信元", value: candidate.host)
-                    LabeledContent("保存先", value: destinationLabel)
+                Section("Save Info") {
+                    LabeledContent(NSLocalizedString("Save Format", comment: ""), value: formatDisplayLabel)
+                    LabeledContent(NSLocalizedString("Source", comment: ""), value: candidate.host)
+                    LabeledContent(NSLocalizedString("Save Destination", comment: ""), value: destinationLabel)
                     if !isMP4Selected, let note = candidate.formatNote {
                         Text(note)
                             .font(.caption)
@@ -222,21 +222,21 @@ struct SaveVideoSheet: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
                         if isMP4Selected && compatibilityDetail == nil {
-                            Text("MP4への変換が可能と確認できないため、MP4での保存は開始できません。「オフラインHLS」を選択してください。")
+                            Text("Cannot start saving as MP4 because conversion compatibility could not be verified. Please select \"Offline HLS\".")
                                 .foregroundStyle(.orange)
                         }
-                        Text("権利者の許可がある動画のみ保存してください。配信元のアクセス制限や有効期限によっては保存できない場合があります。")
+                        Text("Please only save videos with the copyright holder's permission. Depending on access restrictions or expiration of the stream, saving may not be possible.")
                     }
                 }
             }
-            .navigationTitle("動画を保存")
+            .navigationTitle(Text("Save Video"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isMP4Selected ? "MP4で保存" : "ダウンロード") {
+                    Button(isMP4Selected ? NSLocalizedString("Save as MP4", comment: "") : NSLocalizedString("Download", comment: "")) {
                         startSelectedSave()
                     }
                     .fontWeight(.semibold)
@@ -259,28 +259,28 @@ struct SaveVideoSheet: View {
             case .idle, .checking:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("プレイリストと初期化セグメントを確認しています…")
+                    Text("Checking playlist and initialization segments…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             case .finished(let result):
                 switch result {
                 case .compatible(let detail):
-                    Label("MP4に変換できる形式です", systemImage: "checkmark.circle.fill")
+                    Label("Compatible with MP4 conversion", systemImage: "checkmark.circle.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.green)
                     Text(compatibilitySummary(detail))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case .incompatible(let reason):
-                    Label("MP4変換の対象外です", systemImage: "xmark.octagon.fill")
+                    Label("Not eligible for MP4 conversion", systemImage: "xmark.octagon.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.orange)
                     Text(reason)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case .undetermined(let reason):
-                    Label("互換性を判定できませんでした", systemImage: "questionmark.circle.fill")
+                    Label("Could not determine compatibility", systemImage: "questionmark.circle.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(reason)
@@ -290,26 +290,26 @@ struct SaveVideoSheet: View {
                         probeState = .idle
                         probeRunID += 1
                     } label: {
-                        Label("もう一度判定する", systemImage: "arrow.clockwise")
+                        Label("Re-evaluate", systemImage: "arrow.clockwise")
                             .font(.caption.weight(.semibold))
                     }
                 }
             }
         } header: {
-            Text("MP4互換性判定")
+            Text("MP4 Compatibility Check")
         } footer: {
-            Text("対象は暗号化されていないfMP4形式のVOD HLS（映像・音声統合型／分離音声型）です。判定に合格しても、変換後の品質検証に合格するまで保存は完了しません。暗号化・DRM・ライブ配信・MPEG-TS形式はMP4変換の対象外です。")
+            Text("Target is unencrypted VOD fMP4 HLS (unified or separate audio). Even if check passes, saving will not complete until converted quality verification succeeds. Encrypted, DRM, live streams, and MPEG-TS are not eligible for MP4 conversion.")
         }
     }
 
     private func compatibilitySummary(_ detail: VideoExportManager.MP4CompatibilityDetail) -> String {
-        let structure = detail.isSeparateAudio ? "分離音声fMP4" : "映像・音声統合型fMP4"
-        let audio = detail.audioCodec ?? "音声なし"
+        let structure = detail.isSeparateAudio ? NSLocalizedString("Separate Audio fMP4", comment: "") : NSLocalizedString("Unified Video/Audio fMP4", comment: "")
+        let audio = detail.audioCodec ?? NSLocalizedString("No Audio", comment: "")
         let segments = detail.isSeparateAudio
-            ? "映像\(detail.videoSegmentCount)・音声\(detail.audioSegmentCount)セグメント"
-            : "\(detail.videoSegmentCount)セグメント"
+            ? String(format: NSLocalizedString("Video %lld · Audio %lld segments", comment: ""), detail.videoSegmentCount, detail.audioSegmentCount)
+            : String(format: NSLocalizedString("%lld segments", comment: ""), detail.videoSegmentCount)
         return String(
-            format: "%@ · 映像 %@ / 音声 %@ · 約%.0f秒 · %@",
+            format: NSLocalizedString("%@ · Video %@ / Audio %@ · ~%.0fs · %@", comment: ""),
             structure,
             detail.videoCodec,
             audio,
@@ -356,7 +356,7 @@ struct CandidateListSheet: View {
             List {
                 if browser.selection.isAmbiguous {
                     Section {
-                        Label("複数の動画が同時に検出されています。保存したい動画を選択してください。",
+                        Label(NSLocalizedString("Multiple videos detected simultaneously. Please select the video you want to save.", comment: ""),
                               systemImage: "film.stack")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -366,12 +366,12 @@ struct CandidateListSheet: View {
                 let rows = browser.candidateRows
                 if rows.isEmpty {
                     ContentUnavailableView(
-                        "検出された動画はありません",
+                        NSLocalizedString("No videos detected", comment: ""),
                         systemImage: "video.slash",
-                        description: Text("ページ内で動画を再生すると、保存可能な候補がここに表示されます。")
+                        description: Text("When you play a video on the page, savable candidates will appear here.")
                     )
                 } else {
-                    Section("検出された動画・メディア") {
+                    Section("Detected Videos & Media") {
                         ForEach(rows) { row in
                             CandidateRowView(row: row) { candidate in
                                 dismiss()
@@ -383,11 +383,11 @@ struct CandidateListSheet: View {
                     }
                 }
             }
-            .navigationTitle("動画の候補一覧")
+            .navigationTitle(Text("Video Candidates"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
         }
@@ -446,7 +446,7 @@ private struct CandidateRowView: View {
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("この動画を保存")
+                .accessibilityLabel(Text("Save This Video"))
             }
         }
         .padding(.vertical, 4)
@@ -480,7 +480,7 @@ struct DownloadLibrarySheet: View {
         NavigationStack {
             List {
                 if !downloads.jobs.isEmpty {
-                    Section("ダウンロード状況") {
+                    Section("Download Status") {
                         ForEach(downloads.jobs) { job in
                             DownloadJobRow(
                                 job: job,
@@ -492,12 +492,12 @@ struct DownloadLibrarySheet: View {
                     }
                 }
 
-                Section("保存済み動画") {
+                Section("Saved Videos") {
                     if downloads.saved.isEmpty {
                         ContentUnavailableView(
-                            "保存した動画はありません",
+                            NSLocalizedString("No saved videos", comment: ""),
                             systemImage: "square.and.arrow.down",
-                            description: Text("動画再生中に表示される↓ボタンから保存できます。")
+                            description: Text("You can save videos using the download button shown while playing videos.")
                         )
                     } else {
                         ForEach(downloads.saved) { video in
@@ -512,11 +512,11 @@ struct DownloadLibrarySheet: View {
                     }
                 }
             }
-            .navigationTitle("ダウンロード")
+            .navigationTitle(Text("Download"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("閉じる") { dismiss() }
+                    Button("Close") { dismiss() }
                 }
             }
             .fullScreenCover(item: $playingVideo) { video in
@@ -540,13 +540,13 @@ private struct DownloadJobRow: View {
                     .lineLimit(1)
                 Spacer()
                 if job.state.isActive {
-                    Button("キャンセル", role: .destructive, action: onCancel)
+                    Button("Cancel", role: .destructive, action: onCancel)
                         .font(.caption)
                         .buttonStyle(.borderless)
                 } else {
                     HStack(spacing: 12) {
                         if job.canRetry {
-                            Button("再試行", action: onRetry)
+                            Button("Retry", action: onRetry)
                                 .font(.caption.weight(.semibold))
                                 .buttonStyle(.borderless)
                         }
@@ -555,7 +555,7 @@ private struct DownloadJobRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("履歴から消す")
+                        .accessibilityLabel(Text("Dismiss from History"))
                     }
                 }
             }
@@ -564,7 +564,7 @@ private struct DownloadJobRow: View {
             case .preparing:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("準備中… (\(job.host))")
+                    Text(String(format: NSLocalizedString("Preparing… (%@)", comment: ""), job.host))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -584,7 +584,7 @@ private struct DownloadJobRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             case .completed:
-                Label("保存完了", systemImage: "checkmark.circle.fill")
+                Label("Saved", systemImage: "checkmark.circle.fill")
                     .font(.caption)
                     .foregroundStyle(.green)
             case .failed(let message):
@@ -592,7 +592,7 @@ private struct DownloadJobRow: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             case .cancelled:
-                Label("キャンセルしました", systemImage: "slash.circle")
+                Label("Cancelled", systemImage: "slash.circle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -639,17 +639,17 @@ private struct SavedVideoRow: View {
 
             HStack(spacing: 20) {
                 Button(action: onPlay) {
-                    Label("再生", systemImage: "play.fill")
+                    Label("Play", systemImage: "play.fill")
                 }
                 .buttonStyle(.borderless)
 
                 if !video.isHLS && video.fileExists {
                     ShareLink(item: video.fileURL) {
-                        Label("共有・書き出し", systemImage: "square.and.arrow.up")
+                        Label("Share / Export", systemImage: "square.and.arrow.up")
                     }
                     .buttonStyle(.borderless)
                 } else if video.isHLS {
-                    Text("アプリ内再生専用（HLS）")
+                    Text("App Playback Only (HLS)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -668,7 +668,7 @@ struct OfflineVideoPlayerSheet: View {
     @StateObject private var playlistContext: PlaybackPlaylistContext
     @Environment(\.dismiss) private var dismiss
 
-    init(video: SavedVideo, playlist: [SavedVideo] = [], folderTitle: String = "保存済みファイル") {
+    init(video: SavedVideo, playlist: [SavedVideo] = [], folderTitle: String = NSLocalizedString("Saved Files", comment: "")) {
         let videos = playlist.isEmpty ? [video] : playlist
         _playlistContext = StateObject(wrappedValue: PlaybackPlaylistContext(
             normalVideos: videos,

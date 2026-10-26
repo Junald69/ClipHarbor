@@ -19,7 +19,7 @@ struct SavedVideo: Identifiable, Codable, Equatable {
 
         var label: String {
             switch self {
-            case .hls: return "オフラインHLS"
+            case .hls: return NSLocalizedString("Offline HLS", comment: "")
             case .jpeg, .jpg: return "JPEG"
             case .png: return "PNG"
             case .gif: return "GIF"
@@ -120,13 +120,13 @@ enum DownloadState: Equatable {
 
     var label: String {
         switch self {
-        case .preparing: return "準備中"
+        case .preparing: return NSLocalizedString("Preparing…", comment: "")
         case .downloading(let p):
-            if let p = p { return "ダウンロード中 \(Int(p * 100))%" }
-            return "ダウンロード中"
-        case .completed: return "保存完了"
-        case .failed(let message): return "保存失敗：\(message)"
-        case .cancelled: return "キャンセルしました"
+            if let p = p { return String(format: NSLocalizedString("Downloading %lld%", comment: ""), Int(p * 100)) }
+            return NSLocalizedString("Downloading…", comment: "")
+        case .completed: return NSLocalizedString("Saved", comment: "")
+        case .failed(let message): return String(format: NSLocalizedString("Save failed: %@", comment: ""), message)
+        case .cancelled: return NSLocalizedString("Cancelled", comment: "")
         }
     }
 

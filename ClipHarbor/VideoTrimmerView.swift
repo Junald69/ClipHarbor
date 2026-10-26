@@ -72,7 +72,7 @@ struct VideoTrimmerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("戻る") {
+                    Button("Back") {
                         if hasTrimmed || hasTitleChanged {
                             showDiscardAlert = true
                         } else {
@@ -83,7 +83,7 @@ struct VideoTrimmerView: View {
                 }
 
                 ToolbarItem(placement: .principal) {
-                    TextField("タイトル", text: $editedTitle)
+                    TextField(NSLocalizedString("Title", comment: ""), text: $editedTitle)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
@@ -91,7 +91,7 @@ struct VideoTrimmerView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("保存") {
+                    Button("Save") {
                         handleSaveTapped()
                     }
                     .font(.body.weight(.bold))
@@ -99,25 +99,25 @@ struct VideoTrimmerView: View {
                     .disabled(isExporting)
                 }
             }
-            .alert("変更を破棄しますか？", isPresented: $showDiscardAlert) {
-                Button("破棄", role: .destructive) {
+            .alert(NSLocalizedString("Discard changes?", comment: ""), isPresented: $showDiscardAlert) {
+                Button("Discard", role: .destructive) {
                     dismiss()
                 }
-                Button("編集を続ける", role: .cancel) {}
+                Button("Keep Editing", role: .cancel) {}
             } message: {
-                Text("保存していない変更内容は失われます。")
+                Text("Unsaved changes will be lost.")
             }
-            .alert("高精度書き出しの確認", isPresented: $showReencodeConfirmAlert) {
-                Button("高精度で書き出し") {
+            .alert(NSLocalizedString("High-Precision Export Confirmation", comment: ""), isPresented: $showReencodeConfirmAlert) {
+                Button("Export with High Precision") {
                     if let preset = pendingReencodePreset {
                         performExport(presetName: preset)
                     }
                 }
-                Button("キャンセル", role: .cancel) {}
+                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("この動画はキーフレーム基準の高速切り出しに対応していません。元解像度を維持した再エンコード書き出しを実行しますか？")
+                Text("This video does not support fast keyframe-based clipping. Do you want to export with re-encoding while maintaining original resolution?")
             }
-            .alert("エラー", isPresented: Binding(
+            .alert(NSLocalizedString("Error", comment: ""), isPresented: Binding(
                 get: { errorMessage != nil },
                 set: { if !$0 { errorMessage = nil } }
             )) {
@@ -154,13 +154,13 @@ struct VideoTrimmerView: View {
         VStack(spacing: 16) {
             // 再生時間・選択時間
             HStack {
-                Text("選択範囲: \(formatSeconds(max(0, endTime - startTime)))")
+                Text(String(format: NSLocalizedString("Selection: %@", comment: ""), formatSeconds(max(0, endTime - startTime))))
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
 
                 Spacer()
 
-                Text("全体: \(formatSeconds(assetDuration))")
+                Text(String(format: NSLocalizedString("Total: %@", comment: ""), formatSeconds(assetDuration)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -168,7 +168,7 @@ struct VideoTrimmerView: View {
 
             if isHLS {
                 // HLS警告表示
-                Text("※ オフラインHLSパッケージは分割構造のためトリミング非対応です（タイトル変更のみ保存可能）")
+                Text("*Offline HLS packages cannot be trimmed due to segmented structure (only title changes can be saved)")
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
@@ -287,7 +287,7 @@ struct VideoTrimmerView: View {
                 ProgressView()
                     .tint(.white)
                     .scaleEffect(1.3)
-                Text(statusMessage ?? "クリップを書き出し中...")
+                Text(statusMessage ?? NSLocalizedString("Exporting clip…", comment: ""))
                     .font(.subheadline)
                     .foregroundStyle(.white)
             }
@@ -378,7 +378,7 @@ struct VideoTrimmerView: View {
     private func handleSaveTapped() {
         let clean = FileNaming.sanitizedBaseName(editedTitle)
         guard !clean.isEmpty else {
-            errorMessage = "タイトルを入力してください。"
+            errorMessage = NSLocalizedString("Please enter a title.", comment: "")
             return
         }
 
@@ -405,18 +405,18 @@ struct VideoTrimmerView: View {
             pendingReencodePreset = AVAssetExportPresetHighestQuality
             showReencodeConfirmAlert = true
         } else {
-            errorMessage = "この動画はトリミング書き出しに対応していないフォーマットです。"
+            errorMessage = NSLocalizedString("This video format does not support trimming.", comment: "")
         }
     }
 
     private func performExport(presetName: String) {
         isExporting = true
-        statusMessage = "クリップを書き出し中..."
+        statusMessage = NSLocalizedString("Exporting clip…", comment: "")
 
         let asset = AVURLAsset(url: sourceURL)
         guard let session = AVAssetExportSession(asset: asset, presetName: presetName) else {
             isExporting = false
-            errorMessage = "書き出しセッションの初期化に失敗しました。"
+            errorMessage = NSLocalizedString("Failed to initialize export session.", comment: "")
             return
         }
 
@@ -444,7 +444,7 @@ struct VideoTrimmerView: View {
                 case .failed:
                     isExporting = false
                     try? FileManager.default.removeItem(at: tempOutURL)
-                    errorMessage = "書き出しに失敗しました: \(session.error?.localizedDescription ?? "不明なエラー")"
+                    errorMessage = String(format: NSLocalizedString("Export failed: %@", comment: ""), session.error?.localizedDescription ?? NSLocalizedString("Unknown Error", comment: ""))
                 case .cancelled:
                     isExporting = false
                     try? FileManager.default.removeItem(at: tempOutURL)
@@ -457,7 +457,7 @@ struct VideoTrimmerView: View {
     }
 
     private func validateAndFinishExport(tempURL: URL, expectedDuration: CMTime) {
-        statusMessage = "生成されたクリップを検証中..."
+        statusMessage = NSLocalizedString("Validating generated clip…", comment: "")
         let exportedAsset = AVURLAsset(url: tempURL)
 
         Task {
@@ -466,14 +466,14 @@ struct VideoTrimmerView: View {
                 let duration = try await exportedAsset.load(.duration)
                 let tracks = try await exportedAsset.load(.tracks)
                 guard !tracks.isEmpty else {
-                    throw NSError(domain: "VideoTrimmer", code: 1, userInfo: [NSLocalizedDescriptionKey: "有効なメディアトラックが存在しません。"])
+                    throw NSError(domain: "VideoTrimmer", code: 1, userInfo: [NSLocalizedDescriptionKey: NSLocalizedString("No valid media tracks exist.", comment: "")])
                 }
 
                 let actualSecs = CMTimeGetSeconds(duration)
                 let expectedSecs = CMTimeGetSeconds(expectedDuration)
                 // パススルー時のキーフレーム吸着を考慮しつつ最低限の長さがあるか検証
                 guard actualSecs > 0.2 else {
-                    throw NSError(domain: "VideoTrimmer", code: 2, userInfo: [NSLocalizedDescriptionKey: "書き出された動画の長さが不正です。"])
+                    throw NSError(domain: "VideoTrimmer", code: 2, userInfo: [NSLocalizedDescriptionKey: NSLocalizedString("Exported video length is invalid.", comment: "")])
                 }
 
                 await MainActor.run {
@@ -487,7 +487,7 @@ struct VideoTrimmerView: View {
                         } catch {
                             isExporting = false
                             try? FileManager.default.removeItem(at: tempURL)
-                            errorMessage = "クリップの保存に失敗しました: \(error.localizedDescription)"
+                            errorMessage = String(format: NSLocalizedString("Failed to save clip: %@", comment: ""), error.localizedDescription)
                         }
                     }
                 }
@@ -495,7 +495,7 @@ struct VideoTrimmerView: View {
                 await MainActor.run {
                     isExporting = false
                     try? FileManager.default.removeItem(at: tempURL)
-                    errorMessage = "クリップの検証に失敗しました: \(error.localizedDescription)"
+                    errorMessage = String(format: NSLocalizedString("Failed to validate clip: %@", comment: ""), error.localizedDescription)
                 }
             }
         }

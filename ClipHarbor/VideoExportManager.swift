@@ -33,24 +33,24 @@ final class VideoExportManager: ObservableObject {
             var label: String {
                 switch self {
                 case .analyzingPlaylist:
-                    return "HLSプレイリストとfMP4構造を解析中…"
+                    return NSLocalizedString("Analyzing HLS playlist and MP4 structure…", comment: "")
                 case .downloadingSegments(let stage, let done, let total, let p):
                     return "\(stage) (\(done)/\(total) · \(Int(p * 100))%)"
                 case .remuxingToMP4(let isSeparate):
                     if isSeparate {
-                        return "映像fMP4と分離音声fMP4を同期・結合してMP4へ書き出し中…"
+                        return NSLocalizedString("Exporting video fMP4 and separate audio fMP4 to synced combined MP4…", comment: "")
                     } else {
-                        return "AVAssetExportSessionでMP4へ書き出し中…"
+                        return NSLocalizedString("Exporting to standard MP4 with AVAssetExportSession…", comment: "")
                     }
                 case .verifyingMP4:
-                    return "生成されたMP4の品質（映像/音声トラック・同期・再生時間・3点フレーム）を検証中…"
+                    return NSLocalizedString("Validating generated MP4 quality (video/audio tracks, resolution, duration, 3 checkpoints)…", comment: "")
                 case .completed(let summary):
-                    let modeLabel = summary.isSeparateAudioMerged ? "分離音声結合MP4" : "統合fMP4→MP4"
-                    return "\(modeLabel)完了（\(String(format: "%.1f秒", summary.durationSeconds))）"
+                    let modeLabel = summary.isSeparateAudioMerged ? NSLocalizedString("Separate Audio fMP4", comment: "") : NSLocalizedString("Unified Video/Audio fMP4", comment: "")
+                    return "\(modeLabel) \(NSLocalizedString("Completed", comment: "")) (\(String(format: "%.1fs", summary.durationSeconds)))"
                 case .failed(let reason):
-                    return "MP4変換不可：\(reason)"
+                    return String(format: NSLocalizedString("MP4 conversion failed: %@", comment: ""), reason)
                 case .cancelled:
-                    return "キャンセルしました"
+                    return NSLocalizedString("Cancelled", comment: "")
                 }
             }
         }
@@ -102,45 +102,45 @@ final class VideoExportManager: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .httpError(let code, let stage):
-                return "配信元からの取得に失敗しました（\(stage): HTTP \(code)）。URLの有効期限切れやアクセス制限の可能性があります。"
+                return String(format: NSLocalizedString("Could not fetch stream (%@: HTTP %lld). URL may have expired or requires authorization.", comment: ""), stage, Int64(code))
             case .invalidPlaylist:
-                return "有効なHLSプレイリスト（#EXTM3U）として解析できませんでした。"
+                return NSLocalizedString("Could not parse as a valid HLS playlist (#EXTM3U).", comment: "")
             case .encryptedStream(let detail):
-                return "暗号化されたHLS（\(detail)）のため、MP4変換の対象外です。ClipHarborは暗号化HLSの復号処理を行いません。「オフラインHLS」で保存できる場合があります。"
+                return String(format: NSLocalizedString("Not eligible for MP4 conversion due to encrypted HLS (%@). ClipHarbor does not decrypt encrypted HLS. It may be savable as \"Offline HLS\".", comment: ""), detail)
             case .liveStream:
-                return "ライブ配信（#EXT-X-ENDLISTなし）のため、MP4として保存できません。"
+                return NSLocalizedString("Cannot save as MP4 because this is a live stream (no #EXT-X-ENDLIST).", comment: "")
             case .separateAudioPlaylistMissing(let detail):
-                return "分離音声プレイリストの解決に失敗しました（\(detail)）。「オフラインHLS」で保存してください。"
+                return String(format: NSLocalizedString("Playlist analysis failed (%@). Please save with \"Offline HLS\".", comment: ""), detail)
             case .notFMP4Format(let detail):
-                return "fMP4（Fragmented MP4 / #EXT-X-MAP）形式のHLSではありません（\(detail)）。MPEG-TS（.ts）形式等は「オフラインHLS」で保存してください。"
+                return String(format: NSLocalizedString("HLS is not in fMP4 (Fragmented MP4 / #EXT-X-MAP) format (%@). For MPEG-TS (.ts) format, please save with \"Offline HLS\".", comment: ""), detail)
             case .discontinuityNotSupported(let detail):
-                return "プレイリスト内に不連続区間（\(detail)）が含まれているため、MP4変換の対象外です。「オフラインHLS」で保存してください。"
+                return String(format: NSLocalizedString("Not eligible for MP4 conversion because playlist contains discontinuities (%@). Please save with \"Offline HLS\".", comment: ""), detail)
             case .unsupportedCodec(let detail):
-                return "MP4書き出しに対応していないコーデック構成です（\(detail)）。"
+                return String(format: NSLocalizedString("Codec configuration is not supported for MP4 export (%@).", comment: ""), detail)
             case .segmentDownloadFailed(let label, let idx, let total, let reason):
-                return "\(label)セグメント \(idx)/\(total) の取得に失敗しました（\(reason)）。セグメント欠落のあるMP4は保存しません。"
+                return String(format: NSLocalizedString("Failed to fetch %@ segment %lld/%lld (%@). MP4 with missing segments cannot be saved.", comment: ""), label, Int64(idx), Int64(total), reason)
             case .invalidInitSegment(let detail):
-                return "fMP4初期化セグメント（#EXT-X-MAP）の構造が不正です（\(detail)）。"
+                return String(format: NSLocalizedString("fMP4 segment (%@) structure is invalid (%@).", comment: ""), "#EXT-X-MAP", detail)
             case .invalidMediaSegment(let label, let idx, let reason):
-                return "\(label)セグメント \(idx) のfMP4ボックス構造（moof/mdat）が不正です（\(reason)）。"
+                return String(format: NSLocalizedString("fMP4 box structure (moof/mdat) in %@ segment %lld is invalid (%@).", comment: ""), label, Int64(idx), reason)
             case .duplicateOrMissingSegment(let label, let idx, let detail):
-                return "\(label)セグメント \(idx) でデータの欠落または重複を検出したため中止しました（\(detail)）。"
+                return String(format: NSLocalizedString("Aborted because data gap or duplication detected in %@ segment %lld (%@).", comment: ""), label, Int64(idx), detail)
             case .timestampDiscontinuity(let label, let trackID, let idx, let prev, let curr):
-                return "\(label)セグメント \(idx)（track_ID=\(trackID)）でタイムスタンプの逆行・不連続（\(prev) → \(curr)）を検出したため中止しました。"
+                return String(format: NSLocalizedString("Aborted because timestamp reversal or discontinuity (%@ → %@) detected in %@ segment %lld (track_ID=%lld).", comment: ""), String(prev), String(curr), label, Int64(idx), Int64(trackID))
             case .avSyncFailed(let detail):
-                return "映像と分離音声の時間同期・結合に失敗しました（\(detail)）。"
+                return String(format: NSLocalizedString("Failed to synchronize video and audio timeline (%@).", comment: ""), detail)
             case .combinedFMP4NotPlayable(let detail):
-                return "組み立てたfMP4をAVFoundationで読み込めませんでした（\(detail)）。"
+                return String(format: NSLocalizedString("Assembled fMP4 could not be read by AVFoundation (%@).", comment: ""), detail)
             case .exportSessionNotCompatible(let detail):
-                return "AVAssetExportSession で通常のMP4へ変換できないストリーム構成です（\(detail)）。"
+                return String(format: NSLocalizedString("Stream structure cannot be converted to standard MP4 with AVAssetExportSession (%@).", comment: ""), detail)
             case .exportSessionFailed(let detail):
-                return "AVAssetExportSession によるMP4書き出しに失敗しました（\(detail)）。"
+                return String(format: NSLocalizedString("MP4 export with AVAssetExportSession failed (%@).", comment: ""), detail)
             case .verificationFailed(let detail):
-                return "生成されたMP4の品質検証に失敗しました（\(detail)）。"
+                return String(format: NSLocalizedString("Quality verification of generated MP4 failed (%@).", comment: ""), detail)
             case .fileSaveFailed(let detail):
-                return "MP4ファイルの保存に失敗しました（\(detail)）。"
+                return String(format: NSLocalizedString("Failed to save MP4 file (%@).", comment: ""), detail)
             case .cancelled:
-                return "MP4変換をキャンセルしました。"
+                return NSLocalizedString("MP4 conversion was cancelled.", comment: "")
             }
         }
     }

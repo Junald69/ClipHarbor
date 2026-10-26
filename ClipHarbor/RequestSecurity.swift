@@ -147,12 +147,12 @@ enum MediaSniffer {
 enum DownloadErrorMessage {
     static func forHTTPStatus(_ code: Int) -> String {
         switch code {
-        case 401, 403: return "配信元へのアクセス権を確認できません（HTTP \(code)）"
-        case 404, 410: return "動画が見つからないか、URLの有効期限が切れました（HTTP \(code)）"
-        case 416: return "配信元が要求を受け付けませんでした（HTTP 416）"
-        case 429: return "配信元へのアクセスが集中しています。時間をおいて再試行してください（HTTP 429）"
-        case 500...599: return "配信元のサーバーでエラーが発生しました（HTTP \(code)）"
-        default: return "保存できませんでした（HTTP \(code)）"
+        case 401, 403: return String(format: NSLocalizedString("Cannot access source (HTTP %lld)", comment: ""), code)
+        case 404, 410: return String(format: NSLocalizedString("Video not found or URL expired (HTTP %lld)", comment: ""), code)
+        case 416: return NSLocalizedString("Source server rejected request (HTTP 416)", comment: "")
+        case 429: return NSLocalizedString("Source is experiencing high traffic. Please try again later (HTTP 429)", comment: "")
+        case 500...599: return String(format: NSLocalizedString("Source server error occurred (HTTP %lld)", comment: ""), code)
+        default: return String(format: NSLocalizedString("Could not save (HTTP %lld)", comment: ""), code)
         }
     }
 
@@ -161,20 +161,20 @@ enum DownloadErrorMessage {
         if ns.domain == NSURLErrorDomain {
             switch ns.code {
             case NSURLErrorNotConnectedToInternet, NSURLErrorNetworkConnectionLost:
-                return "通信が切断されました。接続を確認して再試行してください。"
-            case NSURLErrorTimedOut: return "通信がタイムアウトしました。"
+                return NSLocalizedString("Connection was lost. Please check connection and retry.", comment: "")
+            case NSURLErrorTimedOut: return NSLocalizedString("Connection timed out.", comment: "")
             case NSURLErrorCannotCreateFile, NSURLErrorCannotWriteToFile:
-                return "ファイルを書き込めませんでした。空き容量を確認してください。"
-            case NSURLErrorHTTPTooManyRedirects: return "リダイレクトが多すぎるため中止しました。"
+                return NSLocalizedString("Could not write file. Please check free space.", comment: "")
+            case NSURLErrorHTTPTooManyRedirects: return NSLocalizedString("Too many redirects", comment: "")
             case NSURLErrorServerCertificateUntrusted, NSURLErrorSecureConnectionFailed:
-                return "安全な接続を確立できませんでした。"
+                return NSLocalizedString("Could not establish a secure connection", comment: "")
             default: break
             }
         }
         if ns.domain == NSCocoaErrorDomain && ns.code == NSFileWriteOutOfSpaceError {
-            return "iPhoneの空き容量が不足しています"
+            return NSLocalizedString("Insufficient storage available on iPhone", comment: "")
         }
-        return "保存に失敗しました（\(ns.domain) \(ns.code)）"
+        return String(format: NSLocalizedString("Save failed (%@ %lld)", comment: ""), ns.domain, ns.code)
     }
 }
 

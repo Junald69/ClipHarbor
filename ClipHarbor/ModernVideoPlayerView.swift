@@ -294,7 +294,7 @@ struct ModernVideoPlayerView: View {
                         Text(errorMsg)
                             .font(.subheadline)
                             .foregroundStyle(.white.opacity(0.8))
-                        Button("再試行") {
+                        Button("Retry") {
                             loadCurrentItem(autoPlay: false)
                         }
                         .buttonStyle(.borderedProminent)
@@ -391,7 +391,7 @@ struct ModernVideoPlayerView: View {
                 VStack(spacing: 6) {
                     Image(systemName: "gobackward.10")
                         .font(.system(size: 32, weight: .semibold))
-                    Text(seekFeedbackText ?? "-10秒")
+                    Text(seekFeedbackText ?? "-10s")
                         .font(.caption.weight(.bold))
                 }
                 .foregroundStyle(.white)
@@ -406,7 +406,7 @@ struct ModernVideoPlayerView: View {
                 VStack(spacing: 6) {
                     Image(systemName: "goforward.10")
                         .font(.system(size: 32, weight: .semibold))
-                    Text(seekFeedbackText ?? "+10秒")
+                    Text(seekFeedbackText ?? "+10s")
                         .font(.caption.weight(.bold))
                 }
                 .foregroundStyle(.white)
@@ -454,7 +454,7 @@ struct ModernVideoPlayerView: View {
                 if let image = loaded {
                     self.imageLoadState = .success(image)
                 } else {
-                    self.imageLoadState = .failure("画像の読み込みに失敗しました")
+                    self.imageLoadState = .failure(NSLocalizedString("Failed to load image", comment: ""))
                 }
             }
         }
@@ -487,7 +487,7 @@ struct ModernVideoPlayerView: View {
                     setupVideoPlayer(url: tempURL, isVault: true, autoPlay: autoPlay)
                 }
             } catch {
-                showToast("再生準備に失敗しました: \(error.localizedDescription)")
+                showToast(String(format: NSLocalizedString("Failed to prepare playback: %@", comment: ""), error.localizedDescription))
             }
         }
     }
@@ -633,7 +633,7 @@ struct ModernVideoPlayerView: View {
 
         // フィードバックバッジ演出
         seekFeedbackIsForward = isForward
-        seekFeedbackText = isForward ? "+10秒" : "-10秒"
+        seekFeedbackText = isForward ? "+10s" : "-10s"
         withAnimation(.easeIn(duration: 0.15)) {
             seekFeedbackOpacity = 1.0
         }
@@ -822,7 +822,7 @@ struct ModernVideoPlayerView: View {
             return
         }
         guard let url = currentPlaybackURL, FileManager.default.fileExists(atPath: url.path) else {
-            showToast("共有対象ファイルが見つかりません")
+            showToast(NSLocalizedString("File to share not found", comment: ""))
             return
         }
         showShareSheet = true
@@ -1013,13 +1013,13 @@ struct ModernVideoPlayerView: View {
         case .normal(let video):
             let folderManager = VideoFolderManager(downloads: .shared)
             _ = folderManager.renameVideo(video, to: newTitle)
-            showToast("タイトルを変更しました")
+            showToast(NSLocalizedString("Title changed", comment: ""))
         case .vault(let vaultItem):
             do {
                 try VaultManager.shared.renameVaultItem(vaultItem, to: newTitle)
-                showToast("タイトルを変更しました")
+                showToast(NSLocalizedString("Title changed", comment: ""))
             } catch {
-                showToast("タイトルの変更に失敗しました: \(error.localizedDescription)")
+                showToast(String(format: NSLocalizedString("Failed to change title: %@", comment: ""), error.localizedDescription))
             }
         }
     }
@@ -1036,7 +1036,7 @@ struct ModernVideoPlayerView: View {
 
             try FileManager.default.moveItem(at: tempURL, to: destURL)
             guard let rel = SavedVideo.relativePath(for: destURL) else {
-                throw NSError(domain: "Player", code: 500, userInfo: [NSLocalizedDescriptionKey: "保存パスの生成に失敗しました。"])
+                throw NSError(domain: "Player", code: 500, userInfo: [NSLocalizedDescriptionKey: NSLocalizedString("Failed to generate save path.", comment: "")])
             }
 
             let newVideo = SavedVideo(
@@ -1051,14 +1051,14 @@ struct ModernVideoPlayerView: View {
                 isFavorite: false
             )
             DownloadCenter.shared.registerExportedVideo(newVideo)
-            showToast("「\(clean)」を新しいクリップとして保存しました")
+            showToast(String(format: NSLocalizedString("Saved \"%@\" as new clip", comment: ""), clean))
 
         case .vault(let vaultItem):
             do {
                 _ = try await VaultManager.shared.addEncryptedClip(tempURL: tempURL, clipTitle: clipTitle, sourceVaultItem: vaultItem)
-                showToast("「\(clipTitle)」をVault内にクリップ保存しました")
+                showToast(String(format: NSLocalizedString("Saved \"%@\" to Vault as clip", comment: ""), clipTitle))
             } catch {
-                showToast("Vault内クリップ保存に失敗しました: \(error.localizedDescription)")
+                showToast(String(format: NSLocalizedString("Failed to save clip to Vault: %@", comment: ""), error.localizedDescription))
             }
         }
     }
@@ -1073,7 +1073,7 @@ struct ModernVideoPlayerView: View {
                 folders: folderManager.folders,
                 onSelectFolder: { targetFolder in
                     _ = folderManager.moveVideo(video, toFolder: targetFolder)
-                    showToast("ファイルを移動しました")
+                    showToast(NSLocalizedString("File moved", comment: ""))
                 }
             )
         }

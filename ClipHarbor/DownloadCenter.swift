@@ -129,7 +129,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             do {
                 try FileManager.default.removeItem(at: item.fileURL)
             } catch {
-                setStatus("ファイルを削除できませんでした")
+                setStatus(NSLocalizedString("Failed to delete file", comment: ""))
                 return
             }
         }
@@ -169,7 +169,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return false
         }
         addSaved(video)
-        setStatus("MP4として保存しました：\(video.title)")
+        setStatus(String(format: NSLocalizedString("Saved as MP4: %@", comment: ""), video.title))
         return true
     }
 
@@ -187,7 +187,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             $0.canRetry = false
         }
         if let free = availableCapacity(), free < Self.minimumFreeBytes {
-            finish(transfer.jobID, state: .failed("iPhoneの空き容量が不足しています"), name: transfer.baseName)
+            finish(transfer.jobID, state: .failed(NSLocalizedString("Insufficient storage available on iPhone", comment: "")), name: transfer.baseName)
             return
         }
         if transfer.candidate.isHLS {
@@ -195,7 +195,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         } else {
             launchFile(transfer)
         }
-        setStatus("「\(transfer.baseName)」のダウンロードを開始しました")
+        setStatus(String(format: NSLocalizedString("Started download for \"%@\"", comment: ""), transfer.baseName))
         updateBackgroundTask()
     }
 
@@ -250,14 +250,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         }
         transfer.redirectCount += 1
         guard transfer.redirectCount <= Self.maxRedirects else {
-            transfer.failureOverride = "リダイレクトが多すぎるため中止しました。"
+            transfer.failureOverride = NSLocalizedString("Too many redirects", comment: "")
             completionHandler(nil)
             task.cancel()
             return
         }
         // 前の宛先のCookie/Authorizationを外し、新しい宛先に一致するCookieだけを付け直す
         guard let next = transfer.context.redirectedRequest(request, from: task.currentRequest?.url) else {
-            transfer.failureOverride = "安全でない転送先のため中止しました。"
+            transfer.failureOverride = NSLocalizedString("Could not establish a secure connection", comment: "")
             completionHandler(nil)
             task.cancel()
             return
@@ -273,7 +273,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if !transfer.checkedCapacity && expected > 0 {
             transfer.checkedCapacity = true
             if let free = availableCapacity(), expected + Self.minimumFreeBytes > free {
-                transfer.failureOverride = "iPhoneの空き容量が不足しています"
+                transfer.failureOverride = NSLocalizedString("Insufficient storage available on iPhone", comment: "")
                 downloadTask.cancel()
                 return
             }
@@ -320,7 +320,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 finish(id, state: .failed(message), name: transfer.baseName)
             }
         } else {
-            finish(id, state: .failed("保存できませんでした"), name: transfer.baseName)
+            finish(id, state: .failed(NSLocalizedString("Could not save (HTTP 500)", comment: "")), name: transfer.baseName)
         }
     }
 
@@ -350,7 +350,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let location = hlsLocations.removeValue(forKey: id)
         let record = pendingHLS.removeValue(forKey: id)
         persistPendingHLS()
-        let name = transfers[id]?.baseName ?? record?.displayName ?? "HLS動画"
+        let name = transfers[id]?.baseName ?? record?.displayName ?? NSLocalizedString("Offline HLS", comment: "")
         let host = transfers[id]?.candidate.host ?? record?.host
 
         if let error = error {
@@ -364,14 +364,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return
         }
         guard let location = location else {
-            finish(id, state: .failed("HLSの保存先を取得できませんでした"), name: name)
+            finish(id, state: .failed(NSLocalizedString("Could not save (HTTP 500)", comment: "")), name: name)
             return
         }
         let asset = AVURLAsset(url: location)
         guard asset.assetCache?.isPlayableOffline == true,
               let relative = SavedVideo.relativePath(for: location) else {
             try? FileManager.default.removeItem(at: location)
-            finish(id, state: .failed("この配信方式のオフライン保存には対応していません"), name: name)
+            finish(id, state: .failed(NSLocalizedString("This streaming URL format is not supported.", comment: "")), name: name)
             return
         }
         let pageURL = transfers[id]?.sourcePageURL ?? record?.pageURL
@@ -387,9 +387,9 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let ns = error as NSError
         if ns.domain == AVFoundationErrorDomain {
             if ns.code == AVError.Code.contentIsProtected.rawValue || ns.code == AVError.Code.contentIsNotAuthorized.rawValue {
-                return "保護されたコンテンツは保存できません"
+                return NSLocalizedString("Protected content (DRM) cannot be saved.", comment: "")
             }
-            return "この配信方式のオフライン保存には対応していません（コード \(ns.code)）"
+            return NSLocalizedString("This streaming URL format is not supported.", comment: "")
         }
         return DownloadErrorMessage.forError(error)
     }
@@ -426,15 +426,15 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         case .mov: format = .mov
         case .webm: format = .webm
         case .hlsPlaylist:
-            return .failed("このURLはHLS配信でした。候補一覧に「オフラインHLS」がある場合はそちらから保存してください。")
+            return .failed(NSLocalizedString("This streaming URL format is not supported.", comment: ""))
         case .textOrHTML:
-            return .failed("動画ではなくWebページ等が返されました。ログイン状態やURLの有効期限を確認してください。")
+            return .failed(NSLocalizedString("This URL cannot be identified as a video file.", comment: ""))
         case .unknown:
             if mime.hasPrefix("video/"), let ext = transfer.candidate.expectedExtension,
                let f = SavedVideo.Format(rawValue: ext) {
                 format = f
             } else {
-                return .failed("動画ファイルとして確認できませんでした。")
+                return .failed(NSLocalizedString("This URL cannot be identified as a video file.", comment: ""))
             }
         }
 
@@ -445,7 +445,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 let candidateURL = FileNaming.uniqueDestination(in: folder, baseName: transfer.baseName,
                                                                 fileExtension: format.rawValue)
                 guard FileNaming.isDirectChild(candidateURL, of: folder) else {
-                    return .failed("ファイル名が不正です。別の名前で保存してください。")
+                    return .failed(NSLocalizedString("Invalid file name.", comment: ""))
                 }
                 do {
                     try FileManager.default.moveItem(at: location, to: candidateURL)
@@ -455,13 +455,13 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                     continue
                 }
             }
-            guard let saved = destination else { return .failed("同名のファイルが多すぎるため保存できませんでした。") }
+            guard let saved = destination else { return .failed(NSLocalizedString("A folder with the same name already exists.", comment: "")) }
             try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
                                                    ofItemAtPath: saved.path)
             let size = (try? FileManager.default.attributesOfItem(atPath: saved.path)[.size] as? NSNumber)?.int64Value
             guard let relative = SavedVideo.relativePath(for: saved) else {
                 try? FileManager.default.removeItem(at: saved)
-                return .failed("保存先を確認できませんでした。")
+                return .failed(NSLocalizedString("Could not save (HTTP 500)", comment: ""))
             }
             return .saved(SavedVideo(id: UUID(), title: transfer.baseName, relativePath: relative, format: format,
                                      sourceHost: transfer.candidate.url.host, createdAt: Date(), byteSize: size,
@@ -511,13 +511,13 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         case .completed:
             jobs.removeAll { $0.id == id }
             transfers[id] = nil
-            setStatus("保存しました：\(name)")
+            setStatus(String(format: NSLocalizedString("Saved: %@", comment: ""), name))
         case .failed(let message):
             updateJob(id) { $0.state = state; $0.canRetry = true }
             setStatus("「\(name)」\(message)")
         case .cancelled:
             updateJob(id) { $0.state = state; $0.canRetry = true }
-            setStatus("「\(name)」のダウンロードをキャンセルしました")
+            setStatus(String(format: NSLocalizedString("Cancelled download for \"%@\"", comment: ""), name))
         default:
             updateJob(id) { $0.state = state }
         }
