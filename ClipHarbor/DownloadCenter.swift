@@ -609,7 +609,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 }
             }
             defaults.removeObject(forKey: Self.legacyKey)
-            persistSaved()
+            try? persistSaved()
         }
     }
 
