@@ -553,15 +553,21 @@ struct ModernVideoPlayerView: View {
         self.isPlaying = autoPlay
 
         // セーフな匿名診断ログ（個人ファイル名・生URL・生パスを出力しない）
-        let exists = FileManager.default.fileExists(atPath: url.path)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+        let isReadable = FileManager.default.isReadableFile(atPath: url.path)
         let isHLS = url.pathExtension.lowercased() == "movpkg" || playlistContext.currentItem?.isHLS == true
         let asset = AVURLAsset(url: url)
         let isOfflinePlayable = asset.assetCache?.isPlayableOffline
         let docPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
         let cachesPath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.path ?? ""
+        let homePath = NSHomeDirectory()
         let isUnderDocs = !docPath.isEmpty && url.path.hasPrefix(docPath)
         let isUnderCaches = !cachesPath.isEmpty && url.path.hasPrefix(cachesPath)
-        print("[PlayerDiag] setup isHLS=\(isHLS) exists=\(exists) offlinePlayable=\(String(describing: isOfflinePlayable)) underDocs=\(isUnderDocs) underCaches=\(isUnderCaches) autoPlay=\(autoPlay)")
+        let isUnderHome = !homePath.isEmpty && url.path.hasPrefix(homePath)
+        let scheme = url.scheme ?? "nil"
+        let ext = url.pathExtension.lowercased()
+        print("[PlayerDiag] setup scheme=\(scheme) isFile=\(url.isFileURL) ext=\(ext) isDir=\(isDir.boolValue) exists=\(exists) isReadable=\(isReadable) offlinePlayable=\(String(describing: isOfflinePlayable)) underHome=\(isUnderHome) underDocs=\(isUnderDocs) underCaches=\(isUnderCaches) isHLS=\(isHLS) autoPlay=\(autoPlay)")
 
         // PiP中または復帰中の既存セッションがある場合は再利用（startPlaybackSession による再初期化を防止）
         if !isVault,
@@ -636,7 +642,10 @@ struct ModernVideoPlayerView: View {
                     let nsError = p.error as NSError?
                     let domain = nsError?.domain ?? "AVPlayer"
                     let code = nsError?.code ?? -1
-                    print("[PlayerDiag] player failed domain=\(domain) code=\(code)")
+                    let underlying = nsError?.userInfo[NSUnderlyingErrorKey] as? NSError
+                    let uDomain = underlying?.domain ?? "none"
+                    let uCode = underlying?.code ?? 0
+                    print("[PlayerDiag] player failed domain=\(domain) code=\(code) uDomain=\(uDomain) uCode=\(uCode)")
                     self.videoLoadState = .failed(domain: domain, code: code)
                     self.isPlaying = false
                     self.areControlsVisible = true
@@ -708,7 +717,10 @@ struct ModernVideoPlayerView: View {
         let nsError = item.error as NSError?
         let domain = nsError?.domain ?? "AVPlayerItem"
         let code = nsError?.code ?? -1
-        print("[PlayerDiag] item failed domain=\(domain) code=\(code)")
+        let underlying = nsError?.userInfo[NSUnderlyingErrorKey] as? NSError
+        let uDomain = underlying?.domain ?? "none"
+        let uCode = underlying?.code ?? 0
+        print("[PlayerDiag] item failed domain=\(domain) code=\(code) uDomain=\(uDomain) uCode=\(uCode)")
         self.videoLoadState = .failed(domain: domain, code: code)
         self.isPlaying = false
         self.areControlsVisible = true

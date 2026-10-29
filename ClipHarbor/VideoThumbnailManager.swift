@@ -198,18 +198,9 @@ final class VideoThumbnailManager: ObservableObject {
         }
 
         if ext == "movpkg" {
-            lock.lock()
-            let hasFailed = failedHLSURLs.contains(fileURL)
-            lock.unlock()
-            if hasFailed { return nil }
-
-            let thumb = await HLSExtractionQueue.shared.extractThumbnail(from: fileURL)
-            if thumb == nil {
-                lock.lock()
-                failedHLSURLs.insert(fileURL)
-                lock.unlock()
-            }
-            return thumb
+            // 切り分け検証のため、一時的にオフラインHLS (.movpkg) のサムネイル抽出をバイパス
+            // HLSExtractionQueue は起動せず、nil を返してプレースホルダーを表示
+            return nil
         }
 
         // HLS (.movpkg) はディレクトリ構造により AVAssetImageGenerator が失敗することがあるため

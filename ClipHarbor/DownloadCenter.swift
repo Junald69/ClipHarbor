@@ -464,6 +464,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         let video = SavedVideo(id: UUID(), title: name, relativePath: relative, format: .hls,
                                sourceHost: host, createdAt: Date(), byteSize: Self.directorySize(location),
                                sourcePageURL: pageURL)
+        var locIsDir: ObjCBool = false
+        let locExists = FileManager.default.fileExists(atPath: location.path, isDirectory: &locIsDir)
+        let locReadable = FileManager.default.isReadableFile(atPath: location.path)
+        var resIsDir: ObjCBool = false
+        let resExists = FileManager.default.fileExists(atPath: video.fileURL.path, isDirectory: &resIsDir)
+        let resReadable = FileManager.default.isReadableFile(atPath: video.fileURL.path)
+        let pathsMatch = (location.standardizedFileURL.resolvingSymlinksInPath().path == video.fileURL.standardizedFileURL.resolvingSymlinksInPath().path)
+        print("[DownloadDiag] HLS complete locExists=\(locExists) locIsDir=\(locIsDir.boolValue) locReadable=\(locReadable) resExists=\(resExists) resIsDir=\(resIsDir.boolValue) resReadable=\(resReadable) pathsMatch=\(pathsMatch) playable=\(asset.assetCache?.isPlayableOffline == true)")
         addSaved(video)
         finish(id, state: .completed, name: name)
         onVideoSaved?(id, video)
