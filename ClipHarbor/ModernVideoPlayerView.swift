@@ -347,7 +347,7 @@ struct ModernVideoPlayerView: View {
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
                         Button(NSLocalizedString("Retry", comment: "")) {
-                            loadCurrentItem(autoPlay: isPlaying)
+                            loadCurrentItem(autoPlay: true)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.white.opacity(0.3))
@@ -564,7 +564,7 @@ struct ModernVideoPlayerView: View {
             let currentRate = existingPlayer.rate
             let preservedRate = (currentRate > 0.0) ? currentRate : coordinator.activePlaybackRate
             self.playbackRate = preservedRate
-            self.isPlaying = (currentRate > 0.0)
+            self.isPlaying = (currentRate > 0.0) || (existingPlayer.timeControlStatus == .waitingToPlayAtSpecifiedRate)
             existingPlayer.volume = Float(volumeValue)
             let currentSecs = CMTimeGetSeconds(existingPlayer.currentTime())
             if !currentSecs.isNaN && !currentSecs.isInfinite {
@@ -579,7 +579,7 @@ struct ModernVideoPlayerView: View {
             if existingPlayer.currentItem?.status == .readyToPlay {
                 self.videoLoadState = .ready
             }
-            attachTimeObserver(for: existingPlayer)
+            attachTimeObserver(for: existingPlayer, sessionID: existingSID)
             observePlayerAndItem(player: existingPlayer, sessionID: existingSID, isReconnect: true)
             return
         }
@@ -598,7 +598,7 @@ struct ModernVideoPlayerView: View {
             p.pause()
         }
 
-        attachTimeObserver(for: p)
+        attachTimeObserver(for: p, sessionID: sid)
         observePlayerAndItem(player: p, sessionID: sid, isReconnect: false)
     }
 
@@ -670,6 +670,7 @@ struct ModernVideoPlayerView: View {
 
     private func handleItemReady(player: AVPlayer, item: AVPlayerItem, targetSID: UUID, isReconnect: Bool) {
         guard self.sessionID == targetSID, self.player === player else { return }
+        guard self.videoLoadState != .ready else { return }
         print("[PlayerDiag] item readyToPlay isPlayingIntent=\(self.isPlaying) rate=\(self.playbackRate) isReconnect=\(isReconnect)")
         self.videoLoadState = .ready
 
@@ -689,6 +690,7 @@ struct ModernVideoPlayerView: View {
 
     private func handleItemFailed(item: AVPlayerItem, targetSID: UUID) {
         guard self.sessionID == targetSID, self.player?.currentItem === item else { return }
+        if case .failed = self.videoLoadState { return }
         let nsError = item.error as NSError?
         let domain = nsError?.domain ?? "AVPlayerItem"
         let code = nsError?.code ?? -1
@@ -699,14 +701,14 @@ struct ModernVideoPlayerView: View {
         self.stopAutoHideTimer()
     }
 
-    private func attachTimeObserver(for p: AVPlayer) {
+    private func attachTimeObserver(for p: AVPlayer, sessionID targetSID: UUID) {
         if let token = timeObserverToken {
             p.removeTimeObserver(token)
             timeObserverToken = nil
         }
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserverToken = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak p] time in
-            guard let player = p else { return }
+            guard let player = p, self.player === player, self.sessionID == targetSID else { return }
             let secs = CMTimeGetSeconds(time)
             if !secs.isNaN && !secs.isInfinite {
                 self.currentTime = max(0, secs)
