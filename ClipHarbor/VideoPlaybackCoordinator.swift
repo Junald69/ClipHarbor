@@ -15,6 +15,7 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
     @Published private(set) var activePlayer: AVPlayer?
     @Published private(set) var currentSessionID: UUID = UUID()
     @Published private(set) var isPiPActive: Bool = false
+    @Published var activePlaybackRate: Float = 1.0
     @Published var isTransitioningToPiP: Bool = false
     @Published var shouldDismissPlayerForPiP: Bool = false
     @Published var pipErrorMessage: String? = nil
@@ -63,6 +64,7 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         self.shouldDismissPlayerForPiP = false
         self.pipErrorMessage = nil
         self.isRestoringUI = false
+        self.activePlaybackRate = (initialRate > 0.0) ? initialRate : 1.0
 
         let asset = AVURLAsset(url: url)
         let playerItem = AVPlayerItem(asset: asset)
@@ -86,6 +88,13 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
 
         self.activePlayer = player
         return (player, sessionID)
+    }
+
+    /// 選択中の再生速度を保持（PiP復帰時や一時停止時の速度維持）
+    func updatePlaybackRate(_ rate: Float) {
+        if rate > 0.0 {
+            self.activePlaybackRate = rate
+        }
     }
 
     /// 既存の再生セッションを再利用してUIを再接続する（startPlaybackSession による再初期化を防止）

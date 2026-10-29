@@ -46,6 +46,7 @@ struct PlayerControlsOverlay: View {
     let isHLS: Bool
     let canGoNext: Bool
     let canGoPrevious: Bool
+    var isFailed: Bool = false
 
     // コールバック
     let onClose: () -> Void
@@ -95,8 +96,8 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                // MARK: - 中央コントロール（動画のみ表示、画像時は非表示）
-                if !isImage {
+                // MARK: - 中央コントロール（動画のみ表示、画像時および失敗時は非表示）
+                if !isImage && !isFailed {
                     centerControlsView
                         .reportControlFrame(in: "playerContainer")
                 }
@@ -110,8 +111,8 @@ struct PlayerControlsOverlay: View {
             }
             .padding(.horizontal, isLandscape ? 24 : 16)
 
-            // MARK: - 左右縦スライダー（動画のみ）
-            if !isImage {
+            // MARK: - 左右縦スライダー（動画のみ、失敗時は非表示）
+            if !isImage && !isFailed {
                 HStack {
                     verticalBrightnessSlider
                         .reportControlFrame(in: "playerContainer")

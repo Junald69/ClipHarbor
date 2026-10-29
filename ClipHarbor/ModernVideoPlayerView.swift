@@ -44,6 +44,10 @@ struct ModernVideoPlayerView: View {
         case ready
         case failed(domain: String, code: Int)
     }
+    private var isVideoFailed: Bool {
+        if case .failed = videoLoadState { return true }
+        return false
+    }
     @State private var videoLoadState: VideoLoadState = .preparing
     @State private var itemStatusObserver: NSKeyValueObservation?
     @State private var playerStatusObserver: NSKeyValueObservation?
@@ -100,8 +104,8 @@ struct ModernVideoPlayerView: View {
             mediaContentLayer
                 .ignoresSafeArea()
 
-            // MARK: - 背景ジェスチャー検出レイヤー（動画のみ）
-            if let item = playlistContext.currentItem, !item.isImage {
+            // MARK: - 背景ジェスチャー検出レイヤー（動画のみ・失敗時は無効化して再試行ボタンのタップを確保）
+            if let item = playlistContext.currentItem, !item.isImage, !isVideoFailed {
                 videoGestureDetectionLayer
             }
 
@@ -128,6 +132,7 @@ struct ModernVideoPlayerView: View {
                         isHLS: item.isHLS,
                         canGoNext: playlistContext.canGoNext,
                         canGoPrevious: playlistContext.canGoPrevious,
+                        isFailed: isVideoFailed,
                         onClose: handleClose,
                         onEdit: {
                             registerUserAction()
@@ -232,6 +237,7 @@ struct ModernVideoPlayerView: View {
             if !isPresented { scheduleAutoHide(delay: 10.0) }
         }
         .onChange(of: playbackRate) { newRate in
+            coordinator.updatePlaybackRate(newRate)
             if isPlaying, let p = player, p.currentItem?.status == .readyToPlay {
                 p.playImmediately(atRate: newRate)
             } else if !isPlaying {
@@ -555,7 +561,10 @@ struct ModernVideoPlayerView: View {
            let (existingPlayer, existingSID) = coordinator.reconnectSession(for: playlistContext) {
             self.player = existingPlayer
             self.sessionID = existingSID
-            self.isPlaying = (existingPlayer.rate > 0)
+            let currentRate = existingPlayer.rate
+            let preservedRate = (currentRate > 0.0) ? currentRate : coordinator.activePlaybackRate
+            self.playbackRate = preservedRate
+            self.isPlaying = (currentRate > 0.0)
             existingPlayer.volume = Float(volumeValue)
             let currentSecs = CMTimeGetSeconds(existingPlayer.currentTime())
             if !currentSecs.isNaN && !currentSecs.isInfinite {
@@ -571,7 +580,7 @@ struct ModernVideoPlayerView: View {
                 self.videoLoadState = .ready
             }
             attachTimeObserver(for: existingPlayer)
-            observePlayerAndItem(player: existingPlayer, sessionID: existingSID)
+            observePlayerAndItem(player: existingPlayer, sessionID: existingSID, isReconnect: true)
             return
         }
 
@@ -590,10 +599,10 @@ struct ModernVideoPlayerView: View {
         }
 
         attachTimeObserver(for: p)
-        observePlayerAndItem(player: p, sessionID: sid)
+        observePlayerAndItem(player: p, sessionID: sid, isReconnect: false)
     }
 
-    private func observePlayerAndItem(player: AVPlayer, sessionID targetSID: UUID) {
+    private func observePlayerAndItem(player: AVPlayer, sessionID targetSID: UUID, isReconnect: Bool) {
         itemStatusObserver?.invalidate()
         itemStatusObserver = nil
         playerStatusObserver?.invalidate()
@@ -602,9 +611,13 @@ struct ModernVideoPlayerView: View {
         timeControlStatusObserver = nil
 
         // Player level status
-        playerStatusObserver = player.observe(\.status, options: [.new]) { [weak player] p, _ in
+        playerStatusObserver = player.observe(\.status, options: [.initial, .new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID else { return }
+                guard self.sessionID == targetSID,
+                      let currentP = self.player,
+                      currentP === player else {
+                    return
+                }
                 if p.status == .failed {
                     let nsError = p.error as NSError?
                     let domain = nsError?.domain ?? "AVPlayer"
@@ -612,39 +625,38 @@ struct ModernVideoPlayerView: View {
                     print("[PlayerDiag] player failed domain=\(domain) code=\(code)")
                     self.videoLoadState = .failed(domain: domain, code: code)
                     self.isPlaying = false
+                    self.areControlsVisible = true
+                    self.stopAutoHideTimer()
                 }
             }
         }
 
         // TimeControlStatus
-        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak player] p, _ in
+        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID else { return }
+                guard self.sessionID == targetSID,
+                      let currentP = self.player,
+                      currentP === player else {
+                    return
+                }
                 print("[PlayerDiag] timeControlStatus=\(p.timeControlStatus.rawValue) rate=\(p.rate)")
             }
         }
 
         guard let item = player.currentItem else { return }
 
-        if item.status == .readyToPlay {
-            handleItemReady(player: player, item: item, targetSID: targetSID)
-            return
-        } else if item.status == .failed {
-            handleItemFailed(item: item, targetSID: targetSID)
-            return
-        }
-
-        itemStatusObserver = item.observe(\.status, options: [.new]) { [weak player] currentItem, _ in
+        itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak player] currentItem, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID else {
-                    print("[PlayerDiag] ignoring item status for stale session")
+                guard self.sessionID == targetSID,
+                      let currentP = self.player,
+                      currentP === player,
+                      currentP.currentItem === currentItem else {
                     return
                 }
-                guard let player = player else { return }
 
                 switch currentItem.status {
                 case .readyToPlay:
-                    self.handleItemReady(player: player, item: currentItem, targetSID: targetSID)
+                    self.handleItemReady(player: currentP, item: currentItem, targetSID: targetSID, isReconnect: isReconnect)
                 case .failed:
                     self.handleItemFailed(item: currentItem, targetSID: targetSID)
                 case .unknown:
@@ -656,9 +668,9 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    private func handleItemReady(player: AVPlayer, item: AVPlayerItem, targetSID: UUID) {
-        guard self.sessionID == targetSID else { return }
-        print("[PlayerDiag] item readyToPlay isPlayingIntent=\(self.isPlaying) rate=\(self.playbackRate)")
+    private func handleItemReady(player: AVPlayer, item: AVPlayerItem, targetSID: UUID, isReconnect: Bool) {
+        guard self.sessionID == targetSID, self.player === player else { return }
+        print("[PlayerDiag] item readyToPlay isPlayingIntent=\(self.isPlaying) rate=\(self.playbackRate) isReconnect=\(isReconnect)")
         self.videoLoadState = .ready
 
         let d = CMTimeGetSeconds(item.duration)
@@ -666,21 +678,25 @@ struct ModernVideoPlayerView: View {
             self.duration = d
         }
 
-        if self.isPlaying {
-            player.playImmediately(atRate: self.playbackRate)
-        } else {
-            player.pause()
+        if !isReconnect {
+            if self.isPlaying {
+                player.playImmediately(atRate: self.playbackRate)
+            } else {
+                player.pause()
+            }
         }
     }
 
     private func handleItemFailed(item: AVPlayerItem, targetSID: UUID) {
-        guard self.sessionID == targetSID else { return }
+        guard self.sessionID == targetSID, self.player?.currentItem === item else { return }
         let nsError = item.error as NSError?
         let domain = nsError?.domain ?? "AVPlayerItem"
         let code = nsError?.code ?? -1
         print("[PlayerDiag] item failed domain=\(domain) code=\(code)")
         self.videoLoadState = .failed(domain: domain, code: code)
         self.isPlaying = false
+        self.areControlsVisible = true
+        self.stopAutoHideTimer()
     }
 
     private func attachTimeObserver(for p: AVPlayer) {
@@ -705,6 +721,7 @@ struct ModernVideoPlayerView: View {
     }
 
     private func tearDownPlayer() {
+        sessionID = UUID() // 読み込み世代を更新し、メインキューに残った古い動画の通知を確実に破棄
         itemStatusObserver?.invalidate()
         itemStatusObserver = nil
         playerStatusObserver?.invalidate()
@@ -729,7 +746,8 @@ struct ModernVideoPlayerView: View {
     private func handleViewDismissed() {
         if isDismissingDueToPiP || coordinator.isPiPActive {
             // PiPへ移行したため全画面を閉じるケース:
-            // AVPlayerとCoordinatorの再生セッションを破棄せず保持する
+            // AVPlayerとCoordinatorの再生セッションを破棄せず保持しつつ、画面ローカルの監視・IDを切り離す
+            sessionID = UUID()
             itemStatusObserver?.invalidate()
             itemStatusObserver = nil
             playerStatusObserver?.invalidate()
