@@ -9853,6 +9853,23 @@
           }
         }
       }
+    },
+    "Downloading %lld%%": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading %lld%%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中 %lld%%"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

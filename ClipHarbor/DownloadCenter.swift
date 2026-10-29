@@ -51,6 +51,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     private var pendingHLS: [UUID: PendingHLSRecord] = [:]
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
     private var statusClearWork: DispatchWorkItem?
+    private var lastProgressUpdateTimes: [UUID: Date] = [:]
+    private var lastReportedProgress: [UUID: Double] = [:]
 
     private static let savedKey = "clipHarborSavedVideosV2"
     private static let legacyKey = "clipHarborSavedVideosV1"
@@ -365,6 +367,71 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         hlsLocations[id] = location
     }
 
+    func urlSession(_ session: URLSession, assetDownloadTask: AVAssetDownloadTask,
+                    didLoad timeRange: CMTimeRange,
+                    totalTimeRangesLoaded: [NSValue],
+                    timeRangeExpectedToLoad: CMTimeRange) {
+        guard let id = jobID(for: assetDownloadTask) else { return }
+
+        let expectedSecs = CMTimeGetSeconds(timeRangeExpectedToLoad.duration)
+        guard !expectedSecs.isNaN, !expectedSecs.isInfinite, expectedSecs > 0 else {
+            // 総時間不明の場合は progress: nil（不確定インジケーター表示）を維持
+            return
+        }
+
+        // 時間範囲の重複を統合（マージ）して二重計上を防止
+        var rawRanges: [(start: Double, end: Double)] = []
+        for val in totalTimeRangesLoaded {
+            let range = val.timeRangeValue
+            let start = CMTimeGetSeconds(range.start)
+            let dur = CMTimeGetSeconds(range.duration)
+            guard !start.isNaN, !start.isInfinite, !dur.isNaN, !dur.isInfinite, dur > 0 else { continue }
+            rawRanges.append((start: start, end: start + dur))
+        }
+
+        rawRanges.sort { $0.start < $1.start }
+        var mergedRanges: [(start: Double, end: Double)] = []
+        for r in rawRanges {
+            if let last = mergedRanges.last {
+                if r.start <= last.end {
+                    mergedRanges[mergedRanges.count - 1] = (start: last.start, end: max(last.end, r.end))
+                } else {
+                    mergedRanges.append(r)
+                }
+            } else {
+                mergedRanges.append(r)
+            }
+        }
+
+        var loadedSecs: Double = 0.0
+        for r in mergedRanges {
+            loadedSecs += (r.end - r.start)
+        }
+
+        let ratio = loadedSecs / expectedSecs
+        let progress = min(max(ratio, 0.0), 1.0)
+
+        // スロットリング制御: 前回のUI通知から0.25秒以上経過、または2%以上の進捗変化、または100%到達時のみ発火
+        let now = Date()
+        let lastTime = lastProgressUpdateTimes[id] ?? .distantPast
+        let lastProg = lastReportedProgress[id] ?? -1.0
+        let timeDelta = now.timeIntervalSince(lastTime)
+        let progDelta = abs(progress - lastProg)
+
+        if timeDelta >= 0.25 || progDelta >= 0.02 || progress >= 1.0 {
+            lastProgressUpdateTimes[id] = now
+            lastReportedProgress[id] = progress
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                self.updateJob(id) { job in
+                    // 完了、失敗、キャンセル済みのジョブを進捗通知で上書きしない
+                    guard job.state.isActive else { return }
+                    job.state = .downloading(progress: progress)
+                }
+            }
+        }
+    }
+
     private func completeHLS(jobID id: UUID, error: Error?) {
         let location = hlsLocations.removeValue(forKey: id)
         let record = pendingHLS.removeValue(forKey: id)
@@ -526,6 +593,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     }
 
     private func finish(_ id: UUID, state: DownloadState, name: String) {
+        lastProgressUpdateTimes.removeValue(forKey: id)
+        lastReportedProgress.removeValue(forKey: id)
         switch state {
         case .completed:
             jobs.removeAll { $0.id == id }

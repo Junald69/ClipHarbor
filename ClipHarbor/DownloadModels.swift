@@ -122,7 +122,7 @@ enum DownloadState: Equatable {
         switch self {
         case .preparing: return NSLocalizedString("Preparing…", comment: "")
         case .downloading(let p):
-            if let p = p { return String(format: NSLocalizedString("Downloading %lld%", comment: ""), Int(p * 100)) }
+            if let p = p { return String(format: NSLocalizedString("Downloading %lld%%", comment: ""), Int64(p * 100)) }
             return NSLocalizedString("Downloading…", comment: "")
         case .completed: return NSLocalizedString("Saved", comment: "")
         case .failed(let message): return String(format: NSLocalizedString("Save failed: %@", comment: ""), message)
