@@ -64,7 +64,9 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         self.pipErrorMessage = nil
         self.isRestoringUI = false
 
-        let player = AVPlayer(url: url)
+        let asset = AVURLAsset(url: url)
+        let playerItem = AVPlayerItem(asset: asset)
+        let player = AVPlayer(playerItem: playerItem)
         player.actionAtItemEnd = .pause
 
         if isVault {
@@ -78,7 +80,9 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         if seekTime > .zero {
             player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
         }
-        player.rate = initialRate
+        if initialRate > 0.0 {
+            player.playImmediately(atRate: initialRate)
+        }
 
         self.activePlayer = player
         return (player, sessionID)

@@ -38,6 +38,17 @@ struct ModernVideoPlayerView: View {
     @State private var volumeValue: Double = 1.0
     @State private var isDismissingDueToPiP: Bool = false
 
+    // 動画読み込み状態
+    private enum VideoLoadState: Equatable {
+        case preparing
+        case ready
+        case failed(domain: String, code: Int)
+    }
+    @State private var videoLoadState: VideoLoadState = .preparing
+    @State private var itemStatusObserver: NSKeyValueObservation?
+    @State private var playerStatusObserver: NSKeyValueObservation?
+    @State private var timeControlStatusObserver: NSKeyValueObservation?
+
     // 画像閲覧状態
     private enum ImageLoadState: Equatable {
         case loading
@@ -221,7 +232,11 @@ struct ModernVideoPlayerView: View {
             if !isPresented { scheduleAutoHide(delay: 10.0) }
         }
         .onChange(of: playbackRate) { newRate in
-            player?.rate = isPlaying ? newRate : 0.0
+            if isPlaying, let p = player, p.currentItem?.status == .readyToPlay {
+                p.playImmediately(atRate: newRate)
+            } else if !isPlaying {
+                player?.rate = 0.0
+            }
         }
         .onChange(of: volumeValue) { newVol in
             player?.volume = Float(newVol)
@@ -300,10 +315,37 @@ struct ModernVideoPlayerView: View {
                     }
                 }
             } else {
-                if let p = player {
-                    CustomVideoPlayerView(player: p, sessionID: sessionID)
-                } else {
-                    ProgressView().tint(.white)
+                switch videoLoadState {
+                case .preparing:
+                    ZStack {
+                        if let p = player {
+                            CustomVideoPlayerView(player: p, sessionID: sessionID)
+                        }
+                        ProgressView().tint(.white)
+                    }
+                case .ready:
+                    if let p = player {
+                        CustomVideoPlayerView(player: p, sessionID: sessionID)
+                    } else {
+                        ProgressView().tint(.white)
+                    }
+                case .failed(let domain, let code):
+                    VStack(spacing: 16) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.white.opacity(0.8))
+                        Text(NSLocalizedString("Playback Failed", comment: ""))
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        Text(String(format: NSLocalizedString("Error: %@ (%lld)", comment: ""), domain, Int64(code)))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
+                        Button(NSLocalizedString("Retry", comment: "")) {
+                            loadCurrentItem(autoPlay: isPlaying)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white.opacity(0.3))
+                    }
                 }
             }
         }
@@ -491,6 +533,22 @@ struct ModernVideoPlayerView: View {
     }
 
     private func setupVideoPlayer(url: URL, isVault: Bool, autoPlay: Bool) {
+        videoLoadState = .preparing
+        currentTime = 0.0
+        duration = 0.0
+        self.isPlaying = autoPlay
+
+        // セーフな匿名診断ログ（個人ファイル名・生URL・生パスを出力しない）
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        let isHLS = url.pathExtension.lowercased() == "movpkg" || playlistContext.currentItem?.isHLS == true
+        let asset = AVURLAsset(url: url)
+        let isOfflinePlayable = asset.assetCache?.isPlayableOffline
+        let docPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
+        let cachesPath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.path ?? ""
+        let isUnderDocs = !docPath.isEmpty && url.path.hasPrefix(docPath)
+        let isUnderCaches = !cachesPath.isEmpty && url.path.hasPrefix(cachesPath)
+        print("[PlayerDiag] setup isHLS=\(isHLS) exists=\(exists) offlinePlayable=\(String(describing: isOfflinePlayable)) underDocs=\(isUnderDocs) underCaches=\(isUnderCaches) autoPlay=\(autoPlay)")
+
         // PiP中または復帰中の既存セッションがある場合は再利用（startPlaybackSession による再初期化を防止）
         if !isVault,
            (coordinator.isPiPActive || coordinator.isRestoringUI),
@@ -509,7 +567,11 @@ struct ModernVideoPlayerView: View {
                     self.duration = secs
                 }
             }
+            if existingPlayer.currentItem?.status == .readyToPlay {
+                self.videoLoadState = .ready
+            }
             attachTimeObserver(for: existingPlayer)
+            observePlayerAndItem(player: existingPlayer, sessionID: existingSID)
             return
         }
 
@@ -521,7 +583,6 @@ struct ModernVideoPlayerView: View {
         )
         self.player = p
         self.sessionID = sid
-        self.isPlaying = autoPlay
         p.volume = Float(volumeValue)
 
         if !autoPlay {
@@ -529,6 +590,97 @@ struct ModernVideoPlayerView: View {
         }
 
         attachTimeObserver(for: p)
+        observePlayerAndItem(player: p, sessionID: sid)
+    }
+
+    private func observePlayerAndItem(player: AVPlayer, sessionID targetSID: UUID) {
+        itemStatusObserver?.invalidate()
+        itemStatusObserver = nil
+        playerStatusObserver?.invalidate()
+        playerStatusObserver = nil
+        timeControlStatusObserver?.invalidate()
+        timeControlStatusObserver = nil
+
+        // Player level status
+        playerStatusObserver = player.observe(\.status, options: [.new]) { [weak self] p, _ in
+            DispatchQueue.main.async {
+                guard let self = self, self.sessionID == targetSID else { return }
+                if p.status == .failed {
+                    let nsError = p.error as NSError?
+                    let domain = nsError?.domain ?? "AVPlayer"
+                    let code = nsError?.code ?? -1
+                    print("[PlayerDiag] player failed domain=\(domain) code=\(code)")
+                    self.videoLoadState = .failed(domain: domain, code: code)
+                    self.isPlaying = false
+                }
+            }
+        }
+
+        // TimeControlStatus
+        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
+            DispatchQueue.main.async {
+                guard let self = self, self.sessionID == targetSID else { return }
+                print("[PlayerDiag] timeControlStatus=\(p.timeControlStatus.rawValue) rate=\(p.rate)")
+            }
+        }
+
+        guard let item = player.currentItem else { return }
+
+        if item.status == .readyToPlay {
+            handleItemReady(player: player, item: item, targetSID: targetSID)
+            return
+        } else if item.status == .failed {
+            handleItemFailed(item: item, targetSID: targetSID)
+            return
+        }
+
+        itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self, weak player] currentItem, _ in
+            DispatchQueue.main.async {
+                guard let self = self, self.sessionID == targetSID else {
+                    print("[PlayerDiag] ignoring item status for stale session")
+                    return
+                }
+                guard let player = player else { return }
+
+                switch currentItem.status {
+                case .readyToPlay:
+                    self.handleItemReady(player: player, item: currentItem, targetSID: targetSID)
+                case .failed:
+                    self.handleItemFailed(item: currentItem, targetSID: targetSID)
+                case .unknown:
+                    break
+                @unknown default:
+                    break
+                }
+            }
+        }
+    }
+
+    private func handleItemReady(player: AVPlayer, item: AVPlayerItem, targetSID: UUID) {
+        guard self.sessionID == targetSID else { return }
+        print("[PlayerDiag] item readyToPlay isPlayingIntent=\(self.isPlaying) rate=\(self.playbackRate)")
+        self.videoLoadState = .ready
+
+        let d = CMTimeGetSeconds(item.duration)
+        if !d.isNaN && !d.isInfinite && d > 0 {
+            self.duration = d
+        }
+
+        if self.isPlaying {
+            player.playImmediately(atRate: self.playbackRate)
+        } else {
+            player.pause()
+        }
+    }
+
+    private func handleItemFailed(item: AVPlayerItem, targetSID: UUID) {
+        guard self.sessionID == targetSID else { return }
+        let nsError = item.error as NSError?
+        let domain = nsError?.domain ?? "AVPlayerItem"
+        let code = nsError?.code ?? -1
+        print("[PlayerDiag] item failed domain=\(domain) code=\(code)")
+        self.videoLoadState = .failed(domain: domain, code: code)
+        self.isPlaying = false
     }
 
     private func attachTimeObserver(for p: AVPlayer) {
@@ -553,6 +705,13 @@ struct ModernVideoPlayerView: View {
     }
 
     private func tearDownPlayer() {
+        itemStatusObserver?.invalidate()
+        itemStatusObserver = nil
+        playerStatusObserver?.invalidate()
+        playerStatusObserver = nil
+        timeControlStatusObserver?.invalidate()
+        timeControlStatusObserver = nil
+
         if let token = timeObserverToken, let p = player {
             p.removeTimeObserver(token)
             timeObserverToken = nil
@@ -571,6 +730,12 @@ struct ModernVideoPlayerView: View {
         if isDismissingDueToPiP || coordinator.isPiPActive {
             // PiPへ移行したため全画面を閉じるケース:
             // AVPlayerとCoordinatorの再生セッションを破棄せず保持する
+            itemStatusObserver?.invalidate()
+            itemStatusObserver = nil
+            playerStatusObserver?.invalidate()
+            playerStatusObserver = nil
+            timeControlStatusObserver?.invalidate()
+            timeControlStatusObserver = nil
             if let token = timeObserverToken, let p = player {
                 p.removeTimeObserver(token)
                 timeObserverToken = nil
@@ -594,8 +759,10 @@ struct ModernVideoPlayerView: View {
             isPlaying = false
             stopAutoHideTimer()
         } else {
-            p.rate = playbackRate
             isPlaying = true
+            if p.currentItem?.status == .readyToPlay {
+                p.playImmediately(atRate: playbackRate)
+            }
             scheduleAutoHide(delay: 10.0)
         }
     }
@@ -603,8 +770,10 @@ struct ModernVideoPlayerView: View {
     private func handleRestart() {
         guard let p = player else { return }
         p.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
-        p.rate = playbackRate
         isPlaying = true
+        if p.currentItem?.status == .readyToPlay {
+            p.playImmediately(atRate: playbackRate)
+        }
         registerUserAction()
     }
 

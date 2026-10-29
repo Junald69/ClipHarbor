@@ -9819,6 +9819,40 @@
           }
         }
       }
+    },
+    "Playback Failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Playback Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生できませんでした"
+          }
+        }
+      }
+    },
+    "Error: %@ (%lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@ (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: %@ (%lld)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
