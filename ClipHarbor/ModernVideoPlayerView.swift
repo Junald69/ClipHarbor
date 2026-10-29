@@ -602,9 +602,9 @@ struct ModernVideoPlayerView: View {
         timeControlStatusObserver = nil
 
         // Player level status
-        playerStatusObserver = player.observe(\.status, options: [.new]) { [weak self] p, _ in
+        playerStatusObserver = player.observe(\.status, options: [.new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard let self = self, self.sessionID == targetSID else { return }
+                guard self.sessionID == targetSID else { return }
                 if p.status == .failed {
                     let nsError = p.error as NSError?
                     let domain = nsError?.domain ?? "AVPlayer"
@@ -617,9 +617,9 @@ struct ModernVideoPlayerView: View {
         }
 
         // TimeControlStatus
-        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
+        timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard let self = self, self.sessionID == targetSID else { return }
+                guard self.sessionID == targetSID else { return }
                 print("[PlayerDiag] timeControlStatus=\(p.timeControlStatus.rawValue) rate=\(p.rate)")
             }
         }
@@ -634,9 +634,9 @@ struct ModernVideoPlayerView: View {
             return
         }
 
-        itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self, weak player] currentItem, _ in
+        itemStatusObserver = item.observe(\.status, options: [.new]) { [weak player] currentItem, _ in
             DispatchQueue.main.async {
-                guard let self = self, self.sessionID == targetSID else {
+                guard self.sessionID == targetSID else {
                     print("[PlayerDiag] ignoring item status for stale session")
                     return
                 }
