@@ -637,8 +637,11 @@ struct ModernVideoPlayerView: View {
             }
             if existingPlayer.currentItem?.status == .readyToPlay {
                 diagnosticsTimer?.invalidate()
+
         diagnosticsTimer = nil
+
         showDiagnosticsPrompt = false
+
         self.videoLoadState = .ready
             }
             let gen = self.viewGenerationID
@@ -704,8 +707,11 @@ struct ModernVideoPlayerView: View {
                     let uCode = underlying?.code ?? 0
                     print("[PlayerDiag] player failed domain=\(domain) code=\(code) uDomain=\(uDomain) uCode=\(uCode)")
                     diagnosticsTimer?.invalidate()
+
         diagnosticsTimer = nil
+
         self.diagnosticReport = self.buildDiagnosticReport()
+
         self.videoLoadState = .failed(domain: domain, code: code)
                     self.isPlaying = false
                     self.areControlsVisible = true
@@ -1374,17 +1380,6 @@ struct ModernVideoPlayerView: View {
             )
         }
     }
-}
-
-/// 共有用 UIActivityViewController ラッパー
-struct ShareActivityView: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 
     // MARK: - 実機HLS診断レポート生成・シートUI
 
@@ -1586,4 +1581,15 @@ struct ShareActivityView: UIViewControllerRepresentable {
             }
         }
     }
+}
+
+/// 共有用 UIActivityViewController ラッパー
+struct ShareActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
