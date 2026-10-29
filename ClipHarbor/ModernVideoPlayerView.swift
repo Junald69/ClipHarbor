@@ -31,6 +31,14 @@ struct ModernVideoPlayerView: View {
     @State private var isSyncingPlaybackRate: Bool = false
     @State private var timeObserverToken: Any?
 
+    // 実機診断用状態（HLS Diagnostics）
+    @State private var showDiagnosticsSheet: Bool = false
+    @State private var showDiagnosticsPrompt: Bool = false
+    @State private var diagnosticReport: String = ""
+    @State private var hasCopiedDiagnostics: Bool = false
+    @State private var diagnosticsTimer: Timer?
+    @State private var playerSetupDate: Date = Date()
+
     // UI表示状態
     @State private var areControlsVisible: Bool = true
     @State private var autoHideTimer: Timer?
@@ -135,6 +143,10 @@ struct ModernVideoPlayerView: View {
                         canGoNext: playlistContext.canGoNext,
                         canGoPrevious: playlistContext.canGoPrevious,
                         isFailed: isVideoFailed,
+                        onShowDiagnostics: {
+                            diagnosticReport = buildDiagnosticReport()
+                            showDiagnosticsSheet = true
+                        },
                         onClose: handleClose,
                         onEdit: {
                             registerUserAction()
@@ -191,6 +203,9 @@ struct ModernVideoPlayerView: View {
         }
         .sheet(isPresented: $showMoveSheet) {
             moveFolderDestinationView
+        }
+        .sheet(isPresented: $showDiagnosticsSheet) {
+            diagnosticsSheetView
         }
         .alert(NSLocalizedString("Sharing Vault Files", comment: ""), isPresented: $showVaultShareAlert) {
             Button(NSLocalizedString("OK", comment: ""), role: .cancel) {
@@ -330,7 +345,22 @@ struct ModernVideoPlayerView: View {
                         if let p = player {
                             CustomVideoPlayerView(player: p, sessionID: playbackSessionID ?? viewGenerationID)
                         }
-                        ProgressView().tint(.white)
+                        VStack(spacing: 12) {
+                            ProgressView().tint(.white)
+                            if showDiagnosticsPrompt {
+                                Button {
+                                    diagnosticReport = buildDiagnosticReport()
+                                    showDiagnosticsSheet = true
+                                } label: {
+                                    Label("HLS Diagnostics", systemImage: "stethoscope")
+                                        .font(.caption.weight(.medium))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                        }
                     }
                 case .ready:
                     if let p = player {
@@ -349,11 +379,22 @@ struct ModernVideoPlayerView: View {
                         Text(String(format: NSLocalizedString("Error: %@ (%lld)", comment: ""), domain, Int64(code)))
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
-                        Button(NSLocalizedString("Retry", comment: "")) {
-                            loadCurrentItem(autoPlay: true)
+                        HStack(spacing: 12) {
+                            Button(NSLocalizedString("Retry", comment: "")) {
+                                loadCurrentItem(autoPlay: true)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.white.opacity(0.3))
+
+                            Button {
+                                diagnosticReport = buildDiagnosticReport()
+                                showDiagnosticsSheet = true
+                            } label: {
+                                Label("Diagnostics", systemImage: "stethoscope")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.white.opacity(0.3))
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.white.opacity(0.3))
                     }
                 }
             }
@@ -595,7 +636,10 @@ struct ModernVideoPlayerView: View {
                 }
             }
             if existingPlayer.currentItem?.status == .readyToPlay {
-                self.videoLoadState = .ready
+                diagnosticsTimer?.invalidate()
+        diagnosticsTimer = nil
+        showDiagnosticsPrompt = false
+        self.videoLoadState = .ready
             }
             let gen = self.viewGenerationID
             attachTimeObserver(for: existingPlayer, generation: gen)
@@ -615,6 +659,19 @@ struct ModernVideoPlayerView: View {
 
         if !autoPlay {
             p.pause()
+        }
+
+        playerSetupDate = Date()
+        showDiagnosticsPrompt = false
+        diagnosticsTimer?.invalidate()
+        diagnosticsTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak coordinator] _ in
+            DispatchQueue.main.async {
+                if self.videoLoadState != .ready {
+                    self.diagnosticReport = self.buildDiagnosticReport()
+                    self.showDiagnosticsPrompt = true
+                    print("[PlayerDiag] 15s timeout snapshot taken")
+                }
+            }
         }
 
         let gen = self.viewGenerationID
@@ -646,7 +703,10 @@ struct ModernVideoPlayerView: View {
                     let uDomain = underlying?.domain ?? "none"
                     let uCode = underlying?.code ?? 0
                     print("[PlayerDiag] player failed domain=\(domain) code=\(code) uDomain=\(uDomain) uCode=\(uCode)")
-                    self.videoLoadState = .failed(domain: domain, code: code)
+                    diagnosticsTimer?.invalidate()
+        diagnosticsTimer = nil
+        self.diagnosticReport = self.buildDiagnosticReport()
+        self.videoLoadState = .failed(domain: domain, code: code)
                     self.isPlaying = false
                     self.areControlsVisible = true
                     self.stopAutoHideTimer()
@@ -749,6 +809,9 @@ struct ModernVideoPlayerView: View {
     }
 
     private func tearDownPlayer() {
+        diagnosticsTimer?.invalidate()
+        diagnosticsTimer = nil
+        showDiagnosticsPrompt = false
         viewGenerationID = UUID() // 読み込み世代を更新し、メインキューに残った古い動画の通知を確実に破棄
         itemStatusObserver?.invalidate()
         itemStatusObserver = nil
@@ -1322,4 +1385,205 @@ struct ShareActivityView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+
+    // MARK: - 実機HLS診断レポート生成・シートUI
+
+    private func buildDiagnosticReport() -> String {
+        var lines: [String] = []
+        lines.append("=== ClipHarbor Playback Diagnostics ===")
+        lines.append("Timestamp: \(ISO8601DateFormatter().string(from: Date()))")
+        lines.append("ElapsedSinceSetup: \(String(format: "%.1f", Date().timeIntervalSince(playerSetupDate)))s")
+        lines.append("VideoLoadState: \(videoLoadState)")
+        lines.append("IsHLS: \(playlistContext.currentItem?.isHLS == true)")
+        lines.append("AutoPlayIntent: \(self.isPlaying)")
+        lines.append("PlaybackRate: \(self.playbackRate)")
+        lines.append("Duration: \(String(format: "%.2f", self.duration))")
+        lines.append("CurrentTime: \(String(format: "%.2f", self.currentTime))")
+
+        // 1. URL & File System
+        if let url = currentPlaybackURL {
+            lines.append("\n--- [URL & File System] ---")
+            lines.append("Scheme: \(url.scheme ?? "none")")
+            lines.append("IsFileURL: \(url.isFileURL)")
+            lines.append("Extension: \(url.pathExtension.lowercased())")
+            var isDir: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
+            lines.append("Exists: \(exists)")
+            lines.append("IsDir: \(isDir.boolValue)")
+            let readable = FileManager.default.isReadableFile(atPath: url.path)
+            lines.append("IsReadable: \(readable)")
+
+            let homePath = NSHomeDirectory()
+            let docPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
+            let cachesPath = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.path ?? ""
+            lines.append("UnderHome: \(!homePath.isEmpty && url.path.hasPrefix(homePath))")
+            lines.append("UnderDocs: \(!docPath.isEmpty && url.path.hasPrefix(docPath))")
+            lines.append("UnderCaches: \(!cachesPath.isEmpty && url.path.hasPrefix(cachesPath))")
+
+            // .movpkg パッケージ内部の安全な確認（個人名・パス全文はマスクし、拡張子と個数のみ）
+            if isDir.boolValue {
+                if let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path) {
+                    let exts = contents.map { ($0 as NSString).pathExtension.lowercased() }.filter { !$0.isEmpty }
+                    let extCounts = Dictionary(grouping: exts, by: { $0 }).mapValues { $0.count }
+                    lines.append("PackageItemCount: \(contents.count)")
+                    lines.append("PackageExtensions: \(extCounts)")
+                } else {
+                    lines.append("PackageContents: <unreadable directory>")
+                }
+            }
+
+            if let item = playlistContext.currentItem, case .normal(let v) = item {
+                let hasValidPrefix = v.relativePath.hasPrefix("Library/") || v.relativePath.hasPrefix("Documents/")
+                lines.append("SavedRelativePathPrefix: \(hasValidPrefix ? "standard" : "other")")
+                let reconstructed = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(v.relativePath)
+                lines.append("PathMatchesReconstructed: \(reconstructed.path == url.path)")
+            }
+        }
+
+        // 2. AVURLAsset & AssetCache
+        if let url = currentPlaybackURL {
+            lines.append("\n--- [AVURLAsset & AssetCache] ---")
+            let asset = AVURLAsset(url: url)
+            lines.append("IsPlayable: \(asset.isPlayable)")
+            if let cache = asset.assetCache {
+                lines.append("AssetCache.isPlayableOffline: \(cache.isPlayableOffline)")
+            } else {
+                lines.append("AssetCache: nil")
+            }
+            lines.append("TracksCount: \(asset.tracks.count)")
+        }
+
+        // 3. AVPlayer
+        lines.append("\n--- [AVPlayer] ---")
+        if let p = player {
+            let pStatusStr: String
+            switch p.status {
+            case .readyToPlay: pStatusStr = "readyToPlay"
+            case .failed: pStatusStr = "failed"
+            case .unknown: pStatusStr = "unknown"
+            @unknown default: pStatusStr = "unknownDefault"
+            }
+            lines.append("Player.status: \(pStatusStr)")
+
+            let tcStr: String
+            switch p.timeControlStatus {
+            case .paused: tcStr = "paused (0)"
+            case .waitingToPlayAtSpecifiedRate: tcStr = "waitingToPlayAtSpecifiedRate (1)"
+            case .playing: tcStr = "playing (2)"
+            @unknown default: tcStr = "unknown"
+            }
+            lines.append("TimeControlStatus: \(tcStr)")
+            lines.append("ReasonForWaiting: \(p.reasonForWaitingToPlay?.rawValue ?? "none")")
+            lines.append("Player.rate: \(p.rate)")
+
+            if let pErr = p.error as NSError? {
+                let uErr = pErr.userInfo[NSUnderlyingErrorKey] as? NSError
+                lines.append("Player.error: domain=\(pErr.domain) code=\(pErr.code) uDomain=\(uErr?.domain ?? "none") uCode=\(uErr?.code ?? 0)")
+            } else {
+                lines.append("Player.error: nil")
+            }
+        } else {
+            lines.append("Player: nil")
+        }
+
+        // 4. AVPlayerItem
+        lines.append("\n--- [AVPlayerItem] ---")
+        if let item = player?.currentItem {
+            let itemStatusStr: String
+            switch item.status {
+            case .readyToPlay: itemStatusStr = "readyToPlay"
+            case .failed: itemStatusStr = "failed"
+            case .unknown: itemStatusStr = "unknown"
+            @unknown default: itemStatusStr = "unknownDefault"
+            }
+            lines.append("Item.status: \(itemStatusStr)")
+            lines.append("IsPlaybackBufferEmpty: \(item.isPlaybackBufferEmpty)")
+            lines.append("IsPlaybackLikelyToKeepUp: \(item.isPlaybackLikelyToKeepUp)")
+            lines.append("IsPlaybackBufferFull: \(item.isPlaybackBufferFull)")
+
+            let dSecs = CMTimeGetSeconds(item.duration)
+            lines.append("Item.duration: \(dSecs.isNaN ? "NaN" : String(format: "%.2f", dSecs))")
+
+            let loadedRanges = item.loadedTimeRanges.compactMap { val -> String? in
+                let r = val.timeRangeValue
+                let start = CMTimeGetSeconds(r.start)
+                let dur = CMTimeGetSeconds(r.duration)
+                guard !start.isNaN, !dur.isNaN else { return nil }
+                return "[\(String(format: "%.1f", start))-\(String(format: "%.1f", start+dur))]"
+            }
+            lines.append("LoadedTimeRanges: \(loadedRanges)")
+
+            if let iErr = item.error as NSError? {
+                let uErr = iErr.userInfo[NSUnderlyingErrorKey] as? NSError
+                lines.append("Item.error: domain=\(iErr.domain) code=\(iErr.code) uDomain=\(uErr?.domain ?? "none") uCode=\(uErr?.code ?? 0)")
+            } else {
+                lines.append("Item.error: nil")
+            }
+
+            // ErrorLog
+            if let errorLog = item.errorLog() {
+                let events = errorLog.events
+                lines.append("ErrorLogEventCount: \(events.count)")
+                for (idx, evt) in events.suffix(3).enumerated() {
+                    let comment = evt.errorComment ?? ""
+                    let safeComment = comment.isEmpty ? "none" : String(comment.prefix(80))
+                    lines.append("ErrorLog[\(idx)]: status=\(evt.errorStatusCode) domain=\(evt.errorDomain ?? "nil") comment=\(safeComment)")
+                }
+            } else {
+                lines.append("ErrorLog: nil")
+            }
+        } else {
+            lines.append("CurrentItem: nil")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private var diagnosticsSheetView: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(diagnosticReport.isEmpty ? buildDiagnosticReport() : diagnosticReport)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .padding()
+            }
+            .navigationTitle(NSLocalizedString("HLS Diagnostics", comment: ""))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: {
+                        diagnosticReport = buildDiagnosticReport()
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            let text = diagnosticReport.isEmpty ? buildDiagnosticReport() : diagnosticReport
+                            UIPasteboard.general.string = text
+                            hasCopiedDiagnostics = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                hasCopiedDiagnostics = false
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: hasCopiedDiagnostics ? "checkmark" : "doc.on.doc")
+                                Text(hasCopiedDiagnostics ? NSLocalizedString("Copied", comment: "") : NSLocalizedString("Copy", comment: ""))
+                            }
+                        }
+                        Button(NSLocalizedString("Done", comment: "")) {
+                            showDiagnosticsSheet = false
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

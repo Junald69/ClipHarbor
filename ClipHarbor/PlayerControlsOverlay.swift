@@ -47,6 +47,7 @@ struct PlayerControlsOverlay: View {
     let canGoNext: Bool
     let canGoPrevious: Bool
     var isFailed: Bool = false
+    var onShowDiagnostics: (() -> Void)? = nil
 
     // コールバック
     let onClose: () -> Void
@@ -151,6 +152,20 @@ struct PlayerControlsOverlay: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
+                // 診断ボタン（検証用・実機診断用）
+                if let onDiag = onShowDiagnostics {
+                    Button(action: onDiag) {
+                        Image(systemName: "stethoscope")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Color.black.opacity(0.4), in: Circle())
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Diagnostics")
+                }
+
                 // 編集ボタン（動画のみ、通常・Vault両方で有効、見た目32pt、内部タッチ領域44pt以上確保）
                 if !isImage {
                     Button(action: onEdit) {
