@@ -22,11 +22,13 @@ struct ModernVideoPlayerView: View {
     // 再生・セッション状態
     @StateObject private var coordinator = VideoPlaybackCoordinator.shared
     @State private var player: AVPlayer?
-    @State private var sessionID: UUID = UUID()
+    @State private var playbackSessionID: UUID? = nil
+    @State private var viewGenerationID: UUID = UUID()
     @State private var isPlaying: Bool = false
     @State private var currentTime: Double = 0.0
     @State private var duration: Double = 0.0
     @State private var playbackRate: Float = 1.0
+    @State private var isSyncingPlaybackRate: Bool = false
     @State private var timeObserverToken: Any?
 
     // UI表示状態
@@ -237,6 +239,7 @@ struct ModernVideoPlayerView: View {
             if !isPresented { scheduleAutoHide(delay: 10.0) }
         }
         .onChange(of: playbackRate) { newRate in
+            guard !isSyncingPlaybackRate else { return }
             coordinator.updatePlaybackRate(newRate)
             if isPlaying, let p = player, p.currentItem?.status == .readyToPlay {
                 p.playImmediately(atRate: newRate)
@@ -325,13 +328,13 @@ struct ModernVideoPlayerView: View {
                 case .preparing:
                     ZStack {
                         if let p = player {
-                            CustomVideoPlayerView(player: p, sessionID: sessionID)
+                            CustomVideoPlayerView(player: p, sessionID: playbackSessionID ?? viewGenerationID)
                         }
                         ProgressView().tint(.white)
                     }
                 case .ready:
                     if let p = player {
-                        CustomVideoPlayerView(player: p, sessionID: sessionID)
+                        CustomVideoPlayerView(player: p, sessionID: playbackSessionID ?? viewGenerationID)
                     } else {
                         ProgressView().tint(.white)
                     }
@@ -510,12 +513,15 @@ struct ModernVideoPlayerView: View {
         guard let item = playlistContext.currentItem else { return }
 
         // 前のプレイヤー・音声監視の停止
+        let prevSID = playbackSessionID
         tearDownPlayer()
 
         switch item {
         case .normal(let video):
             currentPlaybackURL = video.fileURL
             if video.format.isImage {
+                playbackSessionID = nil
+                coordinator.stopAndRelease(sessionID: prevSID)
                 loadImage(from: video.fileURL)
             } else {
                 setupVideoPlayer(url: video.fileURL, isVault: false, autoPlay: autoPlay)
@@ -528,6 +534,8 @@ struct ModernVideoPlayerView: View {
                 self.vaultActivePlaybackURL = tempURL
                 self.currentPlaybackURL = tempURL
                 if vaultItem.format.isImage {
+                    playbackSessionID = nil
+                    coordinator.stopAndRelease(sessionID: prevSID)
                     loadImage(from: tempURL)
                 } else {
                     setupVideoPlayer(url: tempURL, isVault: true, autoPlay: autoPlay)
@@ -560,10 +568,14 @@ struct ModernVideoPlayerView: View {
            (coordinator.isPiPActive || coordinator.isRestoringUI),
            let (existingPlayer, existingSID) = coordinator.reconnectSession(for: playlistContext) {
             self.player = existingPlayer
-            self.sessionID = existingSID
+            self.playbackSessionID = existingSID
             let currentRate = existingPlayer.rate
             let preservedRate = (currentRate > 0.0) ? currentRate : coordinator.activePlaybackRate
+            self.isSyncingPlaybackRate = true
             self.playbackRate = preservedRate
+            DispatchQueue.main.async {
+                self.isSyncingPlaybackRate = false
+            }
             self.isPlaying = (currentRate > 0.0) || (existingPlayer.timeControlStatus == .waitingToPlayAtSpecifiedRate)
             existingPlayer.volume = Float(volumeValue)
             let currentSecs = CMTimeGetSeconds(existingPlayer.currentTime())
@@ -579,8 +591,9 @@ struct ModernVideoPlayerView: View {
             if existingPlayer.currentItem?.status == .readyToPlay {
                 self.videoLoadState = .ready
             }
-            attachTimeObserver(for: existingPlayer, sessionID: existingSID)
-            observePlayerAndItem(player: existingPlayer, sessionID: existingSID, isReconnect: true)
+            let gen = self.viewGenerationID
+            attachTimeObserver(for: existingPlayer, generation: gen)
+            observePlayerAndItem(player: existingPlayer, generation: gen, isReconnect: true)
             return
         }
 
@@ -591,18 +604,19 @@ struct ModernVideoPlayerView: View {
             initialRate: autoPlay ? playbackRate : 0.0
         )
         self.player = p
-        self.sessionID = sid
+        self.playbackSessionID = sid
         p.volume = Float(volumeValue)
 
         if !autoPlay {
             p.pause()
         }
 
-        attachTimeObserver(for: p, sessionID: sid)
-        observePlayerAndItem(player: p, sessionID: sid, isReconnect: false)
+        let gen = self.viewGenerationID
+        attachTimeObserver(for: p, generation: gen)
+        observePlayerAndItem(player: p, generation: gen, isReconnect: false)
     }
 
-    private func observePlayerAndItem(player: AVPlayer, sessionID targetSID: UUID, isReconnect: Bool) {
+    private func observePlayerAndItem(player: AVPlayer, generation targetGen: UUID, isReconnect: Bool) {
         itemStatusObserver?.invalidate()
         itemStatusObserver = nil
         playerStatusObserver?.invalidate()
@@ -613,7 +627,7 @@ struct ModernVideoPlayerView: View {
         // Player level status
         playerStatusObserver = player.observe(\.status, options: [.initial, .new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID,
+                guard self.viewGenerationID == targetGen,
                       let currentP = self.player,
                       currentP === player else {
                     return
@@ -634,7 +648,7 @@ struct ModernVideoPlayerView: View {
         // TimeControlStatus
         timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak player] p, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID,
+                guard self.viewGenerationID == targetGen,
                       let currentP = self.player,
                       currentP === player else {
                     return
@@ -647,7 +661,7 @@ struct ModernVideoPlayerView: View {
 
         itemStatusObserver = item.observe(\.status, options: [.initial, .new]) { [weak player] currentItem, _ in
             DispatchQueue.main.async {
-                guard self.sessionID == targetSID,
+                guard self.viewGenerationID == targetGen,
                       let currentP = self.player,
                       currentP === player,
                       currentP.currentItem === currentItem else {
@@ -656,9 +670,9 @@ struct ModernVideoPlayerView: View {
 
                 switch currentItem.status {
                 case .readyToPlay:
-                    self.handleItemReady(player: currentP, item: currentItem, targetSID: targetSID, isReconnect: isReconnect)
+                    self.handleItemReady(player: currentP, item: currentItem, generation: targetGen, isReconnect: isReconnect)
                 case .failed:
-                    self.handleItemFailed(item: currentItem, targetSID: targetSID)
+                    self.handleItemFailed(item: currentItem, generation: targetGen)
                 case .unknown:
                     break
                 @unknown default:
@@ -668,8 +682,8 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    private func handleItemReady(player: AVPlayer, item: AVPlayerItem, targetSID: UUID, isReconnect: Bool) {
-        guard self.sessionID == targetSID, self.player === player else { return }
+    private func handleItemReady(player: AVPlayer, item: AVPlayerItem, generation targetGen: UUID, isReconnect: Bool) {
+        guard self.viewGenerationID == targetGen, self.player === player else { return }
         guard self.videoLoadState != .ready else { return }
         print("[PlayerDiag] item readyToPlay isPlayingIntent=\(self.isPlaying) rate=\(self.playbackRate) isReconnect=\(isReconnect)")
         self.videoLoadState = .ready
@@ -688,8 +702,8 @@ struct ModernVideoPlayerView: View {
         }
     }
 
-    private func handleItemFailed(item: AVPlayerItem, targetSID: UUID) {
-        guard self.sessionID == targetSID, self.player?.currentItem === item else { return }
+    private func handleItemFailed(item: AVPlayerItem, generation targetGen: UUID) {
+        guard self.viewGenerationID == targetGen, self.player?.currentItem === item else { return }
         if case .failed = self.videoLoadState { return }
         let nsError = item.error as NSError?
         let domain = nsError?.domain ?? "AVPlayerItem"
@@ -701,14 +715,14 @@ struct ModernVideoPlayerView: View {
         self.stopAutoHideTimer()
     }
 
-    private func attachTimeObserver(for p: AVPlayer, sessionID targetSID: UUID) {
+    private func attachTimeObserver(for p: AVPlayer, generation targetGen: UUID) {
         if let token = timeObserverToken {
             p.removeTimeObserver(token)
             timeObserverToken = nil
         }
         let interval = CMTime(seconds: 0.25, preferredTimescale: 600)
         timeObserverToken = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak p] time in
-            guard let player = p, self.player === player, self.sessionID == targetSID else { return }
+            guard let player = p, self.player === player, self.viewGenerationID == targetGen else { return }
             let secs = CMTimeGetSeconds(time)
             if !secs.isNaN && !secs.isInfinite {
                 self.currentTime = max(0, secs)
@@ -723,7 +737,7 @@ struct ModernVideoPlayerView: View {
     }
 
     private func tearDownPlayer() {
-        sessionID = UUID() // 読み込み世代を更新し、メインキューに残った古い動画の通知を確実に破棄
+        viewGenerationID = UUID() // 読み込み世代を更新し、メインキューに残った古い動画の通知を確実に破棄
         itemStatusObserver?.invalidate()
         itemStatusObserver = nil
         playerStatusObserver?.invalidate()
@@ -748,8 +762,8 @@ struct ModernVideoPlayerView: View {
     private func handleViewDismissed() {
         if isDismissingDueToPiP || coordinator.isPiPActive {
             // PiPへ移行したため全画面を閉じるケース:
-            // AVPlayerとCoordinatorの再生セッションを破棄せず保持しつつ、画面ローカルの監視・IDを切り離す
-            sessionID = UUID()
+            // AVPlayerとCoordinatorの再生セッションを破棄せず保持しつつ、画面ローカルの監視・世代を切り離す
+            viewGenerationID = UUID()
             itemStatusObserver?.invalidate()
             itemStatusObserver = nil
             playerStatusObserver?.invalidate()
@@ -765,8 +779,10 @@ struct ModernVideoPlayerView: View {
             return
         }
 
+        let sid = playbackSessionID
         tearDownPlayer()
-        coordinator.stopAndRelease(sessionID: sessionID)
+        playbackSessionID = nil
+        coordinator.stopAndRelease(sessionID: sid)
         onDismiss()
     }
 
@@ -1011,7 +1027,8 @@ struct ModernVideoPlayerView: View {
             showToast(NSLocalizedString("PiP is not available for Vault items.", comment: ""))
             return
         }
-        coordinator.startPictureInPicture(sessionID: sessionID)
+        guard let sid = playbackSessionID else { return }
+        coordinator.startPictureInPicture(sessionID: sid)
     }
 
     // MARK: - 共有・書き出し
@@ -1171,7 +1188,10 @@ struct ModernVideoPlayerView: View {
         activeInteractions.removeAll()
         stopAutoHideTimer()
         isDismissingDueToPiP = false
-        coordinator.stopAndRelease(sessionID: sessionID)
+        let sid = playbackSessionID
+        tearDownPlayer()
+        playbackSessionID = nil
+        coordinator.stopAndRelease(sessionID: sid)
         dismiss()
     }
 
