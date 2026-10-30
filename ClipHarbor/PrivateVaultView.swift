@@ -838,6 +838,7 @@ private struct VaultUnlockView: View {
     @State private var passcode = ""
     @State private var errorMessage: String?
     @State private var shakeOffset: CGFloat = 0
+    @State private var isAuthenticatingBiometrics = false
 
     var body: some View {
         VStack(spacing: 24) {
@@ -911,18 +912,13 @@ private struct VaultUnlockView: View {
                         }
                     }
                 ),
-                onBiometric: vaultManager.isBiometricsEnabled ? {
+                onBiometric: (vaultManager.isBiometricsEnabled && !isAuthenticatingBiometrics) ? {
                     attemptBiometricUnlock()
                 } : nil
             )
-            .disabled(vaultManager.remainingLockoutSeconds > 0)
+            .disabled(vaultManager.remainingLockoutSeconds > 0 || isAuthenticatingBiometrics)
             .opacity(vaultManager.remainingLockoutSeconds > 0 ? 0.4 : 1.0)
             .padding(.bottom, 24)
-        }
-        .onAppear {
-            if vaultManager.isBiometricsEnabled && vaultManager.remainingLockoutSeconds == 0 {
-                attemptBiometricUnlock()
-            }
         }
     }
 
@@ -938,12 +934,33 @@ private struct VaultUnlockView: View {
     }
 
     private func attemptBiometricUnlock() {
-        Task {
+        guard !isAuthenticatingBiometrics else { return }
+        guard vaultManager.remainingLockoutSeconds == 0 else { return }
+        isAuthenticatingBiometrics = true
+        errorMessage = nil
+
+        Task { @MainActor in
+            defer {
+                isAuthenticatingBiometrics = false
+            }
             do {
                 try await vaultManager.unlockWithBiometrics()
                 onUnlocked()
+            } catch let vaultErr as VaultError {
+                let desc = vaultErr.localizedDescription
+                if desc.localizedCaseInsensitiveContains("cancel") || desc.contains("キャンセル") {
+                    // キャンセル時はエラーメッセージを表示せずロック解除画面に留まる
+                    errorMessage = nil
+                } else {
+                    errorMessage = desc
+                }
             } catch {
-                errorMessage = error.localizedDescription
+                let desc = error.localizedDescription
+                if desc.localizedCaseInsensitiveContains("cancel") || desc.contains("キャンセル") {
+                    errorMessage = nil
+                } else {
+                    errorMessage = desc
+                }
             }
         }
     }
