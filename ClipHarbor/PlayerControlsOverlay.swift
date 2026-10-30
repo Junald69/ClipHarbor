@@ -61,13 +61,25 @@ struct PlayerControlsOverlay: View {
     let onToggleOrientation: () -> Void
     let onTriggerPiP: () -> Void
     let onMoveFile: () -> Void
+    var onRestoreFile: (() -> Void)? = nil
     let onDeleteFile: () -> Void
     let onToggleFavorite: () -> Void
     let onInteractionStarted: (String) -> Void
     let onInteractionEnded: (String) -> Void
 
     // スピード選択肢
-    private let speedOptions: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    private let speedOptions: [Float] = PlaybackSpeedFormatter.standardSpeeds
+
+    private var playbackRateBinding: Binding<Float> {
+        Binding<Float>(
+            get: {
+                PlaybackSpeedFormatter.snapToStandardSpeed(playbackRate)
+            },
+            set: { newSpeed in
+                playbackRate = newSpeed
+            }
+        )
+    }
 
     // ドラッグ中フラグ
     @State private var isScrubbing: Bool = false
@@ -355,27 +367,25 @@ struct PlayerControlsOverlay: View {
                 if !isImage {
                     // 3. 再生速度変更 (0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0x)
                     Menu {
-                        ForEach(speedOptions, id: \.self) { speed in
-                            Button {
-                                playbackRate = speed
-                            } label: {
-                                HStack {
-                                    Text(String(format: "%.2fx", speed))
-                                    if playbackRate == speed {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
+                        Picker(NSLocalizedString("Playback Speed", comment: ""), selection: playbackRateBinding) {
+                            ForEach(speedOptions, id: \.self) { speed in
+                                Text(PlaybackSpeedFormatter.format(speed))
+                                    .tag(speed)
                             }
                         }
+                        .pickerStyle(.inline)
                     } label: {
-                        Text(String(format: "%.1fx", playbackRate))
+                        Text(PlaybackSpeedFormatter.format(playbackRate))
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(.white)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .contentShape(Rectangle())
                     }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                    .id(PlaybackSpeedFormatter.snapToStandardSpeed(playbackRate))
                     .accessibilityLabel(NSLocalizedString("Playback Speed", comment: ""))
-                    .accessibilityValue(String(format: "%.1fx", playbackRate))
+                    .accessibilityValue(PlaybackSpeedFormatter.format(playbackRate))
 
                     // 4. PiP (Vault内は無効化)
                     Button(action: onTriggerPiP) {
@@ -402,6 +412,12 @@ struct PlayerControlsOverlay: View {
                     if !isImage {
                         Menu(NSLocalizedString("Subtitles", comment: "")) {
                             Text(NSLocalizedString("No Subtitles", comment: ""))
+                        }
+                    }
+
+                    if isVault, let onRestore = onRestoreFile {
+                        Button(action: onRestore) {
+                            Label(NSLocalizedString("Restore", comment: ""), systemImage: "arrow.uturn.backward")
                         }
                     }
 
@@ -437,7 +453,9 @@ struct PlayerControlsOverlay: View {
                     .background(.ultraThinMaterial.opacity(0.3))
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             )
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+        .contentShape(Rectangle())
     }
 
     // MARK: - 左右縦型スライダー

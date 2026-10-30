@@ -1079,4 +1079,50 @@ final class VaultFaultInjectionTests: XCTestCase {
         let encSize = (try? FileManager.default.attributesOfItem(atPath: encURL.path)[.size] as? Int64) ?? 0
         XCTAssertGreaterThan(encSize, 0)
     }
+
+    // MARK: - 再生速度表示フォーマット & 整合性検証
+
+    func testPlaybackSpeed_FormattingPrecisionAndDisplayMatch() {
+        // 要求仕様: 0.5x, 0.75x, 1.0x, 1.25x, 1.5x, 2.0x
+        XCTAssertEqual(PlaybackSpeedFormatter.format(0.5), "0.5x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(0.75), "0.75x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(1.0), "1.0x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(1.25), "1.25x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(1.5), "1.5x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(2.0), "2.0x")
+    }
+
+    func testPlaybackSpeed_FloatDriftAndSnapping() {
+        // AVPlayer / PiP 復帰時の微小浮動小数点誤差の吸収テスト
+        XCTAssertEqual(PlaybackSpeedFormatter.snapToStandardSpeed(0.75000006), 0.75)
+        XCTAssertEqual(PlaybackSpeedFormatter.format(0.75000006), "0.75x")
+
+        XCTAssertEqual(PlaybackSpeedFormatter.snapToStandardSpeed(1.2500001), 1.25)
+        XCTAssertEqual(PlaybackSpeedFormatter.format(1.2500001), "1.25x")
+
+        XCTAssertEqual(PlaybackSpeedFormatter.snapToStandardSpeed(0.4999999), 0.5)
+        XCTAssertEqual(PlaybackSpeedFormatter.format(0.4999999), "0.5x")
+
+        XCTAssertEqual(PlaybackSpeedFormatter.snapToStandardSpeed(1.9999999), 2.0)
+        XCTAssertEqual(PlaybackSpeedFormatter.format(1.9999999), "2.0x")
+
+        // 標準以外の速度
+        XCTAssertEqual(PlaybackSpeedFormatter.format(0.8), "0.8x")
+        XCTAssertEqual(PlaybackSpeedFormatter.format(3.0), "3.0x")
+    }
+
+    func testPlaybackSpeed_StandardSpeedsOrderAndCount() {
+        let expected: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+        XCTAssertEqual(PlaybackSpeedFormatter.standardSpeeds.count, 6)
+        XCTAssertEqual(PlaybackSpeedFormatter.standardSpeeds, expected)
+    }
+
+    func testPlaybackSpeed_CoordinatorPreservesRequestedRateAcrossSessions() {
+        let coordinator = VideoPlaybackCoordinator()
+        for speed in PlaybackSpeedFormatter.standardSpeeds {
+            coordinator.updatePlaybackRate(speed)
+            XCTAssertEqual(coordinator.activePlaybackRate, speed)
+            XCTAssertEqual(PlaybackSpeedFormatter.format(coordinator.activePlaybackRate), PlaybackSpeedFormatter.format(speed))
+        }
+    }
 }

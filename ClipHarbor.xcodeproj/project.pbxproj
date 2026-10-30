@@ -41,6 +41,7 @@
 		9D262ED46111CCF88BB65E05 /* build PlaybackPlaylistContext.swift */ = {isa = PBXBuildFile; fileRef = 169B810F23D15958A55F9F6E /* file PlaybackPlaylistContext.swift */; };
 		A26D5D7AA50FEED2CBB99235 /* build CustomVideoPlayerView.swift */ = {isa = PBXBuildFile; fileRef = 793D267FAB1F57803C5AC09C /* file CustomVideoPlayerView.swift */; };
 		CF62CAA65AC857CA92F6103C /* build ZoomableImageView.swift */ = {isa = PBXBuildFile; fileRef = 350509C8E22B7447D72EA09E /* file ZoomableImageView.swift */; };
+		1CE21BEB938D0DD1EA2611FB /* build PlaybackSpeedFormatter.swift */ = {isa = PBXBuildFile; fileRef = 54DB461E92263A583E0E697C /* file PlaybackSpeedFormatter.swift */; };
 		2269AB7D8C7FE32C00B93E6F /* build PlayerControlsOverlay.swift */ = {isa = PBXBuildFile; fileRef = CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */; };
 		D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */ = {isa = PBXBuildFile; fileRef = 2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */; };
 		6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */ = {isa = PBXBuildFile; fileRef = 3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */; };
@@ -99,6 +100,7 @@
 		169B810F23D15958A55F9F6E /* file PlaybackPlaylistContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackPlaylistContext.swift; sourceTree = "<group>"; };
 		793D267FAB1F57803C5AC09C /* file CustomVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomVideoPlayerView.swift; sourceTree = "<group>"; };
 		350509C8E22B7447D72EA09E /* file ZoomableImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableImageView.swift; sourceTree = "<group>"; };
+		54DB461E92263A583E0E697C /* file PlaybackSpeedFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackSpeedFormatter.swift; sourceTree = "<group>"; };
 		CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerControlsOverlay.swift; sourceTree = "<group>"; };
 		2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmerView.swift; sourceTree = "<group>"; };
 		3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernVideoPlayerView.swift; sourceTree = "<group>"; };
@@ -157,6 +159,7 @@
 				169B810F23D15958A55F9F6E /* file PlaybackPlaylistContext.swift */,
 				793D267FAB1F57803C5AC09C /* file CustomVideoPlayerView.swift */,
 				350509C8E22B7447D72EA09E /* file ZoomableImageView.swift */,
+				54DB461E92263A583E0E697C /* file PlaybackSpeedFormatter.swift */,
 				CB010AA2CC7DB1637E6B0026 /* file PlayerControlsOverlay.swift */,
 				2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */,
 				3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */,
@@ -271,6 +274,7 @@
 				9D262ED46111CCF88BB65E05 /* build PlaybackPlaylistContext.swift */,
 				A26D5D7AA50FEED2CBB99235 /* build CustomVideoPlayerView.swift */,
 				CF62CAA65AC857CA92F6103C /* build ZoomableImageView.swift */,
+				1CE21BEB938D0DD1EA2611FB /* build PlaybackSpeedFormatter.swift */,
 				2269AB7D8C7FE32C00B93E6F /* build PlayerControlsOverlay.swift */,
 				D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */,
 				6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */,

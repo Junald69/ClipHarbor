@@ -1599,7 +1599,7 @@ private struct PrivateVaultPlayerSheet: View {
 
 // MARK: - Vaultフォルダ移動シート
 
-private struct MoveToVaultFolderSheet: View {
+struct MoveToVaultFolderSheet: View {
     let currentFolderID: UUID?
     let folders: [VaultFolder]
     let onSelectFolder: (UUID?) -> Void

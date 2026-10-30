@@ -166,6 +166,7 @@ struct ModernVideoPlayerView: View {
                             registerUserAction()
                             showMoveSheet = true
                         },
+                        onRestoreFile: playlistContext.isVault ? handleRestoreVaultFile : nil,
                         onDeleteFile: handleDeleteTapped,
                         onToggleFavorite: toggleFavoriteCurrentItem,
                         onInteractionStarted: { handleInteractionStarted($0) },
@@ -256,10 +257,12 @@ struct ModernVideoPlayerView: View {
             if !isPresented { scheduleAutoHide(delay: 10.0) }
         }
         .onChange(of: playbackRate) { newRate in
+            registerUserAction()
             guard !isSyncingPlaybackRate else { return }
-            coordinator.updatePlaybackRate(newRate)
+            let snapped = PlaybackSpeedFormatter.snapToStandardSpeed(newRate)
+            coordinator.updatePlaybackRate(snapped)
             if isPlaying, let p = player, p.currentItem?.status == .readyToPlay {
-                p.playImmediately(atRate: newRate)
+                p.playImmediately(atRate: snapped)
             } else if !isPlaying {
                 player?.rate = 0.0
             }
@@ -453,7 +456,7 @@ struct ModernVideoPlayerView: View {
                         if isCurrentDragSwipeEligible == nil {
                             let startPoint = value.startLocation
                             let isControlActive = !activeInteractions.isEmpty
-                            let isInsideControl = areControlsVisible && controlExclusionFrames.contains { $0.contains(startPoint) }
+                            let isInsideControl = areControlsVisible && controlExclusionFrames.contains { $0.insetBy(dx: -10, dy: -10).contains(startPoint) }
                             let isBlocked = isDeletingItem || pendingDeletionContext != nil || isControlActive || isInsideControl
                             isCurrentDragSwipeEligible = !isBlocked
                         }
@@ -639,7 +642,8 @@ struct ModernVideoPlayerView: View {
             self.player = existingPlayer
             self.playbackSessionID = existingSID
             let currentRate = existingPlayer.rate
-            let preservedRate = (currentRate > 0.0) ? currentRate : coordinator.activePlaybackRate
+            let rawRate = (currentRate > 0.0) ? currentRate : coordinator.activePlaybackRate
+            let preservedRate = PlaybackSpeedFormatter.snapToStandardSpeed(rawRate)
             self.isSyncingPlaybackRate = true
             self.playbackRate = preservedRate
             DispatchQueue.main.async {
@@ -963,17 +967,31 @@ struct ModernVideoPlayerView: View {
     private func handleSeek(offset: Double) {
         guard let p = player else { return }
         let newTime = max(0, min(duration, currentTime + offset))
-        p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = newTime
         registerUserAction()
+        let targetRate = playbackRate
+        let shouldResume = isPlaying
+        p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
+            guard completed, let self = self else { return }
+            if shouldResume && self.isPlaying && p.currentItem?.status == .readyToPlay {
+                p.playImmediately(atRate: targetRate)
+            }
+        }
     }
 
     private func handleSeekToTime(_ targetTime: Double) {
         guard let p = player else { return }
         let clamped = max(0, min(duration, targetTime))
-        p.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         currentTime = clamped
         registerUserAction()
+        let targetRate = playbackRate
+        let shouldResume = isPlaying
+        p.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
+            guard completed, let self = self else { return }
+            if shouldResume && self.isPlaying && p.currentItem?.status == .readyToPlay {
+                p.playImmediately(atRate: targetRate)
+            }
+        }
     }
 
     private func handleDoubleTapSeek(isForward: Bool) {
@@ -1434,17 +1452,64 @@ struct ModernVideoPlayerView: View {
 
     @ViewBuilder
     private var moveFolderDestinationView: some View {
-        if let item = playlistContext.currentItem, case .normal(let video) = item {
-            let folderManager = VideoFolderManager(downloads: .shared)
-            MoveToFolderSheet(
-                video: video,
-                currentFolder: folderManager.folderName(for: video),
-                folders: folderManager.folders,
-                onSelectFolder: { targetFolder in
-                    _ = folderManager.moveVideo(video, toFolder: targetFolder)
-                    showToast(NSLocalizedString("File moved", comment: ""))
+        if let item = playlistContext.currentItem {
+            switch item {
+            case .normal(let video):
+                let folderManager = VideoFolderManager(downloads: .shared)
+                MoveToFolderSheet(
+                    video: video,
+                    currentFolder: folderManager.folderName(for: video),
+                    folders: folderManager.folders,
+                    onSelectFolder: { targetFolder in
+                        _ = folderManager.moveVideo(video, toFolder: targetFolder)
+                        showToast(NSLocalizedString("File moved", comment: ""))
+                    }
+                )
+            case .vault(let vaultItem):
+                MoveToVaultFolderSheet(
+                    currentFolderID: vaultItem.folderID,
+                    folders: VaultManager.shared.folders,
+                    onSelectFolder: { targetFolderID in
+                        do {
+                            try VaultManager.shared.moveItem(id: vaultItem.id, to: targetFolderID)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                        } catch {
+                            showToast(error.localizedDescription)
+                        }
+                    },
+                    onCreateNewFolderAndMove: { folderName in
+                        do {
+                            let newFolder = try VaultManager.shared.createFolder(name: folderName)
+                            try VaultManager.shared.moveItem(id: vaultItem.id, to: newFolder.id)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                        } catch {
+                            showToast(error.localizedDescription)
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private func handleRestoreVaultFile() {
+        guard let item = playlistContext.currentItem, case .vault(let vaultItem) = item else { return }
+        Task {
+            do {
+                try await VaultManager.shared.restoreFromVault(
+                    item: vaultItem,
+                    targetFolder: nil,
+                    downloads: .shared,
+                    folderManager: VideoFolderManager(downloads: .shared)
+                )
+                showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), vaultItem.originalTitle))
+                if playlistContext.items.count > 1 {
+                    handleNavigateNext()
+                } else {
+                    handleClose()
                 }
-            )
+            } catch {
+                showToast(String(format: NSLocalizedString("Failed to restore: %@", comment: ""), error.localizedDescription))
+            }
         }
     }
 

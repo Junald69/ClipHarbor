@@ -41,6 +41,7 @@ files = [
     'PlaybackPlaylistContext.swift',
     'CustomVideoPlayerView.swift',
     'ZoomableImageView.swift',
+    'PlaybackSpeedFormatter.swift',
     'PlayerControlsOverlay.swift',
     'VideoTrimmerView.swift',
     'ModernVideoPlayerView.swift',
