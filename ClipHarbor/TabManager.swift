@@ -520,4 +520,35 @@ final class TabManager: ObservableObject {
             return nil
         }
     }
+
+    // MARK: - メディア再生一時停止制御（全タブ横断）
+
+    /// 生成済みの全タブ（通常・プライベート・子ポップアップ）のメディア再生を並列に一時停止
+    @MainActor
+    func pauseAllBrowserMedia() async {
+        let allModels = tabs + privateTabs
+        guard !allModels.isEmpty else { return }
+
+        await withThrowingTaskGroup(of: Void.self) { group in
+            // 各モデルを並列に一時停止
+            group.addTask { @MainActor in
+                await withTaskGroup(of: Void.self) { subGroup in
+                    for model in allModels {
+                        subGroup.addTask { @MainActor in
+                            await model.pauseMediaPlayback()
+                        }
+                    }
+                }
+            }
+
+            // 全体待機上限タイマー（250ms）
+            group.addTask {
+                try await Task.sleep(nanoseconds: 250_000_000)
+            }
+
+            // いずれかが先に完了したら終了
+            _ = try? await group.next()
+            group.cancelAll()
+        }
+    }
 }

@@ -585,6 +585,40 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
     }
 
+    // MARK: - メディア再生一時停止（ローカル動画再生優先用）
+
+    /// 生成済みのWKWebViewおよび子ポップアップのメディア再生を一時停止
+    @MainActor
+    func pauseMediaPlayback() async {
+        guard isWebViewCreated, !isTornDown else { return }
+        let targets: [WKWebView] = [webView, activePopup?.webView].compactMap { $0 }
+        guard !targets.isEmpty else { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            for target in targets {
+                group.addTask { @MainActor in
+                    await withCheckedContinuation { continuation in
+                        var hasResumed = false
+                        let resumeOnce: @MainActor () -> Void = {
+                            guard !hasResumed else { return }
+                            hasResumed = true
+                            continuation.resume()
+                        }
+                        target.pauseAllMediaPlayback {
+                            Task { @MainActor in
+                                resumeOnce()
+                            }
+                        }
+                        // タイムアウト保護（最大250ms）
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                            resumeOnce()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - 複数タブ管理用ライフサイクル（明示的なタブ破棄）
 
     /// TabManager等から明示的にタブを閉じる際に呼び出される破棄処理。
