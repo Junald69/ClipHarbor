@@ -165,6 +165,9 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
 
         let view = WKWebView(frame: .zero, configuration: configuration)
+        if TabManager.shared?.isMediaPlaybackSuspended == true {
+            view.setAllMediaPlaybackSuspended(true)
+        }
         view.navigationDelegate = self
         view.uiDelegate = self
 
@@ -585,6 +588,34 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
     }
 
+    // MARK: - メディア再生サスペンド制御（ローカル動画再生優先）
+
+    /// 生成済みのWKWebViewおよび子ポップアップのメディア再生を一時停止し、自動再生を抑止
+    func suspendMediaPlayback() async {
+        guard isWebViewCreated, !isTornDown else { return }
+        let targets = [webView, activePopup?.webView].compactMap { $0 }
+        await withTaskGroup(of: Void.self) { group in
+            for target in targets {
+                group.addTask { @MainActor in
+                    await withCheckedContinuation { continuation in
+                        target.pauseAllMediaPlayback {
+                            target.setAllMediaPlaybackSuspended(true) {
+                                continuation.resume()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// メディア再生の抑止を解除（動画は停止状態を維持し、ユーザーの手動再開を許可）
+    func resumeMediaPlayback() {
+        guard isWebViewCreated, !isTornDown else { return }
+        webView.setAllMediaPlaybackSuspended(false)
+        activePopup?.webView.setAllMediaPlaybackSuspended(false)
+    }
+
     // MARK: - 複数タブ管理用ライフサイクル（明示的なタブ破棄）
 
     /// TabManager等から明示的にタブを閉じる際に呼び出される破棄処理。
@@ -800,6 +831,9 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
 
     private func spawnChildPopup(with configuration: WKWebViewConfiguration, request: URLRequest) -> WKWebView {
         let child = WKWebView(frame: .zero, configuration: configuration)
+        if TabManager.shared?.isMediaPlaybackSuspended == true {
+            child.setAllMediaPlaybackSuspended(true)
+        }
         child.uiDelegate = self
         child.navigationDelegate = self
         child.allowsBackForwardNavigationGestures = true

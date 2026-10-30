@@ -89,6 +89,10 @@ final class TabManager: ObservableObject {
     /// 現在のブラウズモード（false: 通常モード, true: 🕶️プライベートモード）
     @Published var isPrivateMode: Bool = false
 
+    /// ローカルメディア再生優先のためのWebメディアサスペンド状態
+    @Published private(set) var isMediaPlaybackSuspended: Bool = false
+    private var currentSuspendTask: Task<Void, Never>?
+
     /// 現在画面に表示中の通常アクティブタブID
     @Published var activeTabID: UUID {
         didSet {
@@ -518,6 +522,53 @@ final class TabManager: ObservableObject {
         } catch {
             // 破損JSON読み込み失敗時は既存ファイルを空JSONで上書きせず安全に無視
             return nil
+        }
+    }
+
+    // MARK: - メディア再生サスペンド制御（全タブ横断）
+
+    /// 生成済みの全タブ（通常・プライベート・子ポップアップ）のメディア再生を確実に停止・抑止
+    func suspendAllMediaPlayback() async {
+        isMediaPlaybackSuspended = true
+        currentSuspendTask?.cancel()
+
+        let allModels = tabs + privateTabs
+        let task = Task { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in allModels {
+                    group.addTask { @MainActor in
+                        await model.suspendMediaPlayback()
+                    }
+                }
+            }
+        }
+        currentSuspendTask = task
+
+        // 最大400ms待機（完了またはタイムアウトでローカル動画の起動をブロックさせない）
+        await withTaskCancellationHandler {
+            await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    await task.value
+                }
+                group.addTask {
+                    try await Task.sleep(nanoseconds: 400_000_000) // 0.4s
+                }
+                _ = try? await group.next()
+                group.cancelAll()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    /// メディア再生抑止を解除（全タブの setAllMediaPlaybackSuspended(false)）
+    func resumeAllMediaPlayback() {
+        isMediaPlaybackSuspended = false
+        currentSuspendTask?.cancel()
+        currentSuspendTask = nil
+        let allModels = tabs + privateTabs
+        for model in allModels {
+            model.resumeMediaPlayback()
         }
     }
 }

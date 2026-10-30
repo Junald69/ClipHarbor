@@ -15,6 +15,7 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
     @Published private(set) var activePlayer: AVPlayer?
     @Published private(set) var currentSessionID: UUID = UUID()
     @Published private(set) var isPiPActive: Bool = false
+    @Published private(set) var isViewerActive: Bool = false
     @Published var activePlaybackRate: Float = 1.0
     @Published var isTransitioningToPiP: Bool = false
     @Published var shouldDismissPlayerForPiP: Bool = false
@@ -166,6 +167,33 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         shouldDismissPlayerForPiP = false
         isRestoringUI = false
         restoreCompletionHandler = nil
+
+        evaluateMediaSuspensionState()
+    }
+
+    // MARK: - メディアビューアー・Web再生抑止連携
+
+    /// メディアビューアー（全画面プレイヤー／画像ビューアー）画面が表示された
+    func viewerDidAppear() {
+        isViewerActive = true
+    }
+
+    /// メディアビューアー画面が閉じられた
+    func viewerDidDisappear() {
+        isViewerActive = false
+        evaluateMediaSuspensionState()
+    }
+
+    /// Webメディア再生抑止の解除を安全に評価・実行
+    func evaluateMediaSuspensionState() {
+        // 全画面プレイヤーが表示されておらず、かつPiPも動いていない場合のみ解除
+        guard !isViewerActive,
+              !isPiPActive,
+              !isTransitioningToPiP,
+              activePlayer == nil else {
+            return
+        }
+        TabManager.shared?.resumeAllMediaPlayback()
     }
 
     // MARK: - AVPictureInPictureControllerDelegate

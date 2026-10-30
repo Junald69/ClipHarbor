@@ -73,6 +73,7 @@ struct ModernVideoPlayerView: View {
     @State private var isImageZoomed: Bool = false
     @State private var imageLoadState: ImageLoadState = .loading
     @State private var imageLoadTaskID: UUID = UUID()
+    @State private var videoLoadTaskID: UUID = UUID()
 
     // フィードバックバッジ
     @State private var seekFeedbackText: String?
@@ -289,6 +290,7 @@ struct ModernVideoPlayerView: View {
             }
         }
         .onAppear {
+            coordinator.viewerDidAppear()
             originalBrightness = UIScreen.main.brightness
             brightnessValue = Double(originalBrightness)
             loadCurrentItem()
@@ -304,6 +306,7 @@ struct ModernVideoPlayerView: View {
                 setOrientation(.portrait)
             }
             handleViewDismissed()
+            coordinator.viewerDidDisappear()
         }
     }
 
@@ -568,7 +571,15 @@ struct ModernVideoPlayerView: View {
                 coordinator.stopAndRelease(sessionID: prevSID)
                 loadImage(from: video.fileURL)
             } else {
-                setupVideoPlayer(url: video.fileURL, isVault: false, autoPlay: autoPlay)
+                let taskID = UUID()
+                videoLoadTaskID = taskID
+                videoLoadState = .preparing
+                Task { @MainActor in
+                    // WebKit側のメディア再生停止・抑止完了を確実に待機してからAVPlayerを起動
+                    await TabManager.shared?.suspendAllMediaPlayback()
+                    guard self.videoLoadTaskID == taskID else { return }
+                    self.setupVideoPlayer(url: video.fileURL, isVault: false, autoPlay: autoPlay)
+                }
             }
 
         case .vault(let vaultItem):
@@ -582,7 +593,15 @@ struct ModernVideoPlayerView: View {
                     coordinator.stopAndRelease(sessionID: prevSID)
                     loadImage(from: tempURL)
                 } else {
-                    setupVideoPlayer(url: tempURL, isVault: true, autoPlay: autoPlay)
+                    let taskID = UUID()
+                    videoLoadTaskID = taskID
+                    videoLoadState = .preparing
+                    Task { @MainActor in
+                        // WebKit側のメディア再生停止・抑止完了を確実に待機してからAVPlayerを起動
+                        await TabManager.shared?.suspendAllMediaPlayback()
+                        guard self.videoLoadTaskID == taskID else { return }
+                        self.setupVideoPlayer(url: tempURL, isVault: true, autoPlay: autoPlay)
+                    }
                 }
             } catch {
                 showToast(String(format: NSLocalizedString("Failed to prepare playback: %@", comment: ""), error.localizedDescription))
@@ -848,6 +867,7 @@ struct ModernVideoPlayerView: View {
     }
 
     private func tearDownPlayer() {
+        videoLoadTaskID = UUID() // 待機中の動画ロードタスクを無効化
         diagnosticsTimer?.invalidate()
         diagnosticsTimer = nil
         showDiagnosticsPrompt = false
