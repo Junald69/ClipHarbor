@@ -1,5 +1,18 @@
 import Foundation
 
+/// Vault内の論理フォルダメタデータモデル
+struct VaultFolder: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var name: String
+    let createdAt: Date
+
+    init(id: UUID = UUID(), name: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+    }
+}
+
 /// Private Vault内に保護・暗号化された動画アイテムモデル
 struct VaultItem: Identifiable, Codable, Equatable {
     let id: UUID                     // Vault内管理用の一意ID
@@ -15,6 +28,7 @@ struct VaultItem: Identifiable, Codable, Equatable {
     let createdAt: Date              // 動画の元の作成・保存日時
     let vaultAddedAt: Date           // Vaultへの移動日時
     var isFavorite: Bool = false     // お気に入り状態（Vault暗号化メタデータに保護）
+    var folderID: UUID? = nil        // 所属VaultフォルダID（nilは未分類）
 
     init(
         id: UUID,
@@ -29,7 +43,8 @@ struct VaultItem: Identifiable, Codable, Equatable {
         sourcePageURL: String?,
         createdAt: Date,
         vaultAddedAt: Date,
-        isFavorite: Bool = false
+        isFavorite: Bool = false,
+        folderID: UUID? = nil
     ) {
         self.id = id
         self.originalVideoID = originalVideoID
@@ -44,6 +59,7 @@ struct VaultItem: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         self.vaultAddedAt = vaultAddedAt
         self.isFavorite = isFavorite
+        self.folderID = folderID
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +77,7 @@ struct VaultItem: Identifiable, Codable, Equatable {
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.vaultAddedAt = try container.decode(Date.self, forKey: .vaultAddedAt)
         self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        self.folderID = try container.decodeIfPresent(UUID.self, forKey: .folderID)
     }
 
     /// 表示用のファイルサイズ文字列
@@ -97,6 +114,9 @@ enum VaultError: LocalizedError, Equatable {
     case decryptionFailed(String)
     case integrityCheckFailed
     case sessionExpired
+    case folderAlreadyExists
+    case folderNotFound
+    case invalidFolderName
     case fileOperationFailed(String)
 
     var errorDescription: String? {
@@ -135,6 +155,12 @@ enum VaultError: LocalizedError, Equatable {
             return NSLocalizedString("Detected data corruption or tampering in encrypted file.", comment: "")
         case .sessionExpired:
             return NSLocalizedString("Vault session expired or was locked. Operation cancelled.", comment: "")
+        case .folderAlreadyExists:
+            return NSLocalizedString("A folder with the same name already exists.", comment: "")
+        case .folderNotFound:
+            return NSLocalizedString("Folder not found.", comment: "")
+        case .invalidFolderName:
+            return NSLocalizedString("Invalid folder name.", comment: "")
         case .fileOperationFailed(let msg):
             return String(format: NSLocalizedString("File operation failed: %@", comment: ""), msg)
         }

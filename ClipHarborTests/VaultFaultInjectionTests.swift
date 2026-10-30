@@ -657,4 +657,232 @@ final class VaultFaultInjectionTests: XCTestCase {
         // 検証: 準備段階で例外がスローされても、isProcessing が確実に false に戻っている
         XCTAssertFalse(env.vault.isProcessing)
     }
+
+    // 13. 生体認証: ロック後に自動起動せず、明示的呼び出しでのみアンロックされること
+    func testBiometrics_DoesNotAutoUnlockOnLock_UnlocksWhenExplicitlyTriggered() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        // 生体認証を有効化
+        try env.vault.setBiometricsEnabled(true)
+        XCTAssertTrue(env.vault.isBiometricsEnabled)
+
+        // ロック実行
+        env.vault.lock()
+        // 自動アンロックされないことを検証（必ずロック解除画面に留まる）
+        XCTAssertFalse(env.vault.isUnlocked)
+        XCTAssertTrue(env.vault.items.isEmpty)
+
+        // テンキー左下の生体認証ボタンを押したときのみアンロックが明示的に実行される
+        try await env.vault.unlockWithBiometrics()
+        XCTAssertTrue(env.vault.isUnlocked)
+    }
+
+    // 14. 既存Vaultインデックスの読み込み互換性 (folderIDキーなしの旧データ)
+    func testBackwardCompatibility_LegacyIndexWithoutFolderID_LoadsAsUncategorized() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let itemID = UUID()
+        let originalVideoID = UUID()
+        let legacyJSON = """
+        [
+            {
+                "id": "\(itemID.uuidString)",
+                "originalVideoID": "\(originalVideoID.uuidString)",
+                "originalTitle": "LegacyVideo",
+                "originalFileName": "LegacyVideo.mp4",
+                "originalRelativePath": "Downloads/LegacyVideo.mp4",
+                "originalFolderName": "",
+                "format": "mp4",
+                "byteSize": 1024,
+                "createdAt": 1700000000,
+                "vaultAddedAt": 1700000000,
+                "isFavorite": false
+            }
+        ]
+        """
+        guard let data = legacyJSON.data(using: .utf8) else {
+            XCTFail("Failed to encode legacy JSON")
+            return
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+        let decodedItems = try decoder.decode([VaultItem].self, from: data)
+
+        XCTAssertEqual(decodedItems.count, 1)
+        XCTAssertEqual(decodedItems[0].originalTitle, "LegacyVideo")
+        XCTAssertNil(decodedItems[0].folderID, "Legacy items without folderID must decode with folderID = nil (Uncategorized)")
+    }
+
+    // 15. フォルダ作成・変更・削除
+    func testVaultFolders_CreateRenameDelete() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        // 1. フォルダ新規作成
+        let folder = try env.vault.createFolder(name: "MyFolder")
+        XCTAssertEqual(env.vault.folders.count, 1)
+        XCTAssertEqual(env.vault.folders[0].name, "MyFolder")
+        XCTAssertEqual(env.vault.folders[0].id, folder.id)
+
+        // 空白または重複フォルダ名のバリデーション
+        XCTAssertThrowsError(try env.vault.createFolder(name: "   "))
+        XCTAssertThrowsError(try env.vault.createFolder(name: "myfolder"))
+
+        // 2. フォルダ名変更
+        try env.vault.renameFolder(id: folder.id, newName: "RenamedFolder")
+        XCTAssertEqual(env.vault.folders[0].name, "RenamedFolder")
+
+        // 3. フォルダ削除
+        try env.vault.deleteFolder(id: folder.id)
+        XCTAssertTrue(env.vault.folders.isEmpty)
+    }
+
+    // 16. 動画の単体・一括移動
+    func testVaultFolders_SingleAndBatchMove() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url1, video1) = try createDummyVideoFile(in: env.downloadsDir, name: "V1.mp4")
+        let (url2, video2) = try createDummyVideoFile(in: env.downloadsDir, name: "V2.mp4")
+        env.mockDownloads.savedVideos[video1.id] = video1
+        env.mockDownloads.savedVideos[video2.id] = video2
+
+        try await env.vault.moveToVault(
+            video: video1,
+            sourceURL: url1,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        try await env.vault.moveToVault(
+            video: video2,
+            sourceURL: url2,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        // デフォルトでは未分類（folderID == nil）
+        XCTAssertEqual(env.vault.items.count, 2)
+        XCTAssertNil(env.vault.items[0].folderID)
+        XCTAssertNil(env.vault.items[1].folderID)
+
+        let folder = try env.vault.createFolder(name: "FolderA")
+
+        // 単体移動
+        let item1ID = env.vault.items.first(where: { $0.originalVideoID == video1.id })!.id
+        try env.vault.moveItem(id: item1ID, to: folder.id)
+        XCTAssertEqual(env.vault.items.first(where: { $0.id == item1ID })?.folderID, folder.id)
+
+        // 一括移動
+        let allIDs = Set(env.vault.items.map { $0.id })
+        try env.vault.moveItems(ids: allIDs, to: folder.id)
+        XCTAssertEqual(env.vault.items(in: folder.id).count, 2)
+        XCTAssertEqual(env.vault.items(in: nil).count, 0)
+
+        // 未分類へ一括戻し
+        try env.vault.moveItems(ids: allIDs, to: nil)
+        XCTAssertEqual(env.vault.items(in: nil).count, 2)
+    }
+
+    // 17. フォルダメタデータ保存失敗時のデータ保護
+    func testVaultFolders_SaveFailure_RollsBackAndProtectsData() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let folder = try env.vault.createFolder(name: "StableFolder")
+        XCTAssertEqual(env.vault.folders.count, 1)
+
+        // フォルダメタデータ保存失敗の障害注入
+        env.vault.faultConfig.simulateFolderSaveFailure = true
+
+        // 新規作成が失敗し、ロールバックされること
+        XCTAssertThrowsError(try env.vault.createFolder(name: "WillFailFolder"))
+        XCTAssertEqual(env.vault.folders.count, 1)
+        XCTAssertEqual(env.vault.folders[0].name, "StableFolder")
+
+        // 名前変更が失敗し、ロールバックされること
+        XCTAssertThrowsError(try env.vault.renameFolder(id: folder.id, newName: "NewName"))
+        XCTAssertEqual(env.vault.folders[0].name, "StableFolder")
+
+        // 削除が失敗し、ロールバックされること
+        XCTAssertThrowsError(try env.vault.deleteFolder(id: folder.id))
+        XCTAssertEqual(env.vault.folders.count, 1)
+    }
+
+    // 18. アプリ再起動（再ロック・再アンロック）後のフォルダ維持
+    func testVaultFolders_PersistsAcrossLockAndUnlock() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "PersistTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let folder = try env.vault.createFolder(name: "PersistentFolder")
+        let itemID = env.vault.items[0].id
+        try env.vault.moveItem(id: itemID, to: folder.id)
+
+        // ロック実行: メモリ上の鍵・アイテム・フォルダ管理情報が完全にクリアされること
+        env.vault.lock()
+        XCTAssertFalse(env.vault.isUnlocked)
+        XCTAssertTrue(env.vault.items.isEmpty)
+        XCTAssertTrue(env.vault.folders.isEmpty)
+
+        // 再度アンロック: 暗号化されたvault_folders.encおよびvault_index.encから復号・復元されること
+        try env.vault.unlock(with: "123456")
+        XCTAssertTrue(env.vault.isUnlocked)
+        XCTAssertEqual(env.vault.folders.count, 1)
+        XCTAssertEqual(env.vault.folders[0].name, "PersistentFolder")
+        XCTAssertEqual(env.vault.items.count, 1)
+        XCTAssertEqual(env.vault.items[0].folderID, folder.id)
+    }
+
+    // 19. フォルダ削除で動画実体が削除されないこと
+    func testVaultFolders_DeleteFolder_RetainsVideoFilesAsUncategorized() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "RetainTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let vaultItem = env.vault.items[0]
+        let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+
+        let folder = try env.vault.createFolder(name: "TempFolder")
+        try env.vault.moveItem(id: vaultItem.id, to: folder.id)
+        XCTAssertEqual(env.vault.items[0].folderID, folder.id)
+
+        // フォルダ削除実行
+        try env.vault.deleteFolder(id: folder.id)
+
+        // 検証: フォルダは削除されている
+        XCTAssertTrue(env.vault.folders.isEmpty)
+        // 検証: 動画アイテムは削除されず未分類（folderID == nil）に戻っている
+        XCTAssertEqual(env.vault.items.count, 1)
+        XCTAssertNil(env.vault.items[0].folderID)
+        // 検証: 暗号化動画実体ファイル（video.enc）は確実に保護されている
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+        let encSize = (try? FileManager.default.attributesOfItem(atPath: encURL.path)[.size] as? Int64) ?? 0
+        XCTAssertGreaterThan(encSize, 0)
+    }
 }

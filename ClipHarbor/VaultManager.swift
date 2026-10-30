@@ -41,6 +41,7 @@ final class VaultManager: ObservableObject {
     @Published private(set) var isInitialized: Bool = false
     @Published private(set) var isUnlocked: Bool = false
     @Published private(set) var items: [VaultItem] = []
+    @Published private(set) var folders: [VaultFolder] = []
     @Published private(set) var isBiometricsEnabled: Bool = false
     @Published private(set) var failedAttempts: Int = 0
     @Published private(set) var lockoutUntil: Date? = nil
@@ -86,6 +87,10 @@ final class VaultManager: ObservableObject {
 
     private var indexFileURL: URL {
         vaultDirectory.appendingPathComponent("vault_index.enc")
+    }
+
+    private var foldersFileURL: URL {
+        vaultDirectory.appendingPathComponent("vault_folders.enc")
     }
 
     private let biometricsPrefKey = "VaultManager.isBiometricsEnabled"
@@ -175,6 +180,7 @@ final class VaultManager: ObservableObject {
     struct FaultInjectionConfig {
         var simulateIndexSaveFailure: Bool = false
         var simulateSourceRemovalFailure: Bool = false
+        var simulateFolderSaveFailure: Bool = false
         var onOperationPhase: (() -> Void)? = nil
     }
     var faultConfig = FaultInjectionConfig()
@@ -462,6 +468,7 @@ final class VaultManager: ObservableObject {
         masterKey = nil
         isUnlocked = false
         items = []
+        folders = []
         thumbnailCache.removeAllObjects()
         cleanupPlaybackTemp()
     }
@@ -524,20 +531,46 @@ final class VaultManager: ObservableObject {
         try encryptedData.write(to: indexFileURL, options: .atomic)
     }
 
+    func saveEncryptedFolders() throws {
+        if isTestInstance && faultConfig.simulateFolderSaveFailure {
+            throw VaultError.fileOperationFailed("Fault injection: Simulated saveEncryptedFolders failure")
+        }
+        guard let key = masterKey else {
+            throw VaultError.masterKeyMissing
+        }
+
+        let encoder = JSONEncoder()
+        let plainData = try encoder.encode(folders)
+        let encryptedData = try VaultCrypto.encryptData(plainData, using: key)
+        try encryptedData.write(to: foldersFileURL, options: .atomic)
+    }
+
     private func loadEncryptedIndex() throws {
         guard let key = masterKey else {
             throw VaultError.masterKeyMissing
         }
 
-        guard fileManager.fileExists(atPath: indexFileURL.path) else {
+        if fileManager.fileExists(atPath: indexFileURL.path) {
+            let encryptedData = try Data(contentsOf: indexFileURL)
+            let plainData = try VaultCrypto.decryptData(encryptedData, using: key)
+            let decoder = JSONDecoder()
+            items = try decoder.decode([VaultItem].self, from: plainData)
+        } else {
             items = []
-            return
         }
 
-        let encryptedData = try Data(contentsOf: indexFileURL)
-        let plainData = try VaultCrypto.decryptData(encryptedData, using: key)
-        let decoder = JSONDecoder()
-        items = try decoder.decode([VaultItem].self, from: plainData)
+        if fileManager.fileExists(atPath: foldersFileURL.path) {
+            do {
+                let encryptedFolderData = try Data(contentsOf: foldersFileURL)
+                let plainFolderData = try VaultCrypto.decryptData(encryptedFolderData, using: key)
+                let decoder = JSONDecoder()
+                folders = try decoder.decode([VaultFolder].self, from: plainFolderData)
+            } catch {
+                folders = []
+            }
+        } else {
+            folders = []
+        }
     }
 
     // MARK: - Vaultへの移動 (アトミック処理)
@@ -1081,6 +1114,145 @@ final class VaultManager: ObservableObject {
         try saveEncryptedIndex()
     }
 
+    // MARK: - Vault内フォルダ管理
+
+    /// 指定IDのフォルダを取得
+    func folder(for id: UUID?) -> VaultFolder? {
+        guard let id = id else { return nil }
+        return folders.first(where: { $0.id == id })
+    }
+
+    /// 特定フォルダ（または未分類: nil）に属するアイテム一覧
+    func items(in folderID: UUID?) -> [VaultItem] {
+        items.filter { $0.folderID == folderID }
+    }
+
+    /// フォルダ新規作成
+    @discardableResult
+    func createFolder(name: String) throws -> VaultFolder {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw VaultError.invalidFolderName
+        }
+        if folders.contains(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw VaultError.folderAlreadyExists
+        }
+        let newFolder = VaultFolder(name: trimmed)
+        folders.append(newFolder)
+        do {
+            try saveEncryptedFolders()
+            return newFolder
+        } catch {
+            folders.removeAll(where: { $0.id == newFolder.id })
+            throw error
+        }
+    }
+
+    /// フォルダ名変更
+    func renameFolder(id: UUID, newName: String) throws {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw VaultError.invalidFolderName
+        }
+        guard let index = folders.firstIndex(where: { $0.id == id }) else {
+            throw VaultError.folderNotFound
+        }
+        if folders.contains(where: { $0.id != id && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            throw VaultError.folderAlreadyExists
+        }
+        let oldName = folders[index].name
+        folders[index].name = trimmed
+        do {
+            try saveEncryptedFolders()
+        } catch {
+            folders[index].name = oldName
+            throw error
+        }
+    }
+
+    /// フォルダ削除（中の動画は削除せず未分類へ移動）
+    func deleteFolder(id: UUID) throws {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        guard let folderIndex = folders.firstIndex(where: { $0.id == id }) else {
+            throw VaultError.folderNotFound
+        }
+        let removedFolder = folders[folderIndex]
+        folders.remove(at: folderIndex)
+
+        let previousItems = items
+        for i in 0..<items.count {
+            if items[i].folderID == id {
+                items[i].folderID = nil
+            }
+        }
+
+        do {
+            try saveEncryptedFolders()
+            try saveEncryptedIndex()
+        } catch {
+            folders.insert(removedFolder, at: folderIndex)
+            items = previousItems
+            try? saveEncryptedFolders()
+            try? saveEncryptedIndex()
+            throw error
+        }
+    }
+
+    /// 単一動画を任意のフォルダへ移動（nilで未分類へ）
+    func moveItem(id: UUID, to folderID: UUID?) throws {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        if let folderID = folderID {
+            guard folders.contains(where: { $0.id == folderID }) else {
+                throw VaultError.folderNotFound
+            }
+        }
+        guard let itemIndex = items.firstIndex(where: { $0.id == id }) else {
+            throw VaultError.fileNotFound
+        }
+        let previousFolderID = items[itemIndex].folderID
+        items[itemIndex].folderID = folderID
+        do {
+            try saveEncryptedIndex()
+        } catch {
+            items[itemIndex].folderID = previousFolderID
+            throw error
+        }
+    }
+
+    /// 複数動画の一括フォルダ移動（nilで未分類へ）
+    func moveItems(ids: Set<UUID>, to folderID: UUID?) throws {
+        guard isUnlocked, masterKey != nil else {
+            throw VaultError.masterKeyMissing
+        }
+        if let folderID = folderID {
+            guard folders.contains(where: { $0.id == folderID }) else {
+                throw VaultError.folderNotFound
+            }
+        }
+        let previousItems = items
+        for i in 0..<items.count {
+            if ids.contains(items[i].id) {
+                items[i].folderID = folderID
+            }
+        }
+        do {
+            try saveEncryptedIndex()
+        } catch {
+            items = previousItems
+            throw error
+        }
+    }
+
     /// トリミング結果（tempURL）をVault内へ暗号化保存（元アイテムは保持）
     @discardableResult
     func addEncryptedClip(tempURL: URL, clipTitle: String, sourceVaultItem: VaultItem) async throws -> VaultItem {
@@ -1139,7 +1311,8 @@ final class VaultManager: ObservableObject {
             sourcePageURL: sourceVaultItem.sourcePageURL,
             createdAt: Date(),
             vaultAddedAt: Date(),
-            isFavorite: false
+            isFavorite: false,
+            folderID: sourceVaultItem.folderID
         )
 
         items.insert(newVaultItem, at: 0)

@@ -28,6 +28,16 @@ struct PrivateVaultView: View {
     @State private var errorMessage: String?
     @State private var isOperating = false
 
+    // フォルダ管理ステート
+    @State private var currentFolder: VaultFolder? = nil
+    @State private var showNewFolderAlert = false
+    @State private var newFolderName = ""
+    @State private var renamingFolder: VaultFolder? = nil
+    @State private var renameFolderInput = ""
+    @State private var deletingFolder: VaultFolder? = nil
+    @State private var movingItem: VaultItem? = nil
+    @State private var showBatchMoveSheet = false
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -68,14 +78,30 @@ struct PrivateVaultView: View {
             .animation(.easeInOut(duration: 0.25), value: noticeMessage)
             .animation(.easeInOut(duration: 0.25), value: vaultManager.isProcessing)
             .animation(.easeInOut(duration: 0.2), value: vaultManager.isPrivacyShieldActive)
-            .navigationTitle(vaultManager.isUnlocked ? "Private Vault" : "")
+            .navigationTitle(vaultManager.isUnlocked ? (currentFolder?.name ?? "Private Vault") : "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if vaultManager.isUnlocked {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button("Close") {
-                            vaultManager.lock()
-                            dismiss()
+                        if currentFolder != nil {
+                            Button {
+                                withAnimation {
+                                    currentFolder = nil
+                                    isSelectionMode = false
+                                    selectedItemIDs.removeAll()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 14, weight: .semibold))
+                                    Text("Private Vault")
+                                }
+                            }
+                        } else {
+                            Button("Close") {
+                                vaultManager.lock()
+                                dismiss()
+                            }
                         }
                     }
 
@@ -102,6 +128,30 @@ struct PrivateVaultView: View {
                             }
 
                             Menu {
+                                if currentFolder == nil {
+                                    Button {
+                                        newFolderName = ""
+                                        showNewFolderAlert = true
+                                    } label: {
+                                        Label(NSLocalizedString("New Folder", comment: ""), systemImage: "folder.badge.plus")
+                                    }
+                                } else if let folder = currentFolder {
+                                    Button {
+                                        renameFolderInput = folder.name
+                                        renamingFolder = folder
+                                    } label: {
+                                        Label(NSLocalizedString("Rename Folder", comment: ""), systemImage: "pencil")
+                                    }
+
+                                    Button(role: .destructive) {
+                                        deletingFolder = folder
+                                    } label: {
+                                        Label(NSLocalizedString("Delete Folder", comment: ""), systemImage: "trash")
+                                    }
+                                }
+
+                                Divider()
+
                                 Button {
                                     showVaultSettings = true
                                 } label: {
@@ -144,6 +194,93 @@ struct PrivateVaultView: View {
                         handleImportVideos(videos)
                     }
                 )
+            }
+            .sheet(item: $movingItem) { item in
+                MoveToVaultFolderSheet(
+                    currentFolderID: item.folderID,
+                    folders: vaultManager.folders,
+                    onSelectFolder: { targetFolderID in
+                        do {
+                            try vaultManager.moveItem(id: item.id, to: targetFolderID)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    },
+                    onCreateNewFolderAndMove: { folderName in
+                        do {
+                            let newFolder = try vaultManager.createFolder(name: folderName)
+                            try vaultManager.moveItem(id: item.id, to: newFolder.id)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                )
+            }
+            .sheet(isPresented: $showBatchMoveSheet) {
+                MoveToVaultFolderSheet(
+                    currentFolderID: currentFolder?.id,
+                    folders: vaultManager.folders,
+                    onSelectFolder: { targetFolderID in
+                        do {
+                            try vaultManager.moveItems(ids: selectedItemIDs, to: targetFolderID)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                            withAnimation {
+                                isSelectionMode = false
+                                selectedItemIDs.removeAll()
+                            }
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    },
+                    onCreateNewFolderAndMove: { folderName in
+                        do {
+                            let newFolder = try vaultManager.createFolder(name: folderName)
+                            try vaultManager.moveItems(ids: selectedItemIDs, to: newFolder.id)
+                            showToast(NSLocalizedString("File moved", comment: ""))
+                            withAnimation {
+                                isSelectionMode = false
+                                selectedItemIDs.removeAll()
+                            }
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                )
+            }
+            .alert(NSLocalizedString("New Folder", comment: ""), isPresented: $showNewFolderAlert) {
+                TextField(NSLocalizedString("Folder Name", comment: ""), text: $newFolderName)
+                Button(NSLocalizedString("Create", comment: "")) {
+                    createVaultFolder(name: newFolderName)
+                }
+                Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+            }
+            .alert(NSLocalizedString("Rename Folder", comment: ""), isPresented: Binding(
+                get: { renamingFolder != nil },
+                set: { if !$0 { renamingFolder = nil } }
+            )) {
+                TextField(NSLocalizedString("Folder Name", comment: ""), text: $renameFolderInput)
+                Button(NSLocalizedString("Rename", comment: "")) {
+                    if let folder = renamingFolder {
+                        renameVaultFolder(folder: folder, newName: renameFolderInput)
+                    }
+                }
+                Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+            }
+            .alert(
+                String(format: NSLocalizedString("Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Uncategorized.", comment: ""), deletingFolder?.name ?? ""),
+                isPresented: Binding(
+                    get: { deletingFolder != nil },
+                    set: { if !$0 { deletingFolder = nil } }
+                )
+            ) {
+                Button(NSLocalizedString("Delete Folder", comment: ""), role: .destructive) {
+                    if let folder = deletingFolder {
+                        deleteVaultFolder(folder: folder)
+                    }
+                }
+                Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
             }
             .alert(NSLocalizedString("Delete Permanently", comment: ""), isPresented: Binding(
                 get: { deletingItem != nil },
@@ -241,8 +378,9 @@ struct PrivateVaultView: View {
 
     @ViewBuilder
     private func vaultPlayerCover(for item: VaultItem) -> some View {
-        PrivateVaultPlayerSheet(
-            vaultItems: vaultManager.items,
+        let playlistItems = vaultManager.items(in: currentFolder?.id)
+        return PrivateVaultPlayerSheet(
+            vaultItems: playlistItems.isEmpty ? vaultManager.items : playlistItems,
             initialItem: item,
             sessionToken: vaultManager.sessionToken
         ) {
@@ -260,16 +398,31 @@ struct PrivateVaultView: View {
     ]
 
     private var vaultContentView: some View {
-        ZStack(alignment: .bottom) {
-            if vaultManager.items.isEmpty {
+        let displayedItems = vaultManager.items(in: currentFolder?.id)
+        let isRoot = currentFolder == nil
+        let hasFolders = !vaultManager.folders.isEmpty
+        let hasItems = !displayedItems.isEmpty
+
+        return ZStack(alignment: .bottom) {
+            if isRoot && !hasFolders && !hasItems {
                 emptyVaultPlaceholder
+            } else if !isRoot && !hasItems {
+                emptyFolderPlaceholder
             } else {
                 ScrollView {
                     VStack(spacing: 8) {
                         securityInfoBanner
 
                         LazyVGrid(columns: gridColumns, spacing: 18) {
-                            ForEach(vaultManager.items) { item in
+                            // ルート画面: フォルダカード一覧を表示
+                            if isRoot {
+                                ForEach(vaultManager.folders) { folder in
+                                    vaultFolderCard(folder: folder)
+                                }
+                            }
+
+                            // 動画カード一覧を表示（ルートなら未分類、フォルダ内ならそのフォルダ内の動画）
+                            ForEach(displayedItems) { item in
                                 AlohaVaultCardView(
                                     item: item,
                                     isSelectionMode: isSelectionMode,
@@ -283,6 +436,9 @@ struct PrivateVaultView: View {
                                     },
                                     onPlay: {
                                         playItem(item)
+                                    },
+                                    onMove: {
+                                        movingItem = item
                                     },
                                     onRestore: {
                                         restoreItem(item)
@@ -306,6 +462,106 @@ struct PrivateVaultView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+    }
+
+    // MARK: - フォルダカードコンポーネント
+
+    private func vaultFolderCard(folder: VaultFolder) -> some View {
+        let itemsInFolder = vaultManager.items(in: folder.id)
+        return VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                // カード本体タップでフォルダ内へ遷移
+                Button {
+                    withAnimation {
+                        currentFolder = folder
+                        isSelectionMode = false
+                        selectedItemIDs.removeAll()
+                    }
+                } label: {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.indigo.opacity(0.12))
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 42))
+                            .foregroundStyle(Color.indigo)
+                    }
+                    .frame(height: 140)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                // 右上「…」メニュー
+                if !isSelectionMode {
+                    Menu {
+                        Button {
+                            withAnimation {
+                                currentFolder = folder
+                                isSelectionMode = false
+                                selectedItemIDs.removeAll()
+                            }
+                        } label: {
+                            Label("Open", systemImage: "folder")
+                        }
+
+                        Button {
+                            renameFolderInput = folder.name
+                            renamingFolder = folder
+                        } label: {
+                            Label(NSLocalizedString("Rename Folder", comment: ""), systemImage: "pencil")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            deletingFolder = folder
+                        } label: {
+                            Label(NSLocalizedString("Delete Folder", comment: ""), systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Color.indigo)
+                            .frame(width: 28, height: 28)
+                            .background(Color.white.opacity(0.92), in: Circle())
+                            .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                            .padding(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(height: 140)
+
+            // フォルダ名・件数
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Text(String.localizedStringWithFormat(NSLocalizedString("%lld items", comment: ""), itemsInFolder.count))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 2)
+        }
+    }
+
+    private var emptyFolderPlaceholder: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "folder")
+                .font(.system(size: 52))
+                .foregroundStyle(Color.indigo)
+            Text(NSLocalizedString("Folder is Empty", comment: ""))
+                .font(.headline)
+            Text("When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - セキュリティ情報バナー
@@ -352,12 +608,23 @@ struct PrivateVaultView: View {
     // MARK: - 選択モード用フローティング操作バー
 
     private var selectionBottomBar: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Button {
                 performBatchRestore()
             } label: {
                 Label(String(format: NSLocalizedString("Restore (%lld)", comment: ""), selectedItemIDs.count), systemImage: "arrow.uturn.backward")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            Button {
+                showBatchMoveSheet = true
+            } label: {
+                Label(String(format: NSLocalizedString("Move (%lld)", comment: ""), selectedItemIDs.count), systemImage: "folder")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -368,7 +635,7 @@ struct PrivateVaultView: View {
                 showBatchDeleteAlert = true
             } label: {
                 Label(String(format: NSLocalizedString("Delete (%lld)", comment: ""), selectedItemIDs.count), systemImage: "trash")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -468,6 +735,41 @@ struct PrivateVaultView: View {
         }
     }
 
+    private func createVaultFolder(name: String) {
+        do {
+            _ = try vaultManager.createFolder(name: name)
+            showToast(NSLocalizedString("Folder created", comment: ""))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func renameVaultFolder(folder: VaultFolder, newName: String) {
+        do {
+            try vaultManager.renameFolder(id: folder.id, newName: newName)
+            if currentFolder?.id == folder.id {
+                currentFolder = vaultManager.folder(for: folder.id)
+            }
+            showToast(NSLocalizedString("Title changed", comment: ""))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        renamingFolder = nil
+    }
+
+    private func deleteVaultFolder(folder: VaultFolder) {
+        do {
+            if currentFolder?.id == folder.id {
+                currentFolder = nil
+            }
+            try vaultManager.deleteFolder(id: folder.id)
+            showToast(NSLocalizedString("Deleted", comment: ""))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        deletingFolder = nil
+    }
+
     private func showToast(_ message: String) {
         noticeMessage = message
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
@@ -486,6 +788,7 @@ private struct AlohaVaultCardView: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onPlay: () -> Void
+    let onMove: () -> Void
     let onRestore: () -> Void
     let onDelete: () -> Void
 
@@ -527,6 +830,10 @@ private struct AlohaVaultCardView: View {
                     Menu {
                         Button(action: onPlay) {
                             Label("Play", systemImage: "play.fill")
+                        }
+
+                        Button(action: onMove) {
+                            Label(NSLocalizedString("Move to Folder", comment: ""), systemImage: "folder")
                         }
 
                         Button(action: onRestore) {
@@ -1229,5 +1536,93 @@ private struct PrivateVaultPlayerSheet: View {
         ModernVideoPlayerView(playlistContext: playlistContext) {
             onDismiss()
         }
+    }
+}
+
+// MARK: - Vaultフォルダ移動シート
+
+private struct MoveToVaultFolderSheet: View {
+    let currentFolderID: UUID?
+    let folders: [VaultFolder]
+    let onSelectFolder: (UUID?) -> Void
+    let onCreateNewFolderAndMove: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var showNewFolderAlert = false
+    @State private var newFolderName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        onSelectFolder(nil)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Label(NSLocalizedString("Uncategorized", comment: ""), systemImage: "tray")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if currentFolderID == nil {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color.indigo)
+                            }
+                        }
+                    }
+                }
+
+                if !folders.isEmpty {
+                    Section(header: Text(NSLocalizedString("Folders", comment: ""))) {
+                        ForEach(folders) { folder in
+                            Button {
+                                onSelectFolder(folder.id)
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    Label(folder.name, systemImage: "folder")
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if currentFolderID == folder.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.indigo)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button {
+                        newFolderName = ""
+                        showNewFolderAlert = true
+                    } label: {
+                        Label(NSLocalizedString("New Folder", comment: ""), systemImage: "folder.badge.plus")
+                            .foregroundStyle(Color.indigo)
+                    }
+                }
+            }
+            .navigationTitle(NSLocalizedString("Move to Folder", comment: ""))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(NSLocalizedString("Cancel", comment: "")) {
+                        dismiss()
+                    }
+                }
+            }
+            .alert(NSLocalizedString("New Folder", comment: ""), isPresented: $showNewFolderAlert) {
+                TextField(NSLocalizedString("Folder Name", comment: ""), text: $newFolderName)
+                Button(NSLocalizedString("Create", comment: "")) {
+                    let clean = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !clean.isEmpty {
+                        onCreateNewFolderAndMove(clean)
+                        dismiss()
+                    }
+                }
+                Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

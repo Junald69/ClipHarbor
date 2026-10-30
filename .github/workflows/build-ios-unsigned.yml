@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - fix/vault-data-protection
+      - 'feature/**'
     paths:
       - 'ClipHarbor/**'
       - 'ClipHarborTests/**'
