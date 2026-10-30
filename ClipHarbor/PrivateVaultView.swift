@@ -455,8 +455,8 @@ struct PrivateVaultView: View {
             }
 
             // 選択モード時の下部フローティングバー
-            if isSelectionMode && !selectedItemIDs.isEmpty {
-                selectionBottomBar
+            if isSelectionMode {
+                selectionBottomBar(displayedItems: displayedItems)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -626,47 +626,85 @@ struct PrivateVaultView: View {
 
     // MARK: - 選択モード用フローティング操作バー
 
-    private var selectionBottomBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                performBatchRestore()
-            } label: {
-                Label(String(format: NSLocalizedString("Restore (%lld)", comment: ""), selectedItemIDs.count), systemImage: "arrow.uturn.backward")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
-            }
+    private func selectionBottomBar(displayedItems: [VaultItem]) -> some View {
+        let displayedIDs = Set(displayedItems.map { $0.id })
+        let isAllSelected = !displayedItems.isEmpty && displayedIDs.isSubset(of: selectedItemIDs)
 
+        return HStack(spacing: 12) {
+            // 全選択 / 選択解除ボタン
             Button {
-                showBatchMoveSheet = true
+                if isAllSelected {
+                    selectedItemIDs.removeAll()
+                } else {
+                    selectedItemIDs = displayedIDs
+                }
             } label: {
-                Label(String(format: NSLocalizedString("Move (%lld)", comment: ""), selectedItemIDs.count), systemImage: "folder")
-                    .font(.caption.weight(.semibold))
+                Text(isAllSelected ? NSLocalizedString("Deselect All", comment: "") : NSLocalizedString("Select All", comment: ""))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(.secondarySystemBackground), in: Capsule())
             }
+            .disabled(displayedItems.isEmpty)
 
-            Button(role: .destructive) {
-                showBatchDeleteAlert = true
-            } label: {
-                Label(String(format: NSLocalizedString("Delete (%lld)", comment: ""), selectedItemIDs.count), systemImage: "trash")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+            Spacer()
+
+            // 選択件数
+            Text(String(format: NSLocalizedString("%lld selected", comment: ""), selectedItemIDs.count))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            // 一括操作ボタン群
+            HStack(spacing: 8) {
+                // 一括フォルダ移動
+                Button {
+                    showBatchMoveSheet = true
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedItemIDs.isEmpty ? Color.secondary : Color.primary)
+                        .frame(width: 34, height: 34)
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                }
+                .disabled(selectedItemIDs.isEmpty)
+                .accessibilityLabel(NSLocalizedString("Move to Folder", comment: ""))
+
+                // 一括通常一覧へ復元
+                Button {
+                    performBatchRestore()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedItemIDs.isEmpty ? Color.secondary : Color.indigo)
+                        .frame(width: 34, height: 34)
+                        .background(selectedItemIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                }
+                .disabled(selectedItemIDs.isEmpty)
+                .accessibilityLabel(NSLocalizedString("Restore to Normal List", comment: ""))
+
+                // 一括完全削除
+                Button(role: .destructive) {
+                    showBatchDeleteAlert = true
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(selectedItemIDs.isEmpty ? Color.secondary : Color.red)
+                        .frame(width: 34, height: 34)
+                        .background(selectedItemIDs.isEmpty ? Color(.secondarySystemBackground) : Color.red.opacity(0.12), in: Circle())
+                }
+                .disabled(selectedItemIDs.isEmpty)
+                .accessibilityLabel(NSLocalizedString("Delete", comment: ""))
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: Color.black.opacity(0.15), radius: 10, y: 4)
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, 10)
     }
 
     // MARK: - 操作ロジック

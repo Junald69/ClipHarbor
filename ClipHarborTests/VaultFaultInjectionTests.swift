@@ -1672,4 +1672,146 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         XCTAssertTrue(callbackInvoked, "Existing onVideoSaved callback must not be overwritten by new VideoFolderManager")
     }
+
+    // MARK: - Private Vault 全選択・選択解除検証
+
+    func testVaultSelection_SelectAllAndDeselectAll_RootScope_ExcludesFolderItems() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        // ルート用動画2件
+        let (url1, v1) = try createDummyVideoFile(in: env.downloadsDir, name: "root1.mp4")
+        let (url2, v2) = try createDummyVideoFile(in: env.downloadsDir, name: "root2.mp4")
+        try await env.vault.moveToVault(video: v1, sourceURL: url1, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+        try await env.vault.moveToVault(video: v2, sourceURL: url2, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+
+        // フォルダ「ABC」とフォルダ内動画2件
+        let folder = try env.vault.createFolder(name: "ABC")
+        let (url3, v3) = try createDummyVideoFile(in: env.downloadsDir, name: "folder1.mp4")
+        let (url4, v4) = try createDummyVideoFile(in: env.downloadsDir, name: "folder2.mp4")
+        try await env.vault.moveToVault(video: v3, sourceURL: url3, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+        try await env.vault.moveToVault(video: v4, sourceURL: url4, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+
+        let item3 = env.vault.items.first { $0.originalVideoID == v3.id }!
+        let item4 = env.vault.items.first { $0.originalVideoID == v4.id }!
+        try env.vault.moveItem(id: item3.id, to: folder.id)
+        try env.vault.moveItem(id: item4.id, to: folder.id)
+
+        // ルート画面の表示対象はルート動画2件のみ（フォルダ内動画を含まない）
+        let rootDisplayedItems = env.vault.items(in: nil)
+        XCTAssertEqual(rootDisplayedItems.count, 2)
+        let rootDisplayedIDs = Set(rootDisplayedItems.map { $0.id })
+
+        // 全選択ロジックの検証
+        var selectedItemIDs: Set<UUID> = []
+        var isAllSelected = !rootDisplayedItems.isEmpty && rootDisplayedIDs.isSubset(of: selectedItemIDs)
+        XCTAssertFalse(isAllSelected)
+
+        // 全選択実行
+        if isAllSelected {
+            selectedItemIDs.removeAll()
+        } else {
+            selectedItemIDs = rootDisplayedIDs
+        }
+        XCTAssertEqual(selectedItemIDs.count, 2)
+        XCTAssertTrue(selectedItemIDs.contains(rootDisplayedItems[0].id))
+        XCTAssertTrue(selectedItemIDs.contains(rootDisplayedItems[1].id))
+        // サブフォルダの動画が全選択に含まれていないことを検証
+        XCTAssertFalse(selectedItemIDs.contains(item3.id))
+        XCTAssertFalse(selectedItemIDs.contains(item4.id))
+
+        // すべて選択済み状態の判定
+        isAllSelected = !rootDisplayedItems.isEmpty && rootDisplayedIDs.isSubset(of: selectedItemIDs)
+        XCTAssertTrue(isAllSelected)
+
+        // 選択解除実行
+        if isAllSelected {
+            selectedItemIDs.removeAll()
+        } else {
+            selectedItemIDs = rootDisplayedIDs
+        }
+        XCTAssertEqual(selectedItemIDs.count, 0)
+    }
+
+    func testVaultSelection_SelectAllAndDeselectAll_FolderScope_IncludesOnlyFolderItems() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        // ルート用動画1件
+        let (url1, v1) = try createDummyVideoFile(in: env.downloadsDir, name: "root_video.mp4")
+        try await env.vault.moveToVault(video: v1, sourceURL: url1, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+        let rootItem = env.vault.items[0]
+
+        // フォルダ「SubFolder」とフォルダ内動画2件
+        let folder = try env.vault.createFolder(name: "SubFolder")
+        let (url2, v2) = try createDummyVideoFile(in: env.downloadsDir, name: "sub1.mp4")
+        let (url3, v3) = try createDummyVideoFile(in: env.downloadsDir, name: "sub2.mp4")
+        try await env.vault.moveToVault(video: v2, sourceURL: url2, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+        try await env.vault.moveToVault(video: v3, sourceURL: url3, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+
+        let item2 = env.vault.items.first { $0.originalVideoID == v2.id }!
+        let item3 = env.vault.items.first { $0.originalVideoID == v3.id }!
+        try env.vault.moveItem(id: item2.id, to: folder.id)
+        try env.vault.moveItem(id: item3.id, to: folder.id)
+
+        // フォルダ内の表示対象はフォルダ内動画2件のみ（ルート動画を含まない）
+        let folderDisplayedItems = env.vault.items(in: folder.id)
+        XCTAssertEqual(folderDisplayedItems.count, 2)
+        let folderDisplayedIDs = Set(folderDisplayedItems.map { $0.id })
+
+        // フォルダ内での全選択実行
+        var selectedItemIDs: Set<UUID> = []
+        selectedItemIDs = folderDisplayedIDs
+
+        XCTAssertEqual(selectedItemIDs.count, 2)
+        XCTAssertTrue(selectedItemIDs.contains(item2.id))
+        XCTAssertTrue(selectedItemIDs.contains(item3.id))
+        XCTAssertFalse(selectedItemIDs.contains(rootItem.id))
+
+        // 選択解除
+        let isAllSelected = !folderDisplayedItems.isEmpty && folderDisplayedIDs.isSubset(of: selectedItemIDs)
+        XCTAssertTrue(isAllSelected)
+        selectedItemIDs.removeAll()
+        XCTAssertEqual(selectedItemIDs.count, 0)
+    }
+
+    func testVaultSelection_PartialSelection_TogglesToSelectAll() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url1, v1) = try createDummyVideoFile(in: env.downloadsDir, name: "p1.mp4")
+        let (url2, v2) = try createDummyVideoFile(in: env.downloadsDir, name: "p2.mp4")
+        try await env.vault.moveToVault(video: v1, sourceURL: url1, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+        try await env.vault.moveToVault(video: v2, sourceURL: url2, downloads: env.mockDownloads, folderManager: env.mockFolders, thumbnailManager: env.mockThumbnails)
+
+        let displayedItems = env.vault.items(in: nil)
+        let displayedIDs = Set(displayedItems.map { $0.id })
+
+        // 1件のみ手動選択した状態
+        var selectedItemIDs: Set<UUID> = [displayedItems[0].id]
+
+        // 1件のみ選択時は isAllSelected が false
+        var isAllSelected = !displayedItems.isEmpty && displayedIDs.isSubset(of: selectedItemIDs)
+        XCTAssertFalse(isAllSelected)
+
+        // タップすると「全選択」として全件選択に更新される
+        if isAllSelected {
+            selectedItemIDs.removeAll()
+        } else {
+            selectedItemIDs = displayedIDs
+        }
+        XCTAssertEqual(selectedItemIDs.count, 2)
+
+        // 全件選択後は isAllSelected が true
+        isAllSelected = !displayedItems.isEmpty && displayedIDs.isSubset(of: selectedItemIDs)
+        XCTAssertTrue(isAllSelected)
+
+        // 再度タップすると「選択解除」としてクリアされる
+        if isAllSelected {
+            selectedItemIDs.removeAll()
+        } else {
+            selectedItemIDs = displayedIDs
+        }
+        XCTAssertEqual(selectedItemIDs.count, 0)
+    }
 }

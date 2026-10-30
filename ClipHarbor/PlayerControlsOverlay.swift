@@ -70,22 +70,12 @@ struct PlayerControlsOverlay: View {
     // スピード選択肢
     private let speedOptions: [Float] = PlaybackSpeedFormatter.standardSpeeds
 
-    private var playbackRateBinding: Binding<Float> {
-        Binding<Float>(
-            get: {
-                PlaybackSpeedFormatter.snapToStandardSpeed(playbackRate)
-            },
-            set: { newSpeed in
-                playbackRate = newSpeed
-            }
-        )
-    }
-
     // ドラッグ中フラグ
     @State private var isScrubbing: Bool = false
     @State private var scrubTime: Double = 0.0
     @State private var isBrightnessDragging: Bool = false
     @State private var isVolumeDragging: Bool = false
+    @State private var showSpeedDialog: Bool = false
 
     var body: some View {
         ZStack {
@@ -134,6 +124,13 @@ struct PlayerControlsOverlay: View {
                         .reportControlFrame(in: "playerContainer")
                 }
                 .padding(.horizontal, isLandscape ? 24 : 12)
+            }
+        }
+        .onChange(of: showSpeedDialog) { isShowing in
+            if isShowing {
+                onInteractionStarted("speed")
+            } else {
+                onInteractionEnded("speed")
             }
         }
     }
@@ -366,14 +363,8 @@ struct PlayerControlsOverlay: View {
 
                 if !isImage {
                     // 3. 再生速度変更 (0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 2.0x)
-                    Menu {
-                        Picker(NSLocalizedString("Playback Speed", comment: ""), selection: playbackRateBinding) {
-                            ForEach(speedOptions, id: \.self) { speed in
-                                Text(PlaybackSpeedFormatter.format(speed))
-                                    .tag(speed)
-                            }
-                        }
-                        .pickerStyle(.inline)
+                    Button {
+                        showSpeedDialog = true
                     } label: {
                         Text(PlaybackSpeedFormatter.format(playbackRate))
                             .font(.system(size: 13, weight: .bold))
@@ -383,9 +374,26 @@ struct PlayerControlsOverlay: View {
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
-                    .id(PlaybackSpeedFormatter.snapToStandardSpeed(playbackRate))
                     .accessibilityLabel(NSLocalizedString("Playback Speed", comment: ""))
                     .accessibilityValue(PlaybackSpeedFormatter.format(playbackRate))
+                    .confirmationDialog(
+                        NSLocalizedString("Playback Speed", comment: ""),
+                        isPresented: $showSpeedDialog,
+                        titleVisibility: .visible
+                    ) {
+                        ForEach(speedOptions, id: \.self) { speed in
+                            Button {
+                                playbackRate = speed
+                            } label: {
+                                if abs(PlaybackSpeedFormatter.snapToStandardSpeed(playbackRate) - speed) < 0.01 {
+                                    Text("✓ " + PlaybackSpeedFormatter.format(speed))
+                                } else {
+                                    Text(PlaybackSpeedFormatter.format(speed))
+                                }
+                            }
+                        }
+                        Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+                    }
 
                     // 4. PiP (Vault内は無効化)
                     Button(action: onTriggerPiP) {
