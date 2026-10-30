@@ -187,14 +187,21 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
 
     /// Vault復元等、ディスク永続化の成功保証が必須な場面向けの再登録API
     func restoreSavedVideoThrowing(_ video: SavedVideo) throws {
-        if !saved.contains(where: { $0.id == video.id }) {
+        let previousSaved = self.saved
+
+        // 既存の同一IDエントリが存在する場合は最新情報（新パス・サイズ等）で更新、存在しない場合は先頭に挿入
+        if let existingIndex = saved.firstIndex(where: { $0.id == video.id }) {
+            saved[existingIndex] = video
+        } else {
             saved.insert(video, at: 0)
-            do {
-                try persistSaved()
-            } catch {
-                saved.removeAll { $0.id == video.id }
-                throw error
-            }
+        }
+
+        do {
+            try persistSaved()
+        } catch {
+            // 永続化失敗時はメモリ上の一覧を完全ロールバック
+            self.saved = previousSaved
+            throw error
         }
     }
 

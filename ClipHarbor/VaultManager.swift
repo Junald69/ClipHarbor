@@ -103,14 +103,47 @@ final class VaultManager: ObservableObject {
         self.customDownloadsDirectory = downloadsDirectory
         self.isTestInstance = (baseDirectory != nil)
 
+        // テスト実行前の安全防護: customBaseDirectory / customDownloadsDirectory が安全な一時領域内にあることを事前強制検証
         if isTestInstance {
-            if let customKeychain = keychainStorage {
-                precondition(!(customKeychain is ProductionVaultKeychainStorage), "Fatal: Cannot inject ProductionVaultKeychainStorage into a test VaultManager instance.")
-                self.keychainStorage = customKeychain
-            } else {
-                // テストインスタンスはデフォルトでインメモリモックストレージを使用（本番Keychainへの接触を防止）
-                self.keychainStorage = MockVaultKeychainStorage()
+            let tempDir = fileManager.temporaryDirectory.resolvingSymlinksInPath().standardized.path
+            let tempPrefix = tempDir.hasSuffix("/") ? tempDir : tempDir + "/"
+
+            if let base = customBaseDirectory {
+                let resolvedBase = base.resolvingSymlinksInPath().standardized.path
+                guard resolvedBase.hasPrefix(tempPrefix) else {
+                    fatalError("Fatal: Test baseDirectory (\(base.path)) must be inside temporaryDirectory (\(tempDir)).")
+                }
             }
+            if let downloads = customDownloadsDirectory {
+                let resolvedDownloads = downloads.resolvingSymlinksInPath().standardized.path
+                guard resolvedDownloads.hasPrefix(tempPrefix) else {
+                    fatalError("Fatal: Test downloadsDirectory (\(downloads.path)) must be inside temporaryDirectory (\(tempDir)).")
+                }
+            }
+
+            // 本番領域（Documents, ApplicationSupport）への完全遮断
+            let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath().standardized.path
+            let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath().standardized.path
+            let docsPrefix = docs.hasSuffix("/") ? docs : docs + "/"
+            let appSupportPrefix = appSupport.hasSuffix("/") ? appSupport : appSupport + "/"
+
+            if let base = customBaseDirectory?.resolvingSymlinksInPath().standardized.path {
+                guard !base.hasPrefix(docsPrefix) && !base.hasPrefix(appSupportPrefix) else {
+                    fatalError("Fatal: Test baseDirectory attempted to overlap production directory: \(base)")
+                }
+            }
+            if let downloads = customDownloadsDirectory?.resolvingSymlinksInPath().standardized.path {
+                guard !downloads.hasPrefix(docsPrefix) && !downloads.hasPrefix(appSupportPrefix) else {
+                    fatalError("Fatal: Test downloadsDirectory attempted to overlap production directory: \(downloads)")
+                }
+            }
+        }
+
+        if isTestInstance {
+            guard let customKeychain = keychainStorage, !(customKeychain is ProductionVaultKeychainStorage) else {
+                fatalError("Fatal: Test instance requires an explicit non-production VaultKeychainStorageProtocol mock.")
+            }
+            self.keychainStorage = customKeychain
         } else {
             self.keychainStorage = keychainStorage ?? ProductionVaultKeychainStorage()
         }
@@ -137,6 +170,13 @@ final class VaultManager: ObservableObject {
         }
         cleanupPlaybackTemp() // 起動時に前回の再生残骸を確実に消去
     }
+
+    // MARK: - 障害注入フック（isTestInstance == true 時のみ有効）
+    struct FaultInjectionConfig {
+        var simulateIndexSaveFailure: Bool = false
+        var simulateSourceRemovalFailure: Bool = false
+    }
+    var faultConfig = FaultInjectionConfig()
 
     // MARK: - テスト環境URL強制隔離検証
     private func validateTestURLContainment(_ url: URL, purpose: String) throws {
@@ -470,6 +510,9 @@ final class VaultManager: ObservableObject {
     // MARK: - インデックスの保存・読み込み
 
     private func saveEncryptedIndex() throws {
+        if isTestInstance && faultConfig.simulateIndexSaveFailure {
+            throw VaultError.fileOperationFailed("Fault injection: Simulated saveEncryptedIndex failure")
+        }
         guard let key = masterKey else {
             throw VaultError.masterKeyMissing
         }
@@ -507,11 +550,16 @@ final class VaultManager: ObservableObject {
         thumbnailManager: VaultThumbnailManaging? = nil
     ) async throws {
         if isTestInstance {
-            guard downloads is MockDownloadManager, folderManager is MockFolderManager else {
-                throw VaultError.fileOperationFailed("Test instance must be provided with MockDownloadManager and MockFolderManager.")
+            guard !(downloads is DownloadCenter), !(folderManager is VideoFolderManager) else {
+                throw VaultError.fileOperationFailed("Test instance must NOT be provided with production DownloadCenter or VideoFolderManager.")
             }
         }
-        let actualThumbnail = thumbnailManager ?? (isTestInstance ? MockThumbnailManager() : VideoThumbnailManager.shared)
+        let actualThumbnail = thumbnailManager ?? VideoThumbnailManager.shared
+        if isTestInstance {
+            guard !(actualThumbnail is VideoThumbnailManager) else {
+                throw VaultError.fileOperationFailed("Test instance must NOT be provided with production VideoThumbnailManager.")
+            }
+        }
 
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
@@ -607,6 +655,11 @@ final class VaultManager: ObservableObject {
 
             // 元平文ファイルの削除（明示的に検証）
             do {
+                if isTestInstance && faultConfig.simulateSourceRemovalFailure {
+                    throw NSError(domain: "FaultInjection", code: 101, userInfo: [
+                        NSLocalizedDescriptionKey: "Simulated removeItem permission failure"
+                    ])
+                }
                 try fileManager.removeItem(at: actualSourceURL)
                 isSourceRemoved = true
             } catch {
@@ -709,11 +762,16 @@ final class VaultManager: ObservableObject {
         thumbnailManager: VaultThumbnailManaging? = nil
     ) async throws {
         if isTestInstance {
-            guard downloads is MockDownloadManager, folderManager is MockFolderManager else {
-                throw VaultError.fileOperationFailed("Test instance must be provided with MockDownloadManager and MockFolderManager.")
+            guard !(downloads is DownloadCenter), !(folderManager is VideoFolderManager) else {
+                throw VaultError.fileOperationFailed("Test instance must NOT be provided with production DownloadCenter or VideoFolderManager.")
             }
         }
-        let actualThumbnail = thumbnailManager ?? (isTestInstance ? MockThumbnailManager() : VideoThumbnailManager.shared)
+        let actualThumbnail = thumbnailManager ?? VideoThumbnailManager.shared
+        if isTestInstance {
+            guard !(actualThumbnail is VideoThumbnailManager) else {
+                throw VaultError.fileOperationFailed("Test instance must NOT be provided with production VideoThumbnailManager.")
+            }
+        }
 
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
@@ -879,7 +937,7 @@ final class VaultManager: ObservableObject {
             targetFolder: targetFolder,
             downloads: downloads,
             folderManager: folderManager,
-            thumbnailManager: isTestInstance ? MockThumbnailManager() : VideoThumbnailManager.shared
+            thumbnailManager: VideoThumbnailManager.shared
         )
     }
 

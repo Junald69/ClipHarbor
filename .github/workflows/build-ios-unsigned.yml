@@ -6,6 +6,16 @@ on:
     branches:
       - main
       - fix/vault-data-protection
+    paths:
+      - 'ClipHarbor/**'
+      - 'ClipHarborTests/**'
+      - 'ClipHarbor.xcodeproj/**'
+      - '.github/workflows/build-ios-unsigned.yml'
+      - 'make_project.py'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -24,6 +34,19 @@ jobs:
           xcodebuild -version
           xcodebuild -showsdks
           xcodebuild -list -project ClipHarbor.xcodeproj
+
+      - name: Run unit tests on iOS Simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project ClipHarbor.xcodeproj \
+            -scheme ClipHarbor \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
       - name: Build for generic iOS device without code signing
         shell: bash

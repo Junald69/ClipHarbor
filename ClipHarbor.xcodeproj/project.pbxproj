@@ -45,12 +45,22 @@
 		D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */ = {isa = PBXBuildFile; fileRef = 2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */; };
 		6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */ = {isa = PBXBuildFile; fileRef = 3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */; };
 		FDDF41EBA4C1F097FCE4B372 /* build ContentBlockerManager.swift */ = {isa = PBXBuildFile; fileRef = 9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */; };
-		C26AFE8F5DE816D1F37BCB2F /* build VaultFaultInjectionTests.swift */ = {isa = PBXBuildFile; fileRef = D1FE1548E38C9D8586D53F6B /* file VaultFaultInjectionTests.swift */; };
 		17BF3D4D6443CA860CF92810 /* build Localizable.xcstrings */ = {isa = PBXBuildFile; fileRef = A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */; };
 		2D4E455C75B185A9C5198616 /* build InfoPlist.xcstrings */ = {isa = PBXBuildFile; fileRef = 4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */; };
 		777EE54E57CB668C325FC849 /* build blocker_rules.json */ = {isa = PBXBuildFile; fileRef = 03577C3445A420DDED519E12 /* file blocker_rules.json */; };
 		1588711800276E56594BA391 /* build blocker_metadata.json */ = {isa = PBXBuildFile; fileRef = E185D6B8460F723A59E17928 /* file blocker_metadata.json */; };
+		CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */ = {isa = PBXBuildFile; fileRef = A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BB2687C9430E9B2CD5011CA4 /* container proxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98F54143AB4E86B28C3AFEE0 /* project */;
+			proxyType = 1;
+			remoteGlobalIDString = 0E8A3AD980EC179856012B7E;
+			remoteInfo = ClipHarbor;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		9CCF2942FF4C46194B9CAAB8 /* file Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -93,18 +103,19 @@
 		2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmerView.swift; sourceTree = "<group>"; };
 		3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernVideoPlayerView.swift; sourceTree = "<group>"; };
 		9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockerManager.swift; sourceTree = "<group>"; };
-		D1FE1548E38C9D8586D53F6B /* file VaultFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultFaultInjectionTests.swift; sourceTree = "<group>"; };
 		A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		03577C3445A420DDED519E12 /* file blocker_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = blocker_rules.json; sourceTree = "<group>"; };
 		E185D6B8460F723A59E17928 /* file blocker_metadata.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = blocker_metadata.json; sourceTree = "<group>"; };
+		A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultFaultInjectionTests.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9820010F6EAE5B56A3C0CF68 /* product test */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClipHarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		7FEFA489E25E19BEF8A8A2A9 /* main group */ = {
 			isa = PBXGroup;
-			children = (500A096B8A0044C96F4B0E55 /* source group */, 828132AE302825007DC2C140 /* product group */, );
+			children = (500A096B8A0044C96F4B0E55 /* source group */, F58B1F96015FF2D0280808EB /* tests group */, 828132AE302825007DC2C140 /* product group */, );
 			sourceTree = "<group>";
 		};
 		500A096B8A0044C96F4B0E55 /* source group */ = {
@@ -150,7 +161,6 @@
 				2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */,
 				3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */,
 				9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */,
-				D1FE1548E38C9D8586D53F6B /* file VaultFaultInjectionTests.swift */,
 				A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */,
 				4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */,
 				03577C3445A420DDED519E12 /* file blocker_rules.json */,
@@ -159,9 +169,17 @@
 			path = ClipHarbor;
 			sourceTree = "<group>";
 		};
+		F58B1F96015FF2D0280808EB /* tests group */ = {
+			isa = PBXGroup;
+			children = (
+				A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */,
+			);
+			path = ClipHarborTests;
+			sourceTree = "<group>";
+		};
 		828132AE302825007DC2C140 /* product group */ = {
 			isa = PBXGroup;
-			children = (83A5DD8EBAFB93BC34E3AB4F /* product app */, );
+			children = (83A5DD8EBAFB93BC34E3AB4F /* product app */, 9820010F6EAE5B56A3C0CF68 /* product test */, );
 			name = Products;
 			sourceTree = "<group>";
 		};
@@ -179,6 +197,17 @@
 			productName = ClipHarbor;
 			productType = "com.apple.product-type.application";
 		};
+		4589F76226F600D7F9EC797E /* test target */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B4FEBC17764C0D99CA8417BD /* test target configs */;
+			buildPhases = (2998E6BB8DC3AA05BD552D04 /* test sources phase */, );
+			buildRules = ();
+			dependencies = (7D220C6E803D9A90EF4A07EB /* target dependency */, );
+			name = ClipHarborTests;
+			productReference = 9820010F6EAE5B56A3C0CF68 /* product test */;
+			productName = ClipHarborTests;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -187,7 +216,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastUpgradeCheck = 1600;
-				TargetAttributes = {0E8A3AD980EC179856012B7E /* target */ = {CreatedOnToolsVersion = 16.0; }; };
+				TargetAttributes = {0E8A3AD980EC179856012B7E /* target */ = {CreatedOnToolsVersion = 16.0; }; 4589F76226F600D7F9EC797E /* test target */ = {CreatedOnToolsVersion = 16.0; TestTargetID = 0E8A3AD980EC179856012B7E; }; };
 			};
 			buildConfigurationList = FA52021448A4AC7DE6CD200E /* project configs */;
 			compatibilityVersion = "Xcode 14.0";
@@ -198,7 +227,7 @@
 			productRefGroup = 828132AE302825007DC2C140 /* product group */;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (0E8A3AD980EC179856012B7E /* target */, );
+			targets = (0E8A3AD980EC179856012B7E /* target */, 4589F76226F600D7F9EC797E /* test target */, );
 		};
 /* End PBXProject section */
 
@@ -246,7 +275,14 @@
 				D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */,
 				6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */,
 				FDDF41EBA4C1F097FCE4B372 /* build ContentBlockerManager.swift */,
-				C26AFE8F5DE816D1F37BCB2F /* build VaultFaultInjectionTests.swift */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2998E6BB8DC3AA05BD552D04 /* test sources phase */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -265,6 +301,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7D220C6E803D9A90EF4A07EB /* target dependency */ = {
+			isa = PBXTargetDependency;
+			target = 0E8A3AD980EC179856012B7E /* target */;
+			targetProxy = BB2687C9430E9B2CD5011CA4 /* container proxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CACD8F8D7E01D03300A42FA5 /* project Debug */ = {
@@ -341,6 +385,38 @@
 			};
 			name = Release;
 		};
+		F3C83B22BB67AA95F140B321 /* test target Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClipHarbor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClipHarbor";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClipHarborTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				GENERATE_INFOPLIST_FILE = YES;
+			};
+			name = Debug;
+		};
+		D153764603817B260BE67487 /* test target Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClipHarbor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClipHarbor";
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.ClipHarborTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				GENERATE_INFOPLIST_FILE = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -353,6 +429,12 @@
 		20BA35986C8D108192A74E6F /* target configs */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (1BA2A0D92BE8C4CB7BC99606 /* target Debug */, 60BA48D99B3C23F8993C3458 /* target Release */, );
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B4FEBC17764C0D99CA8417BD /* test target configs */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (F3C83B22BB67AA95F140B321 /* test target Debug */, D153764603817B260BE67487 /* test target Release */, );
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};

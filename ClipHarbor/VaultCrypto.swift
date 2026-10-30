@@ -163,28 +163,30 @@ final class VaultCrypto {
             throw VaultError.fileOperationFailed("暗号化コンテナファイルの作成に失敗しました。")
         }
 
-        let readFileHandle = try FileHandle(forReadingFrom: sourceURL)
-        defer { try? readFileHandle.close() }
+        do {
+            let readFileHandle = try FileHandle(forReadingFrom: sourceURL)
+            defer { try? readFileHandle.close() }
 
-        let writeFileHandle = try FileHandle(forWritingTo: destinationURL)
-        defer { try? writeFileHandle.close() }
+            let writeFileHandle = try FileHandle(forWritingTo: destinationURL)
+            defer { try? writeFileHandle.close() }
 
-        // 1. ヘッダー書き込み: Magic (4B) + StreamSalt (16B) + TotalPlainBytes (8B)
-        let streamSalt = generateSalt(count: streamSaltSize)
-        var header = Data(streamMagic)
-        header.append(streamSalt)
-        withUnsafeBytes(of: UInt64(totalBytes).bigEndian) { header.append(contentsOf: $0) }
-        try writeFileHandle.write(contentsOf: header)
+            // 1. ヘッダー書き込み: Magic (4B) + StreamSalt (16B) + TotalPlainBytes (8B)
+            let streamSalt = generateSalt(count: streamSaltSize)
+            var header = Data(streamMagic)
+            header.append(streamSalt)
+            withUnsafeBytes(of: UInt64(totalBytes).bigEndian) { header.append(contentsOf: $0) }
+            try writeFileHandle.write(contentsOf: header)
 
-        var processedBytes: Int64 = 0
-        var chunkIndex: UInt64 = 0
+            var processedBytes: Int64 = 0
+            var chunkIndex: UInt64 = 0
 
-        while true {
-            autoreleasepool {
-                do {
+            while processedBytes < totalBytes {
+                var chunkReadCount = 0
+                try autoreleasepool {
                     guard let chunkData = try readFileHandle.read(upToCount: streamChunkSize), !chunkData.isEmpty else {
-                        return
+                        throw VaultError.integrityCheckFailed
                     }
+                    chunkReadCount = chunkData.count
 
                     // 関連データ (AEAD): streamSalt + chunkIndex (改ざん・並べ替え防止)
                     var authData = streamSalt
@@ -202,25 +204,25 @@ final class VaultCrypto {
                     try writeFileHandle.write(contentsOf: chunkLengthData)
                     try writeFileHandle.write(contentsOf: combined)
 
-                    processedBytes += Int64(chunkData.count)
+                    processedBytes += Int64(chunkReadCount)
                     chunkIndex += 1
 
                     if totalBytes > 0 {
                         progress?(Double(processedBytes) / Double(totalBytes))
                     }
-                } catch {
-                    // エラー発生時は中途半端な出力ファイルを削除
-                    try? fileManager.removeItem(at: destinationURL)
                 }
             }
 
-            // EOF判定
-            if processedBytes >= totalBytes {
-                break
+            guard processedBytes == totalBytes else {
+                throw VaultError.integrityCheckFailed
             }
-        }
 
-        progress?(1.0)
+            progress?(1.0)
+        } catch {
+            // エラー発生時は中途半端な出力ファイルをクリーンアップし、例外を必ず再スロー
+            try? fileManager.removeItem(at: destinationURL)
+            throw error
+        }
     }
 
     /// 大容量暗号化コンテナファイルのストリーム復号
@@ -409,31 +411,5 @@ final class ProductionVaultKeychainStorage: VaultKeychainStorageProtocol {
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
-    }
-}
-
-/// テスト用Keychainストレージモック（SecItem APIを一切呼ばず、本番Keychainから完全隔離）
-final class MockVaultKeychainStorage: VaultKeychainStorageProtocol {
-    var storedKey: SymmetricKey?
-    var saveCallCount = 0
-    var loadCallCount = 0
-    var deleteCallCount = 0
-
-    func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
-        saveCallCount += 1
-        storedKey = key
-        return true
-    }
-
-    func loadBiometricMasterKey() -> SymmetricKey? {
-        loadCallCount += 1
-        return storedKey
-    }
-
-    @discardableResult
-    func deleteBiometricMasterKey() -> Bool {
-        deleteCallCount += 1
-        storedKey = nil
-        return true
     }
 }
