@@ -216,6 +216,103 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         let isPlaying: Bool
         let candidate: MediaCandidate?
         let reason: String?
+        let formatBadge: String
+        let isDownloadable: Bool
+        let consolidatedCount: Int
+
+        init(
+            id: String,
+            title: String,
+            detail: String,
+            posterURL: URL?,
+            stateLabel: String?,
+            isPlaying: Bool,
+            candidate: MediaCandidate?,
+            reason: String?,
+            formatBadge: String? = nil,
+            isDownloadable: Bool? = nil,
+            consolidatedCount: Int = 1
+        ) {
+            self.id = id
+            self.title = title
+            self.detail = detail
+            self.posterURL = posterURL
+            self.stateLabel = stateLabel
+            self.isPlaying = isPlaying
+            self.candidate = candidate
+            self.reason = reason
+            self.consolidatedCount = consolidatedCount
+
+            if let fb = formatBadge {
+                self.formatBadge = fb
+            } else if let c = candidate {
+                if c.isHLS {
+                    self.formatBadge = "HLS"
+                } else if case .file(let type) = c.kind {
+                    switch type {
+                    case .mp4: self.formatBadge = "MP4"
+                    case .m4v: self.formatBadge = "M4V"
+                    case .mov: self.formatBadge = "MOV"
+                    case .webm: self.formatBadge = "WebM"
+                    case .unknown: self.formatBadge = "Video"
+                    }
+                } else {
+                    self.formatBadge = "Media"
+                }
+            } else {
+                let r = (reason ?? "").lowercased()
+                if r.contains("blob") || r.contains("mse") {
+                    self.formatBadge = "Blob / MSE"
+                } else if r.contains("drm") || r.contains("protect") {
+                    self.formatBadge = "DRM"
+                } else {
+                    self.formatBadge = "Stream"
+                }
+            }
+
+            if let dl = isDownloadable {
+                self.isDownloadable = dl
+            } else if let c = candidate {
+                self.isDownloadable = !c.isHLS
+            } else {
+                self.isDownloadable = false
+            }
+        }
+    }
+
+    /// HLS候補の同一動画グループ化キー
+    static func hlsGroupKey(for candidate: MediaCandidate) -> String {
+        let url = candidate.url
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+
+        // 1. videoID が付与されている場合は videoID でグループ化
+        if let vid = candidate.videoID, !vid.isEmpty {
+            return "vid:\(vid)"
+        }
+
+        // 2. ディレクトリ階層によるグループ化
+        let components = path.split(separator: "/").map(String.init)
+        if components.count >= 2 {
+            let parentDir = components.dropLast().joined(separator: "/")
+            let genericDirs: Set<String> = ["hls", "live", "vod", "video", "videos", "media", "stream", "streams", "playlist", "playlists"]
+            if components.count >= 3 || !genericDirs.contains(parentDir) {
+                return "host:\(host)/dir:\(parentDir)"
+            }
+        }
+
+        // 3. ファイル名プレフィックスによるグループ化
+        let filename = (components.last ?? path).replacingOccurrences(of: ".m3u8", with: "")
+        let variantSuffixes = ["_master", "_index", "_1080p", "_720p", "_480p", "_360p", "_audio", "_video", "-master", "-1080p", "-720p", "-480p", "-360p"]
+        var baseName = filename
+        for suffix in variantSuffixes {
+            if baseName.hasSuffix(suffix) {
+                baseName = String(baseName.dropLast(suffix.count))
+                break
+            }
+        }
+
+        return "host:\(host)/path:\(baseName)"
     }
 
     var candidateRows: [CandidateRow] {
@@ -225,24 +322,91 @@ final class BrowserModel: NSObject, ObservableObject, Identifiable, WKNavigation
         }
         var rows: [CandidateRow] = []
         var usedURLs = Set<String>()
+        var hlsGroupCounts: [String: Int] = [:]
+        var hlsGroupIndices: [String: Int] = [:]
+
         for video in sortedVideos {
-            if let c = video.candidate { usedURLs.insert(c.id) }
+            if let c = video.candidate {
+                usedURLs.insert(c.id)
+                if c.isHLS {
+                    let key = BrowserModel.hlsGroupKey(for: c)
+                    hlsGroupCounts[key] = 1
+                    hlsGroupIndices[key] = rows.count
+                }
+            }
             let detail: String
             if let c = video.candidate {
-                detail = "\(c.formatLabel) · \(c.host)"
+                detail = c.host
             } else {
                 detail = video.isMainFrame ? NSLocalizedString("Video in page", comment: "") : NSLocalizedString("Video in embedded iframe", comment: "")
             }
+
+            var badge: String? = nil
+            if let c = video.candidate {
+                badge = c.isHLS ? "HLS" : (c.expectedExtension?.uppercased() ?? "Video")
+            } else if video.sourceURL.lowercased().hasPrefix("blob:") || (video.unsupportedReason?.lowercased().contains("blob") == true) {
+                badge = "Blob / MSE"
+            } else if video.isProtected {
+                badge = "DRM"
+            }
+
             rows.append(CandidateRow(id: "video-\(video.id)", title: video.displayTitle, detail: detail,
                                      posterURL: video.posterURL, stateLabel: video.stateLabel,
                                      isPlaying: video.isPlaying, candidate: video.candidate,
-                                     reason: video.unsupportedReason))
+                                     reason: video.unsupportedReason, formatBadge: badge))
         }
+
         for c in resourceCandidates where !usedURLs.contains(c.id) {
-            rows.append(CandidateRow(id: "res-\(c.id)", title: c.suggestedName,
-                                     detail: String(format: NSLocalizedString("%@ · %@ (Detected from page traffic)", comment: ""), c.formatLabel, c.host),
-                                     posterURL: nil, stateLabel: nil, isPlaying: false,
-                                     candidate: c, reason: nil))
+            if c.isHLS {
+                let key = BrowserModel.hlsGroupKey(for: c)
+                if let existingIndex = hlsGroupIndices[key] {
+                    let currentCount = (hlsGroupCounts[key] ?? 1) + 1
+                    hlsGroupCounts[key] = currentCount
+                    let existingRow = rows[existingIndex]
+                    let updatedDetail = String(format: NSLocalizedString("%@ (%lld streams)", comment: ""), c.host, currentCount)
+                    rows[existingIndex] = CandidateRow(
+                        id: existingRow.id,
+                        title: existingRow.title,
+                        detail: updatedDetail,
+                        posterURL: existingRow.posterURL,
+                        stateLabel: existingRow.stateLabel,
+                        isPlaying: existingRow.isPlaying,
+                        candidate: existingRow.candidate,
+                        reason: existingRow.reason,
+                        formatBadge: existingRow.formatBadge,
+                        isDownloadable: existingRow.isDownloadable,
+                        consolidatedCount: currentCount
+                    )
+                    continue
+                } else {
+                    hlsGroupCounts[key] = 1
+                    hlsGroupIndices[key] = rows.count
+                    rows.append(CandidateRow(
+                        id: "res-\(c.id)",
+                        title: c.suggestedName,
+                        detail: c.host,
+                        posterURL: nil,
+                        stateLabel: nil,
+                        isPlaying: false,
+                        candidate: c,
+                        reason: nil,
+                        formatBadge: "HLS",
+                        isDownloadable: false,
+                        consolidatedCount: 1
+                    ))
+                }
+            } else {
+                rows.append(CandidateRow(
+                    id: "res-\(c.id)",
+                    title: c.suggestedName,
+                    detail: c.host,
+                    posterURL: nil,
+                    stateLabel: nil,
+                    isPlaying: false,
+                    candidate: c,
+                    reason: nil
+                ))
+            }
         }
         return rows
     }

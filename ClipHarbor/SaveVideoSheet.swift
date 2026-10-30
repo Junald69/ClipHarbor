@@ -372,6 +372,7 @@ struct CandidateListSheet: View {
     let onSelectCandidate: (MediaCandidate) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedInfoRow: BrowserModel.CandidateRow?
 
     var body: some View {
         NavigationStack {
@@ -395,12 +396,18 @@ struct CandidateListSheet: View {
                 } else {
                     Section("Detected Videos & Media") {
                         ForEach(rows) { row in
-                            CandidateRowView(row: row) { candidate in
-                                dismiss()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                                    onSelectCandidate(candidate)
+                            CandidateRowView(
+                                row: row,
+                                onSelect: { candidate in
+                                    dismiss()
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                        onSelectCandidate(candidate)
+                                    }
+                                },
+                                onShowInfo: { infoRow in
+                                    selectedInfoRow = infoRow
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -412,6 +419,19 @@ struct CandidateListSheet: View {
                     Button("Close") { dismiss() }
                 }
             }
+            .alert(
+                selectedInfoRow?.unsupportedTitle ?? NSLocalizedString("Format Information", comment: ""),
+                isPresented: Binding(
+                    get: { selectedInfoRow != nil },
+                    set: { if !$0 { selectedInfoRow = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {
+                    selectedInfoRow = nil
+                }
+            } message: {
+                Text(selectedInfoRow?.unsupportedMessage ?? "")
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -420,58 +440,102 @@ struct CandidateListSheet: View {
 private struct CandidateRowView: View {
     let row: BrowserModel.CandidateRow
     let onSelect: (MediaCandidate) -> Void
+    let onShowInfo: (BrowserModel.CandidateRow) -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             thumbnail
-                .frame(width: 64, height: 44)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                .frame(width: 52, height: 36)
+                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 6))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if let stateLabel = row.stateLabel {
-                        Text(stateLabel)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(row.isPlaying ? Color.blue.opacity(0.18) : Color.secondary.opacity(0.15),
-                                        in: Capsule())
-                            .foregroundStyle(row.isPlaying ? .blue : .secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(row.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                HStack(spacing: 5) {
+                    formatBadgeView
+
+                    if row.isPlaying {
+                        Text(NSLocalizedString("Playing", comment: ""))
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1.5)
+                            .background(Color.blue.opacity(0.12), in: Capsule())
+                            .foregroundStyle(.blue)
                     }
-                    Text(row.title)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(2)
-                }
 
-                Text(row.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let reason = row.reason, row.candidate == nil {
-                    Label(reason, systemImage: "exclamationmark.circle")
+                    Text(row.detail)
                         .font(.caption)
-                        .foregroundStyle(.orange)
-                        .padding(.top, 2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
 
             Spacer(minLength: 4)
 
-            if let candidate = row.candidate {
+            if row.isDownloadable, let candidate = row.candidate {
                 Button {
                     onSelect(candidate)
                 } label: {
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.title2)
                         .foregroundStyle(.blue)
-                        .frame(minWidth: 44, minHeight: 44)
+                        .frame(width: 38, height: 38)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text("Save This Video"))
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("Save Video"))
+            } else {
+                Button {
+                    onShowInfo(row)
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, height: 38)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(Text("Format Information"))
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if row.isDownloadable, let candidate = row.candidate {
+                onSelect(candidate)
+            } else {
+                onShowInfo(row)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var formatBadgeView: some View {
+        let color: Color = {
+            switch row.formatBadge {
+            case "MP4", "MOV", "M4V":
+                return .blue
+            case "HLS":
+                return .orange
+            case "Blob / MSE":
+                return .purple
+            case "WebM":
+                return .teal
+            default:
+                return .secondary
+            }
+        }()
+
+        Text(row.formatBadge)
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(color.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
+            .foregroundStyle(color)
     }
 
     @ViewBuilder
@@ -482,13 +546,47 @@ private struct CandidateRowView: View {
                 case .success(let image):
                     image.resizable().scaledToFill()
                 default:
-                    Image(systemName: "film").foregroundStyle(.secondary)
+                    fallbackThumbnailIcon
                 }
             }
         } else {
-            Image(systemName: row.candidate != nil ? "film" : "video.slash")
-                .foregroundStyle(.secondary)
+            fallbackThumbnailIcon
         }
+    }
+
+    private var fallbackThumbnailIcon: some View {
+        Image(systemName: row.isDownloadable ? "film" : "play.tv")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
+extension BrowserModel.CandidateRow {
+    var unsupportedTitle: String {
+        switch formatBadge {
+        case "HLS":
+            return NSLocalizedString("HLS Streaming", comment: "")
+        case "Blob / MSE":
+            return NSLocalizedString("Blob / MSE Streaming", comment: "")
+        case "DRM":
+            return NSLocalizedString("Protected Content", comment: "")
+        default:
+            return NSLocalizedString("Format Information", comment: "")
+        }
+    }
+
+    var unsupportedMessage: String {
+        if candidate?.isHLS == true || formatBadge == "HLS" {
+            return String(format: "%@ %@",
+                          NSLocalizedString("HLS streaming format is currently not supported for download.", comment: ""),
+                          NSLocalizedString("Please enjoy playback directly within the browser.", comment: ""))
+        }
+        if let reason = reason, !reason.isEmpty {
+            return reason
+        }
+        return String(format: "%@ %@",
+                      NSLocalizedString("Videos using this playback method cannot be saved.", comment: ""),
+                      NSLocalizedString("Please enjoy playback directly within the browser.", comment: ""))
     }
 }
 
