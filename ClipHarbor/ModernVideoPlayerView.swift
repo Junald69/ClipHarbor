@@ -1682,23 +1682,23 @@ struct ModernVideoPlayerView: View {
                 downloads: DownloadCenter.shared,
                 folderManager: VideoFolderManager.shared,
                 coordinator: coordinator,
-                tearDownPlayer: { [weak self] in
-                    self?.tearDownPlayer()
-                    self?.playbackSessionID = nil
+                tearDownPlayer: {
+                    tearDownPlayer()
+                    playbackSessionID = nil
                 },
                 cleanupTemp: { targetID in
                     VaultManager.shared.cleanupPlaybackTemp(itemID: targetID)
                 },
-                onSuccess: { [weak self] targetID, title in
-                    _ = self?.playlistContext.removeItem(id: targetID)
-                    self?.showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), title))
+                onSuccess: { targetID, title in
+                    _ = playlistContext.removeItem(id: targetID)
+                    showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), title))
                 },
-                onReloadItem: { [weak self] in
-                    self?.loadCurrentItem(autoPlay: false)
-                    self?.scheduleAutoHide(delay: 10.0)
+                onReloadItem: {
+                    loadCurrentItem(autoPlay: false)
+                    scheduleAutoHide(delay: 10.0)
                 },
-                onDismiss: { [weak self] in
-                    self?.handleClose()
+                onDismiss: {
+                    handleClose()
                 }
             )
         }
