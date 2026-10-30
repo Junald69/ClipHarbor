@@ -62,6 +62,7 @@ struct ModernVideoPlayerView: View {
     @State private var itemStatusObserver: NSKeyValueObservation?
     @State private var playerStatusObserver: NSKeyValueObservation?
     @State private var timeControlStatusObserver: NSKeyValueObservation?
+    @State private var itemDidPlayToEndObserver: NSObjectProtocol?
 
     // 画像閲覧状態
     private enum ImageLoadState: Equatable {
@@ -691,6 +692,10 @@ struct ModernVideoPlayerView: View {
         playerStatusObserver = nil
         timeControlStatusObserver?.invalidate()
         timeControlStatusObserver = nil
+        if let endObserver = itemDidPlayToEndObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            itemDidPlayToEndObserver = nil
+        }
 
         // Player level status
         playerStatusObserver = player.observe(\.status, options: [.initial, .new]) { [weak player] p, _ in
@@ -756,6 +761,32 @@ struct ModernVideoPlayerView: View {
                     break
                 }
             }
+        }
+
+        itemDidPlayToEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak player] notification in
+            guard self.viewGenerationID == targetGen,
+                  let currentP = self.player,
+                  currentP === player,
+                  let endItem = notification.object as? AVPlayerItem,
+                  currentP.currentItem === endItem else {
+                return
+            }
+            self.handlePlaybackEnded()
+        }
+    }
+
+    private func handlePlaybackEnded() {
+        stopAutoHideTimer()
+        isPlaying = false
+        if duration > 0 {
+            currentTime = duration
+        }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            areControlsVisible = true
         }
     }
 
@@ -827,6 +858,10 @@ struct ModernVideoPlayerView: View {
         playerStatusObserver = nil
         timeControlStatusObserver?.invalidate()
         timeControlStatusObserver = nil
+        if let endObserver = itemDidPlayToEndObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            itemDidPlayToEndObserver = nil
+        }
 
         if let token = timeObserverToken, let p = player {
             p.removeTimeObserver(token)
@@ -853,6 +888,10 @@ struct ModernVideoPlayerView: View {
             playerStatusObserver = nil
             timeControlStatusObserver?.invalidate()
             timeControlStatusObserver = nil
+            if let endObserver = itemDidPlayToEndObserver {
+                NotificationCenter.default.removeObserver(endObserver)
+                itemDidPlayToEndObserver = nil
+            }
             if let token = timeObserverToken, let p = player {
                 p.removeTimeObserver(token)
                 timeObserverToken = nil
@@ -878,6 +917,11 @@ struct ModernVideoPlayerView: View {
             isPlaying = false
             stopAutoHideTimer()
         } else {
+            // 再生終了状態（末尾から0.3秒以内）なら先頭から再生
+            if duration > 0 && currentTime >= duration - 0.3 {
+                p.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+                currentTime = 0.0
+            }
             isPlaying = true
             if p.currentItem?.status == .readyToPlay {
                 p.playImmediately(atRate: playbackRate)
