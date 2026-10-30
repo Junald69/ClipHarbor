@@ -44,6 +44,7 @@ files = [
     'VideoTrimmerView.swift',
     'ModernVideoPlayerView.swift',
     'ContentBlockerManager.swift',
+    'VaultFaultInjectionTests.swift',
 ]
 resources = [
     'Localizable.xcstrings',

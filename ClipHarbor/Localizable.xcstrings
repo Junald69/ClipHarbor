@@ -10076,6 +10076,176 @@
           }
         }
       }
+    },
+    "Encrypted file was not created.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypted file was not created."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化ファイルが生成されませんでした。"
+          }
+        }
+      }
+    },
+    "Encrypted file is empty.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encrypted file is empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化ファイルが空です。"
+          }
+        }
+      }
+    },
+    "Failed to safely remove original file: %@. Moving to Vault was cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to safely remove original file: %@. Moving to Vault was cancelled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元ファイルを安全に削除できなかったため（%@）、Vaultへの移動を中止しました。"
+          }
+        }
+      }
+    },
+    "Restored file was not created.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored file was not created."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元先ファイルが生成されませんでした。"
+          }
+        }
+      }
+    },
+    "Restored file is empty.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored file is empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元先ファイルが空です。"
+          }
+        }
+      }
+    },
+    "Integrity & Diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrity & Diagnostics"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整合性診断・テスト"
+          }
+        }
+      }
+    },
+    "Run Integrity & Fault Tests": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Integrity & Fault Tests"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整合性診断・障害テストを実行"
+          }
+        }
+      }
+    },
+    "Vault Integrity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault Integrity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault整合性"
+          }
+        }
+      }
+    },
+    "Healthy (0 anomalies)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Healthy (0 anomalies)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正常（異常なし）"
+          }
+        }
+      }
+    },
+    "Anomalies detected (Ghost: %lld, Orphan: %lld)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anomalies detected (Ghost: %lld, Orphan: %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異常検出（ゴースト: %lld件, 孤立: %lld件）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

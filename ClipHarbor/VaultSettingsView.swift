@@ -13,6 +13,9 @@ struct VaultSettingsView: View {
 
     @State private var showChangePasscode = false
     @State private var toastMessage: String?
+    @State private var integrityReport: VaultManager.VaultIntegrityReport?
+    @State private var testResults: [VaultFaultTestResult] = []
+    @State private var isRunningTests = false
 
     var body: some View {
         NavigationStack {
@@ -84,6 +87,51 @@ struct VaultSettingsView: View {
                     }
                 }
 
+                // セクション 5: 整合性診断 & 異常系テスト
+                Section(NSLocalizedString("Integrity & Diagnostics", comment: "")) {
+                    Button {
+                        runDiagnosticsAndTests()
+                    } label: {
+                        HStack {
+                            Label(NSLocalizedString("Run Integrity & Fault Tests", comment: ""), systemImage: "stethoscope")
+                            Spacer()
+                            if isRunningTests {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isRunningTests)
+
+                    if let report = integrityReport {
+                        HStack {
+                            Text(NSLocalizedString("Vault Integrity", comment: ""))
+                            Spacer()
+                            if report.hasAnomalies {
+                                Text(String(format: NSLocalizedString("Anomalies detected (Ghost: %lld, Orphan: %lld)", comment: ""), report.ghostItemIDs.count, report.orphanedDirectoryIDs.count))
+                                    .foregroundStyle(.orange)
+                            } else {
+                                Text(NSLocalizedString("Healthy (0 anomalies)", comment: ""))
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+
+                    ForEach(testResults) { res in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: res.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(res.passed ? .green : .red)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(res.name)
+                                    .font(.caption.weight(.semibold))
+                                Text(res.detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
                 // セクション 4: 重要事項
                 Section(NSLocalizedString("Important Notice", comment: "")) {
                     VStack(alignment: .leading, spacing: 6) {
@@ -130,6 +178,18 @@ struct VaultSettingsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: toastMessage)
+        }
+    }
+
+    private func runDiagnosticsAndTests() {
+        isRunningTests = true
+        integrityReport = vaultManager.checkVaultIntegrity()
+        Task {
+            let results = await VaultFaultInjectionTests.runAllTests()
+            await MainActor.run {
+                testResults = results
+                isRunningTests = false
+            }
         }
     }
 

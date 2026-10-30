@@ -36,8 +36,12 @@ final class VaultManager: ObservableObject {
 
     // MARK: - ディレクトリ設定
     private let fileManager = FileManager.default
+    private let customBaseDirectory: URL?
 
     private var vaultDirectory: URL {
+        if let custom = customBaseDirectory {
+            return custom.appendingPathComponent("Vault", isDirectory: true)
+        }
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport.appendingPathComponent("Vault", isDirectory: true)
     }
@@ -63,10 +67,13 @@ final class VaultManager: ObservableObject {
     private let lockoutUntilPrefKey = "VaultManager.lockoutUntil"
 
     // MARK: - 初期化
-    private init() {
+    init(baseDirectory: URL? = nil) {
+        self.customBaseDirectory = baseDirectory
         setupDirectories()
         loadPersistedState()
-        setupLifecycleObservers()
+        if baseDirectory == nil {
+            setupLifecycleObservers()
+        }
         cleanupPlaybackTemp() // 起動時に前回の再生残骸を確実に消去
     }
 
@@ -95,15 +102,17 @@ final class VaultManager: ObservableObject {
 
     private func loadPersistedState() {
         isInitialized = fileManager.fileExists(atPath: masterKeyFileURL.path)
-        isBiometricsEnabled = UserDefaults.standard.bool(forKey: biometricsPrefKey)
-        failedAttempts = UserDefaults.standard.integer(forKey: failedAttemptsPrefKey)
+        if customBaseDirectory == nil {
+            isBiometricsEnabled = UserDefaults.standard.bool(forKey: biometricsPrefKey)
+            failedAttempts = UserDefaults.standard.integer(forKey: failedAttemptsPrefKey)
 
-        if let lockoutTimestamp = UserDefaults.standard.object(forKey: lockoutUntilPrefKey) as? Date {
-            if lockoutTimestamp > Date() {
-                lockoutUntil = lockoutTimestamp
-            } else {
-                // ロックアウト期限が過ぎている場合はリセット
-                clearLockout()
+            if let lockoutTimestamp = UserDefaults.standard.object(forKey: lockoutUntilPrefKey) as? Date {
+                if lockoutTimestamp > Date() {
+                    lockoutUntil = lockoutTimestamp
+                } else {
+                    // ロックアウト期限が過ぎている場合はリセット
+                    clearLockout()
+                }
             }
         }
     }
@@ -414,6 +423,9 @@ final class VaultManager: ObservableObject {
         let itemID = UUID()
         let itemDir = itemsDirectory.appendingPathComponent(itemID.uuidString, isDirectory: true)
 
+        var isIndexSaved = false
+        var isSourceRemoved = false
+
         do {
             try fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true, attributes: [
                 .protectionKey: FileProtectionType.complete
@@ -425,6 +437,15 @@ final class VaultManager: ObservableObject {
             try await Task.detached(priority: .userInitiated) {
                 try VaultCrypto.encryptFile(at: sourceURL, to: encryptedVideoURL, using: key)
             }.value
+
+            // 暗号化ファイルの存在およびサイズ検証
+            guard fileManager.fileExists(atPath: encryptedVideoURL.path) else {
+                throw VaultError.fileOperationFailed(NSLocalizedString("Encrypted file was not created.", comment: ""))
+            }
+            let encSize = (try? fileManager.attributesOfItem(atPath: encryptedVideoURL.path)[.size] as? Int64) ?? 0
+            guard encSize > 0 else {
+                throw VaultError.fileOperationFailed(NSLocalizedString("Encrypted file is empty.", comment: ""))
+            }
 
             // サムネイル暗号化
             if let thumbImage = VideoThumbnailManager.shared.cachedThumbnail(for: video),
@@ -457,11 +478,32 @@ final class VaultManager: ObservableObject {
             // インデックスに追加して保存
             items.insert(vaultItem, at: 0)
             try saveEncryptedIndex()
+            isIndexSaved = true
 
             processingMessage = NSLocalizedString("Safely removing original file…", comment: "")
 
-            // ★アトミック保証: 暗号化とインデックス保存が完全に完了したため、通常一覧および平文実ファイルを削除
-            try? fileManager.removeItem(at: sourceURL)
+            // 元平文ファイルの削除（明示的に検証）
+            do {
+                try fileManager.removeItem(at: sourceURL)
+                isSourceRemoved = true
+            } catch {
+                // 平文削除失敗: 元ファイルはディスクに残っている
+                // 通常一覧の登録を維持し、Vaultインデックスを安全にロールバック
+                items.removeAll(where: { $0.id == itemID })
+                do {
+                    try saveEncryptedIndex()
+                    // インデックスロールバック成功時のみ暗号化原本を破棄して完全ロールバック
+                    try? fileManager.removeItem(at: itemDir)
+                } catch {
+                    // ★インデックスのロールバックに失敗した場合、暗号化原本を無条件に削除しない
+                    print("[VaultManager] ロールバック時のインデックス保存失敗: \(error.localizedDescription)。暗号化原本は保護維持します。")
+                }
+                throw VaultError.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to safely remove original file: %@. Moving to Vault was cancelled.", comment: ""), error.localizedDescription)
+                )
+            }
+
+            // 元ファイル削除成功後のみ通常一覧から登録解除
             downloads.removeSavedVideoWithoutDeletingFile(id: video.id)
             folderManager.removeVideoFromFolder(videoID: video.id)
             VideoThumbnailManager.shared.invalidateCache(for: video)
@@ -469,10 +511,14 @@ final class VaultManager: ObservableObject {
             processingProgress = 1.0
             isProcessing = false
         } catch {
-            // 失敗時はVault内の不完全なディレクトリを破棄
-            try? fileManager.removeItem(at: itemDir)
-            items.removeAll(where: { $0.id == itemID })
-            try? saveEncryptedIndex()
+            // 平文削除成功後は絶対に暗号原本を削除しない
+            if !isSourceRemoved {
+                if !isIndexSaved {
+                    // インデックス保存前に失敗した場合のみ、不完全なVault内ディレクトリを破棄
+                    try? fileManager.removeItem(at: itemDir)
+                    items.removeAll(where: { $0.id == itemID })
+                }
+            }
             isProcessing = false
             throw error
         }
@@ -544,11 +590,23 @@ final class VaultManager: ObservableObject {
             fileExtension: ext.isEmpty ? item.format.rawValue : ext
         )
 
+        var isRegisteredInDownloads = false
+        var isRestoreCommitted = false
+
         do {
-            // ストリーム復号実行
+            // 1. ストリーム復号実行
             try await Task.detached(priority: .userInitiated) {
                 try VaultCrypto.decryptFile(at: encryptedVideoURL, to: destURL, using: key)
             }.value
+
+            // 復元先平文ファイルの存在・サイズ検証
+            guard fileManager.fileExists(atPath: destURL.path) else {
+                throw VaultError.fileOperationFailed(NSLocalizedString("Restored file was not created.", comment: ""))
+            }
+            let restoredSize = (try? fileManager.attributesOfItem(atPath: destURL.path)[.size] as? Int64) ?? 0
+            guard restoredSize > 0 else {
+                throw VaultError.fileOperationFailed(NSLocalizedString("Restored file is empty.", comment: ""))
+            }
 
             // サムネイル復元（存在する場合）
             var restoredThumbnailImage: UIImage? = nil
@@ -562,7 +620,6 @@ final class VaultManager: ObservableObject {
             }
 
             guard let newRelativePath = SavedVideo.relativePath(for: destURL) else {
-                try? fileManager.removeItem(at: destURL)
                 throw VaultError.fileOperationFailed(NSLocalizedString("Failed to determine destination path for restore.", comment: ""))
             }
 
@@ -573,15 +630,17 @@ final class VaultManager: ObservableObject {
                 format: item.format,
                 sourceHost: item.sourceHost,
                 createdAt: Date(),
-                byteSize: item.byteSize,
+                byteSize: restoredSize > 0 ? restoredSize : item.byteSize,
                 sourcePageURL: item.sourcePageURL,
                 isFavorite: item.isFavorite
             )
 
             processingMessage = NSLocalizedString("Registering into file list…", comment: "")
 
-            // DownloadCenter & FolderManagerへ追加
+            // 2. DownloadCenter & FolderManagerへ追加（永続化）
             downloads.restoreSavedVideo(restoredVideo)
+            isRegisteredInDownloads = true
+
             if !cleanFolder.isEmpty {
                 folderManager.restoreVideoToFolder(restoredVideo, targetFolder: cleanFolder)
             }
@@ -590,17 +649,42 @@ final class VaultManager: ObservableObject {
                 VideoThumbnailManager.shared.cacheThumbnail(thumb, for: restoredVideo)
             }
 
-            // ★アトミック保証: 復元が完全に成功したためVault内データを消去
-            try? fileManager.removeItem(at: itemDir)
+            // 3. Vaultインデックス先行更新（暗号化原本はまだ削除しない！）
+            let originalIndex = items.firstIndex(where: { $0.id == item.id })
             items.removeAll(where: { $0.id == item.id })
             thumbnailCache.removeObject(forKey: item.id as NSUUID)
-            try saveEncryptedIndex()
+
+            do {
+                try saveEncryptedIndex()
+            } catch {
+                // インデックス保存失敗時:
+                // インメモリ状態を復旧し、暗号原本は削除しない。
+                if let idx = originalIndex, idx <= items.count {
+                    items.insert(item, at: idx)
+                } else {
+                    items.append(item)
+                }
+                // ★インデックス保存失敗時に両方のファイルが失われないことを保証
+                // destURL は DownloadCenter に登録されているため残す（重複許容）。
+                // 平文ファイル destURL をロールバック削除すると原本との両損リスクがあるため削除しない。
+                throw error
+            }
+
+            // 4. ★Point of No Return: インデックス保存成功
+            // これ以降は暗号原本削除フェーズとなり、復元先平文ファイルを決してロールバック削除しない
+            isRestoreCommitted = true
+
+            // 5. 最後にVault内の暗号化原本を安全に消去
+            try? fileManager.removeItem(at: itemDir)
 
             processingProgress = 1.0
             isProcessing = false
         } catch {
-            // 失敗時は不完全な復元先平文ファイルを削除
-            try? fileManager.removeItem(at: destURL)
+            // ★原本削除フェーズに入った後 (isRestoreCommitted == true) は復元済み平文ファイルを削除しない！
+            // 通常一覧に未登録かつ復元確定前に失敗した場合のみ、不完全な平文ファイルを削除
+            if !isRestoreCommitted && !isRegisteredInDownloads {
+                try? fileManager.removeItem(at: destURL)
+            }
             isProcessing = false
             throw error
         }
@@ -850,5 +934,60 @@ final class VaultManager: ObservableObject {
 
         thumbnailCache.setObject(image, forKey: item.id as NSUUID)
         return image
+    }
+
+    // MARK: - 整合性診断（検出・診断専用 / 自動削除・変更禁止）
+
+    /// Vault整合性診断結果レポート
+    struct VaultIntegrityReport: Equatable {
+        /// インデックスに登録されているが実体暗号化ファイル（video.enc）が存在しないID
+        let ghostItemIDs: [UUID]
+        /// ディスク上に存在するがインデックスに登録されていない孤立ディレクトリID
+        let orphanedDirectoryIDs: [UUID]
+        /// 異常が検出されたかどうか
+        var hasAnomalies: Bool {
+            !ghostItemIDs.isEmpty || !orphanedDirectoryIDs.isEmpty
+        }
+    }
+
+    /// Vaultのファイル実体とインデックスの整合性を診断する（読み取り専用・診断専用）
+    /// - 注: 既存データの破壊や誤判定を防ぐため、自動削除・自動修復・上書きは一切行いません。
+    @discardableResult
+    func checkVaultIntegrity() -> VaultIntegrityReport {
+        guard isUnlocked else {
+            return VaultIntegrityReport(ghostItemIDs: [], orphanedDirectoryIDs: [])
+        }
+
+        let indexedIDs = Set(items.map { $0.id })
+        var ghostIDs: [UUID] = []
+
+        // 1. ゴーストインデックスの検出（インデックスにあるが実体暗号化ファイルがない）
+        for item in items {
+            let itemDir = itemsDirectory.appendingPathComponent(item.id.uuidString, isDirectory: true)
+            let encVideoURL = itemDir.appendingPathComponent(item.encryptedFileName)
+            if !fileManager.fileExists(atPath: encVideoURL.path) {
+                ghostIDs.append(item.id)
+            }
+        }
+
+        // 2. 孤立暗号化ディレクトリの検出（実体はあるがインデックスにない）
+        var orphanIDs: [UUID] = []
+        if let subdirs = try? fileManager.contentsOfDirectory(at: itemsDirectory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) {
+            for dir in subdirs {
+                if let isDir = (try? dir.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory, isDir {
+                    if let uuid = UUID(uuidString: dir.lastPathComponent) {
+                        if !indexedIDs.contains(uuid) {
+                            orphanIDs.append(uuid)
+                        }
+                    }
+                }
+            }
+        }
+
+        if !ghostIDs.isEmpty || !orphanIDs.isEmpty {
+            print("[VaultManager] 整合性診断: ゴーストエントリ=\(ghostIDs.count)件, 孤立ディレクトリ=\(orphanIDs.count)件 (自動削除は行わず現状維持)")
+        }
+
+        return VaultIntegrityReport(ghostItemIDs: ghostIDs, orphanedDirectoryIDs: orphanIDs)
     }
 }
