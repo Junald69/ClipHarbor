@@ -42,6 +42,8 @@ final class VaultManager: ObservableObject {
     @Published private(set) var isUnlocked: Bool = false
     @Published private(set) var items: [VaultItem] = []
     @Published private(set) var folders: [VaultFolder] = []
+    @Published private(set) var folderMetadataWarning: String? = nil
+    @Published private(set) var isFolderMetadataCorrupted: Bool = false
     @Published private(set) var isBiometricsEnabled: Bool = false
     @Published private(set) var failedAttempts: Int = 0
     @Published private(set) var lockoutUntil: Date? = nil
@@ -469,6 +471,8 @@ final class VaultManager: ObservableObject {
         isUnlocked = false
         items = []
         folders = []
+        folderMetadataWarning = nil
+        isFolderMetadataCorrupted = false
         thumbnailCache.removeAllObjects()
         cleanupPlaybackTemp()
     }
@@ -532,6 +536,9 @@ final class VaultManager: ObservableObject {
     }
 
     func saveEncryptedFolders() throws {
+        if isFolderMetadataCorrupted {
+            throw VaultError.fileOperationFailed("Cannot overwrite corrupted folder metadata file.")
+        }
         if isTestInstance && faultConfig.simulateFolderSaveFailure {
             throw VaultError.fileOperationFailed("Fault injection: Simulated saveEncryptedFolders failure")
         }
@@ -550,6 +557,9 @@ final class VaultManager: ObservableObject {
             throw VaultError.masterKeyMissing
         }
 
+        folderMetadataWarning = nil
+        isFolderMetadataCorrupted = false
+
         if fileManager.fileExists(atPath: indexFileURL.path) {
             let encryptedData = try Data(contentsOf: indexFileURL)
             let plainData = try VaultCrypto.decryptData(encryptedData, using: key)
@@ -566,7 +576,9 @@ final class VaultManager: ObservableObject {
                 let decoder = JSONDecoder()
                 folders = try decoder.decode([VaultFolder].self, from: plainFolderData)
             } catch {
+                isFolderMetadataCorrupted = true
                 folders = []
+                folderMetadataWarning = NSLocalizedString("Folder metadata is damaged or corrupted. Existing videos are safely preserved as Uncategorized.", comment: "")
             }
         } else {
             folders = []
@@ -1123,8 +1135,17 @@ final class VaultManager: ObservableObject {
     }
 
     /// 特定フォルダ（または未分類: nil）に属するアイテム一覧
+    /// - 孤立したfolderID（どの既存フォルダにも属さないID）を持つ動画は未分類（nil）に安全にフォールバック表示
     func items(in folderID: UUID?) -> [VaultItem] {
-        items.filter { $0.folderID == folderID }
+        if let targetID = folderID {
+            return items.filter { $0.folderID == targetID }
+        } else {
+            let validFolderIDs = Set(folders.map { $0.id })
+            return items.filter { item in
+                guard let fid = item.folderID else { return true }
+                return !validFolderIDs.contains(fid)
+            }
+        }
     }
 
     /// フォルダ新規作成
@@ -1177,6 +1198,7 @@ final class VaultManager: ObservableObject {
     }
 
     /// フォルダ削除（中の動画は削除せず未分類へ移動）
+    /// - 永続化順序: 先に全動画のfolderIDをnilにしてVaultインデックスを保存し、その後にフォルダ定義を削除・保存
     func deleteFolder(id: UUID) throws {
         guard isUnlocked, masterKey != nil else {
             throw VaultError.masterKeyMissing
@@ -1184,9 +1206,8 @@ final class VaultManager: ObservableObject {
         guard let folderIndex = folders.firstIndex(where: { $0.id == id }) else {
             throw VaultError.folderNotFound
         }
-        let removedFolder = folders[folderIndex]
-        folders.remove(at: folderIndex)
 
+        // 1. 先に動画のfolderIDをnilに更新し、Vaultインデックスを永続化保存
         let previousItems = items
         for i in 0..<items.count {
             if items[i].folderID == id {
@@ -1195,13 +1216,21 @@ final class VaultManager: ObservableObject {
         }
 
         do {
-            try saveEncryptedFolders()
             try saveEncryptedIndex()
         } catch {
-            folders.insert(removedFolder, at: folderIndex)
+            // インデックス保存失敗時はインメモリのアイテムをロールバック
             items = previousItems
-            try? saveEncryptedFolders()
-            try? saveEncryptedIndex()
+            throw error
+        }
+
+        // 2. インデックス保存成功後、フォルダ定義を削除して保存
+        let removedFolder = folders.remove(at: folderIndex)
+        do {
+            try saveEncryptedFolders()
+        } catch {
+            // フォルダ定義保存失敗時: インメモリのフォルダを復元
+            // なお、動画側は既に未分類としてインデックス保存済みのため、再起動後も動画が失われることはない
+            folders.insert(removedFolder, at: folderIndex)
             throw error
         }
     }
@@ -1251,6 +1280,12 @@ final class VaultManager: ObservableObject {
             items = previousItems
             throw error
         }
+    }
+
+    /// テスト専用: アイテムのfolderIDを強制設定（孤立folderIDのフォールバック検証等）
+    func setItemFolderIDForTesting(id: UUID, folderID: UUID?) {
+        guard isTestInstance, let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        items[idx].folderID = folderID
     }
 
     /// トリミング結果（tempURL）をVault内へ暗号化保存（元アイテムは保持）

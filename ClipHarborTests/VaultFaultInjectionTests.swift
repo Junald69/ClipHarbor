@@ -885,4 +885,198 @@ final class VaultFaultInjectionTests: XCTestCase {
         let encSize = (try? FileManager.default.attributesOfItem(atPath: encURL.path)[.size] as? Int64) ?? 0
         XCTAssertGreaterThan(encSize, 0)
     }
+
+    // 20. フォルダメタデータ: vault_folders.enc が存在しない状態（初期状態・アップグレード時）
+    func testVaultFolders_NonExistentFile_InitializesCleanlyWithoutError() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let foldersFile = env.baseDir.appendingPathComponent("Vault/vault_folders.enc")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: foldersFile.path))
+
+        // ロック＆再アンロック
+        env.vault.lock()
+        try env.vault.unlock(with: "123456")
+
+        XCTAssertTrue(env.vault.isUnlocked)
+        XCTAssertTrue(env.vault.folders.isEmpty)
+        XCTAssertFalse(env.vault.isFolderMetadataCorrupted)
+        XCTAssertNil(env.vault.folderMetadataWarning)
+    }
+
+    // 21. フォルダメタデータ: vault_folders.enc の復号失敗時、警告を通知し動画を保護、空配列での上書き保存を防止
+    func testVaultFolders_DecryptionFailure_ProtectsVideosAndPreventsSilentOverwrite() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "DecFailTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let folder = try env.vault.createFolder(name: "ImportantFolder")
+        try env.vault.moveItem(id: env.vault.items[0].id, to: folder.id)
+
+        let foldersFile = env.baseDir.appendingPathComponent("Vault/vault_folders.enc")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: foldersFile.path))
+
+        // フォルダメタデータファイルをゴミデータで破損させる
+        try Data("corrupted_junk_data".utf8).write(to: foldersFile)
+
+        env.vault.lock()
+        try env.vault.unlock(with: "123456")
+
+        // 検証: 破損フラグが立ち、警告メッセージが設定されること
+        XCTAssertTrue(env.vault.isFolderMetadataCorrupted)
+        XCTAssertNotNil(env.vault.folderMetadataWarning)
+
+        // 検証: 動画は未分類として安全にアクセス可能であること
+        let uncategorized = env.vault.items(in: nil)
+        XCTAssertEqual(uncategorized.count, 1)
+        XCTAssertEqual(uncategorized[0].id, env.vault.items[0].id)
+
+        // 検証: 破損したフォルダファイルを空配列で勝手に上書き保存しないこと
+        XCTAssertThrowsError(try env.vault.saveEncryptedFolders())
+    }
+
+    // 22. 存在しないfolderIDを持つ孤立動画が未分類（nil）として安全に表示・アクセスできること
+    func testVaultFolders_OrphanedFolderID_FallbacksToUncategorized() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "OrphanTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        // 存在しないランダムなfolderIDを付与（孤立状態）
+        let orphanID = UUID()
+        let itemID = env.vault.items[0].id
+        env.vault.setItemFolderIDForTesting(id: itemID, folderID: orphanID)
+
+        // 既存フォルダには orphanID は存在しない
+        XCTAssertFalse(env.vault.folders.contains(where: { $0.id == orphanID }))
+
+        // items(in: nil) を取得した際、孤立動画が未分類としてフォールバック表示されること
+        let itemsInRoot = env.vault.items(in: nil)
+        XCTAssertTrue(itemsInRoot.contains(where: { $0.id == itemID }))
+    }
+
+    // 23. フォルダ削除でインデックス保存が失敗した場合、ロールバックされフォルダ・動画共に保護されること
+    func testVaultFolders_DeleteFolder_IndexSaveFailure_RollsBackAndProtects() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "DelIdxFail.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let folder = try env.vault.createFolder(name: "FolderToDel")
+        let itemID = env.vault.items[0].id
+        try env.vault.moveItem(id: itemID, to: folder.id)
+
+        // 第1ステップ（インデックス保存）の障害注入
+        env.vault.faultConfig.simulateIndexSaveFailure = true
+
+        XCTAssertThrowsError(try env.vault.deleteFolder(id: folder.id))
+
+        // 検証: フォルダは削除されず残っている
+        XCTAssertEqual(env.vault.folders.count, 1)
+        XCTAssertEqual(env.vault.folders[0].id, folder.id)
+        // 検証: アイテムのfolderIDもロールバックされて維持されている
+        XCTAssertEqual(env.vault.items.first(where: { $0.id == itemID })?.folderID, folder.id)
+    }
+
+    // 24. フォルダ削除でインデックス保存成功後にフォルダ保存が失敗した場合、動画は未分類として安全にアクセス可能であること
+    func testVaultFolders_DeleteFolder_FolderSaveFailure_RetainsVideosSafely() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "DelFldFail.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let folder = try env.vault.createFolder(name: "FolderToDel2")
+        let itemID = env.vault.items[0].id
+        try env.vault.moveItem(id: itemID, to: folder.id)
+
+        // 第2ステップ（フォルダ定義保存）のみ失敗する障害注入
+        env.vault.faultConfig.simulateFolderSaveFailure = true
+
+        XCTAssertThrowsError(try env.vault.deleteFolder(id: folder.id))
+
+        // 検証: インメモリのフォルダは復元される
+        XCTAssertEqual(env.vault.folders.count, 1)
+        // 検証: 第1ステップで動画のfolderID=nilが既に永続化インデックスに書き込まれているため、再ロック・再アンロック後も全動画にアクセスできる
+        env.vault.faultConfig.simulateFolderSaveFailure = false
+        env.vault.lock()
+        try env.vault.unlock(with: "123456")
+
+        // 全動画がアクセス可能（未分類として表示）
+        XCTAssertEqual(env.vault.items.count, 1)
+        XCTAssertNil(env.vault.items[0].folderID)
+        XCTAssertEqual(env.vault.items(in: nil).count, 1)
+    }
+
+    // 25. 削除処理途中で中断（インデックス保存完了直後に強制終了）した状態の復旧・動画実体検証
+    func testVaultFolders_DeleteFolder_InterruptedMidway_RecoversCleanlyAndRetainsFiles() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "MidwayTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let folder = try env.vault.createFolder(name: "MidwayFolder")
+        let vaultItem = env.vault.items[0]
+        try env.vault.moveItem(id: vaultItem.id, to: folder.id)
+
+        let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+
+        // 中断状態を手動シミュレート: 動画のfolderIDはnilでインデックス保存されたが、vault_folders.encにはまだフォルダが残っている
+        try env.vault.moveItem(id: vaultItem.id, to: nil)
+
+        // アプリ終了・再起動シミュレーション
+        env.vault.lock()
+        try env.vault.unlock(with: "123456")
+
+        // 検証: 再アンロック後、動画は未分類として安全に表示される
+        XCTAssertEqual(env.vault.items.count, 1)
+        XCTAssertNil(env.vault.items[0].folderID)
+        XCTAssertEqual(env.vault.items(in: nil).count, 1)
+
+        // 検証: 暗号化動画実体（video.enc）は100%保護されている
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+        let encSize = (try? FileManager.default.attributesOfItem(atPath: encURL.path)[.size] as? Int64) ?? 0
+        XCTAssertGreaterThan(encSize, 0)
+    }
 }

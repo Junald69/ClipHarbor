@@ -10348,6 +10348,23 @@
           }
         }
       }
+    },
+    "Folder metadata is damaged or corrupted. Existing videos are safely preserved as Uncategorized.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder metadata is damaged or corrupted. Existing videos are safely preserved as Uncategorized."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ情報が破損している可能性があります。既存の動画は未分類として安全に保護されています。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

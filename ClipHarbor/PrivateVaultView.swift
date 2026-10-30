@@ -413,6 +413,10 @@ struct PrivateVaultView: View {
                     VStack(spacing: 8) {
                         securityInfoBanner
 
+                        if let warning = vaultManager.folderMetadataWarning {
+                            folderWarningBanner(warning)
+                        }
+
                         LazyVGrid(columns: gridColumns, spacing: 18) {
                             // ルート画面: フォルダカード一覧を表示
                             if isRoot {
@@ -583,6 +587,27 @@ struct PrivateVaultView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+    }
+
+    private func folderWarningBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+
+            Text(message)
+                .font(.caption2)
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.top, 4)
     }
