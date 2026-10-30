@@ -34,7 +34,7 @@ final class VaultPlayerRestoreController: ObservableObject {
 
     /// 復元リクエスト（セッション検証と保留コンテキストの確定）
     func requestRestore(
-        item: PlaybackItem?,
+        item: PlaybackMediaItem?,
         vaultManager: VaultManager,
         sessionToken: UUID?,
         playbackSessionID: UUID?,
