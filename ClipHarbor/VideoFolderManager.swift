@@ -623,3 +623,7 @@ final class VideoFolderManager: ObservableObject {
         return target.hasPrefix(prefix) && !url.lastPathComponent.hasPrefix(".")
     }
 }
+
+
+// MARK: - VaultFolderManaging Conformance
+extension VideoFolderManager: VaultFolderManaging {}

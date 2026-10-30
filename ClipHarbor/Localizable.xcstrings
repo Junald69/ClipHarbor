@@ -10246,6 +10246,23 @@
           }
         }
       }
+    },
+    "Check Vault Integrity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Vault Integrity"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault整合性を確認"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

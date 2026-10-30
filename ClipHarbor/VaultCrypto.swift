@@ -331,8 +331,16 @@ final class VaultCrypto {
 
     // MARK: - Keychain 生体認証鍵管理 (ThisDeviceOnly)
 
+    /// 安全防護サーキットブレーカー（テスト時の実Keychain誤アクセス防止）
+    /// テスト実行時は false に設定され、本番Keychain識別子（com.clipharbor.app.vault / master_key_biometric）へのアクセスを物理遮断する
+    static var allowProductionKeychainAccess: Bool = true
+
     /// 生体認証解除用にマスター鍵をKeychainに安全に保存
     static func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
+        guard allowProductionKeychainAccess else {
+            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain書き込みを拒否しました。")
+            return false
+        }
         let keyData = key.withUnsafeBytes { Data($0) }
         deleteBiometricMasterKey() // 既存のアイテムを削除
 
@@ -350,6 +358,10 @@ final class VaultCrypto {
 
     /// Keychainから生体認証用マスター鍵を読み出し
     static func loadBiometricMasterKey() -> SymmetricKey? {
+        guard allowProductionKeychainAccess else {
+            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain読み出しを拒否しました。")
+            return nil
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -370,6 +382,10 @@ final class VaultCrypto {
     /// Keychainの生体認証用マスター鍵を削除
     @discardableResult
     static func deleteBiometricMasterKey() -> Bool {
+        guard allowProductionKeychainAccess else {
+            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain削除を拒否しました。")
+            return true
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,

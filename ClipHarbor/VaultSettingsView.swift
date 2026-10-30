@@ -14,8 +14,6 @@ struct VaultSettingsView: View {
     @State private var showChangePasscode = false
     @State private var toastMessage: String?
     @State private var integrityReport: VaultManager.VaultIntegrityReport?
-    @State private var testResults: [VaultFaultTestResult] = []
-    @State private var isRunningTests = false
 
     var body: some View {
         NavigationStack {
@@ -87,20 +85,13 @@ struct VaultSettingsView: View {
                     }
                 }
 
-                // セクション 5: 整合性診断 & 異常系テスト
+                // セクション 5: 整合性診断（読み取り専用）
                 Section(NSLocalizedString("Integrity & Diagnostics", comment: "")) {
                     Button {
-                        runDiagnosticsAndTests()
+                        integrityReport = vaultManager.checkVaultIntegrity()
                     } label: {
-                        HStack {
-                            Label(NSLocalizedString("Run Integrity & Fault Tests", comment: ""), systemImage: "stethoscope")
-                            Spacer()
-                            if isRunningTests {
-                                ProgressView()
-                            }
-                        }
+                        Label(NSLocalizedString("Check Vault Integrity", comment: ""), systemImage: "stethoscope")
                     }
-                    .disabled(isRunningTests)
 
                     if let report = integrityReport {
                         HStack {
@@ -114,21 +105,6 @@ struct VaultSettingsView: View {
                                     .foregroundStyle(.green)
                             }
                         }
-                    }
-
-                    ForEach(testResults) { res in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: res.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundStyle(res.passed ? .green : .red)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(res.name)
-                                    .font(.caption.weight(.semibold))
-                                Text(res.detail)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.vertical, 2)
                     }
                 }
 
@@ -178,18 +154,6 @@ struct VaultSettingsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: toastMessage)
-        }
-    }
-
-    private func runDiagnosticsAndTests() {
-        isRunningTests = true
-        integrityReport = vaultManager.checkVaultIntegrity()
-        Task {
-            let results = await VaultFaultInjectionTests.runAllTests()
-            await MainActor.run {
-                testResults = results
-                isRunningTests = false
-            }
         }
     }
 

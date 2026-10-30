@@ -12,6 +12,19 @@ import AVFoundation
 /// - 安全な一時ファイル再生ライフサイクル管理
 /// - 整合性を保護するアトミックな移動・復元処理
 @MainActor
+// MARK: - 依存関係プロトコル（テストデータ完全分離用）
+
+public protocol VaultDownloadManaging: AnyObject {
+    func removeSavedVideoWithoutDeletingFile(id: UUID)
+    func restoreSavedVideoThrowing(_ video: SavedVideo) throws
+}
+
+public protocol VaultFolderManaging: AnyObject {
+    func folderName(for video: SavedVideo) -> String
+    func removeVideoFromFolder(videoID: UUID)
+    func restoreVideoToFolder(_ video: SavedVideo, targetFolder: String)
+}
+
 final class VaultManager: ObservableObject {
     static let shared = VaultManager()
 
@@ -37,6 +50,8 @@ final class VaultManager: ObservableObject {
     // MARK: - ディレクトリ設定
     private let fileManager = FileManager.default
     private let customBaseDirectory: URL?
+    private let customDownloadsDirectory: URL?
+    let isTestInstance: Bool
 
     private var vaultDirectory: URL {
         if let custom = customBaseDirectory {
@@ -67,11 +82,13 @@ final class VaultManager: ObservableObject {
     private let lockoutUntilPrefKey = "VaultManager.lockoutUntil"
 
     // MARK: - 初期化
-    init(baseDirectory: URL? = nil) {
+    init(baseDirectory: URL? = nil, downloadsDirectory: URL? = nil) {
         self.customBaseDirectory = baseDirectory
+        self.customDownloadsDirectory = downloadsDirectory
+        self.isTestInstance = (baseDirectory != nil)
         setupDirectories()
         loadPersistedState()
-        if baseDirectory == nil {
+        if !isTestInstance {
             setupLifecycleObservers()
         }
         cleanupPlaybackTemp() // 起動時に前回の再生残骸を確実に消去
@@ -102,7 +119,7 @@ final class VaultManager: ObservableObject {
 
     private func loadPersistedState() {
         isInitialized = fileManager.fileExists(atPath: masterKeyFileURL.path)
-        if customBaseDirectory == nil {
+        if !isTestInstance {
             isBiometricsEnabled = UserDefaults.standard.bool(forKey: biometricsPrefKey)
             failedAttempts = UserDefaults.standard.integer(forKey: failedAttemptsPrefKey)
 
@@ -151,7 +168,9 @@ final class VaultManager: ObservableObject {
     // MARK: - ロックアウト管理
     private func registerFailedAttempt() {
         failedAttempts += 1
-        UserDefaults.standard.set(failedAttempts, forKey: failedAttemptsPrefKey)
+        if !isTestInstance {
+            UserDefaults.standard.set(failedAttempts, forKey: failedAttemptsPrefKey)
+        }
 
         let lockoutSeconds: Int
         if failedAttempts >= 10 {
@@ -167,15 +186,19 @@ final class VaultManager: ObservableObject {
         if lockoutSeconds > 0 {
             let until = Date().addingTimeInterval(TimeInterval(lockoutSeconds))
             lockoutUntil = until
-            UserDefaults.standard.set(until, forKey: lockoutUntilPrefKey)
+            if !isTestInstance {
+                UserDefaults.standard.set(until, forKey: lockoutUntilPrefKey)
+            }
         }
     }
 
     private func clearLockout() {
         failedAttempts = 0
         lockoutUntil = nil
-        UserDefaults.standard.removeObject(forKey: failedAttemptsPrefKey)
-        UserDefaults.standard.removeObject(forKey: lockoutUntilPrefKey)
+        if !isTestInstance {
+            UserDefaults.standard.removeObject(forKey: failedAttemptsPrefKey)
+            UserDefaults.standard.removeObject(forKey: lockoutUntilPrefKey)
+        }
     }
 
     private func checkLockoutExpiration() {
@@ -214,15 +237,20 @@ final class VaultManager: ObservableObject {
         try wrappedData.write(to: masterKeyFileURL, options: .atomic)
 
         // 生体認証設定
-        if enableBiometrics {
-            if VaultCrypto.saveBiometricMasterKey(newMasterKey) {
-                isBiometricsEnabled = true
-                UserDefaults.standard.set(true, forKey: biometricsPrefKey)
-            }
+        if isTestInstance {
+            // テストインスタンス: 本番Keychain・UserDefaultsへのアクセスを完全にバイパス
+            isBiometricsEnabled = enableBiometrics
         } else {
-            isBiometricsEnabled = false
-            UserDefaults.standard.set(false, forKey: biometricsPrefKey)
-            VaultCrypto.deleteBiometricMasterKey()
+            if enableBiometrics {
+                if VaultCrypto.saveBiometricMasterKey(newMasterKey) {
+                    isBiometricsEnabled = true
+                    UserDefaults.standard.set(true, forKey: biometricsPrefKey)
+                }
+            } else {
+                isBiometricsEnabled = false
+                UserDefaults.standard.set(false, forKey: biometricsPrefKey)
+                VaultCrypto.deleteBiometricMasterKey()
+            }
         }
 
         // 空の暗号化インデックスを保存
@@ -279,6 +307,17 @@ final class VaultManager: ObservableObject {
 
         guard isBiometricsEnabled else {
             throw VaultError.biometricNotAvailable
+        }
+
+        if isTestInstance {
+            // テストインスタンス: 本番Keychainをバイパスし、インメモリ鍵または復号鍵でアンロック
+            guard let key = masterKey else {
+                throw VaultError.masterKeyMissing
+            }
+            self.isUnlocked = true
+            clearLockout()
+            try loadEncryptedIndex()
+            return
         }
 
         let context = LAContext()
@@ -350,6 +389,10 @@ final class VaultManager: ObservableObject {
     /// 生体認証の有効/無効切替
     func setBiometricsEnabled(_ enabled: Bool) {
         guard let key = masterKey else { return }
+        if isTestInstance {
+            isBiometricsEnabled = enabled
+            return
+        }
         if enabled {
             if VaultCrypto.saveBiometricMasterKey(key) {
                 isBiometricsEnabled = true
@@ -396,8 +439,8 @@ final class VaultManager: ObservableObject {
     /// 通常の動画をVaultへ暗号化移動
     func moveToVault(
         video: SavedVideo,
-        downloads: DownloadCenter,
-        folderManager: VideoFolderManager
+        downloads: VaultDownloadManaging = DownloadCenter.shared,
+        folderManager: VaultFolderManaging = VideoFolderManager.shared
     ) async throws {
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
@@ -527,8 +570,8 @@ final class VaultManager: ObservableObject {
     /// 複数動画のVaultへの一括移動
     func moveMultipleToVault(
         videos: [SavedVideo],
-        downloads: DownloadCenter,
-        folderManager: VideoFolderManager
+        downloads: VaultDownloadManaging = DownloadCenter.shared,
+        folderManager: VaultFolderManaging = VideoFolderManager.shared
     ) async -> (succeeded: Int, failed: Int) {
         var succeeded = 0
         var failed = 0
@@ -552,8 +595,8 @@ final class VaultManager: ObservableObject {
     func restoreFromVault(
         item: VaultItem,
         targetFolder: String?,
-        downloads: DownloadCenter,
-        folderManager: VideoFolderManager
+        downloads: VaultDownloadManaging = DownloadCenter.shared,
+        folderManager: VaultFolderManaging = VideoFolderManager.shared
     ) async throws {
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
@@ -570,7 +613,7 @@ final class VaultManager: ObservableObject {
         processingMessage = String(format: NSLocalizedString("Decrypting \"%@\"…", comment: ""), item.originalTitle)
 
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let downloadsDir = docs.appendingPathComponent("Downloads", isDirectory: true)
+        let downloadsDir = customDownloadsDirectory ?? docs.appendingPathComponent("Downloads", isDirectory: true)
         try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder ?? item.originalFolderName)
@@ -638,7 +681,7 @@ final class VaultManager: ObservableObject {
             processingMessage = NSLocalizedString("Registering into file list…", comment: "")
 
             // 2. DownloadCenter & FolderManagerへ追加（永続化）
-            downloads.restoreSavedVideo(restoredVideo)
+            try downloads.restoreSavedVideoThrowing(restoredVideo)
             isRegisteredInDownloads = true
 
             if !cleanFolder.isEmpty {
@@ -694,8 +737,8 @@ final class VaultManager: ObservableObject {
     func restoreMultipleFromVault(
         items targetItems: [VaultItem],
         targetFolder: String?,
-        downloads: DownloadCenter,
-        folderManager: VideoFolderManager
+        downloads: VaultDownloadManaging = DownloadCenter.shared,
+        folderManager: VaultFolderManaging = VideoFolderManager.shared
     ) async -> (succeeded: Int, failed: Int) {
         var succeeded = 0
         var failed = 0

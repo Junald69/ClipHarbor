@@ -185,6 +185,19 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         }
     }
 
+    /// Vault復元等、ディスク永続化の成功保証が必須な場面向けの再登録API
+    func restoreSavedVideoThrowing(_ video: SavedVideo) throws {
+        if !saved.contains(where: { $0.id == video.id }) {
+            saved.insert(video, at: 0)
+            do {
+                try persistSaved()
+            } catch {
+                saved.removeAll { $0.id == video.id }
+                throw error
+            }
+        }
+    }
+
     /// VideoExportManager が生成・品質検証を完了したMP4ファイルを保存済み一覧へ登録する。
     /// - 二重登録を防止し、onVideoSaved による二重ファイル移動を発生させない。
     @discardableResult
@@ -708,3 +721,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         }
     }
 }
+
+
+// MARK: - VaultDownloadManaging Conformance
+extension DownloadCenter: VaultDownloadManaging {}
