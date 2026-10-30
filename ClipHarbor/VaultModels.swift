@@ -96,6 +96,7 @@ enum VaultError: LocalizedError, Equatable {
     case encryptionFailed(String)
     case decryptionFailed(String)
     case integrityCheckFailed
+    case sessionExpired
     case fileOperationFailed(String)
 
     var errorDescription: String? {
@@ -132,6 +133,8 @@ enum VaultError: LocalizedError, Equatable {
             return String(format: NSLocalizedString("Decryption failed: %@", comment: ""), msg)
         case .integrityCheckFailed:
             return NSLocalizedString("Detected data corruption or tampering in encrypted file.", comment: "")
+        case .sessionExpired:
+            return NSLocalizedString("Vault session expired or was locked. Operation cancelled.", comment: "")
         case .fileOperationFailed(let msg):
             return String(format: NSLocalizedString("File operation failed: %@", comment: ""), msg)
         }

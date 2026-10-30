@@ -484,4 +484,177 @@ final class VaultFaultInjectionTests: XCTestCase {
             XCTAssertTrue(error.localizedDescription.contains("Security violation") || (error as? VaultError) != nil)
         }
     }
+
+    // 9. 移動時: 暗号化中のセッション変更（lock呼び出しによるsessionToken不一致）テスト
+    func testMoveToVault_SessionChangeDuringEncryption_AbortsAndProtectsSourceAndCleansProcessing() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (sourceURL, video) = try createDummyVideoFile(in: env.downloadsDir, name: "SessionMoveTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+
+        // 障害注入: 暗号化タスク完了直後（インデックス反映前）にVaultがロックされるシナリオ
+        env.vault.faultConfig.onOperationPhase = {
+            env.vault.lock()
+        }
+
+        do {
+            try await env.vault.moveToVault(
+                video: video,
+                sourceURL: sourceURL,
+                downloads: env.mockDownloads,
+                folderManager: env.mockFolders,
+                thumbnailManager: env.mockThumbnails
+            )
+            XCTFail("Should have thrown sessionExpired error")
+        } catch let err as VaultError {
+            switch err {
+            case .sessionExpired:
+                break // 正常にセッション期限切れを検出
+            default:
+                XCTFail("Unexpected error type: \(err)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // 検証: 元平文ファイルは絶対に削除されず保護されている
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceURL.path))
+        // 検証: 通常ダウンロード一覧から除去されていない
+        XCTAssertNotNil(env.mockDownloads.savedVideos[video.id])
+        // 検証: UI処理中フラグが確実にfalseへ解除されている
+        XCTAssertFalse(env.vault.isProcessing)
+    }
+
+    // 10. 復元時: 復号中のセッション変更（lock呼び出しによるsessionToken不一致）テスト
+    func testRestoreFromVault_SessionChangeDuringDecryption_AbortsAndCleansDestFileAndCleansProcessing() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (sourceURL, video) = try createDummyVideoFile(in: env.downloadsDir, name: "SessionRestoreTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: sourceURL,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let vaultItem = env.vault.items[0]
+        let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+
+        // 障害注入: 復号タスク完了直後（ダウンロード登録前）にVaultがロックされるシナリオ
+        env.vault.faultConfig.onOperationPhase = {
+            env.vault.lock()
+        }
+
+        let destURL = env.downloadsDir.appendingPathComponent("SessionRestoreTest.mp4")
+
+        do {
+            try await env.vault.restoreFromVault(
+                item: vaultItem,
+                targetFolder: nil,
+                downloads: env.mockDownloads,
+                folderManager: env.mockFolders,
+                thumbnailManager: env.mockThumbnails
+            )
+            XCTFail("Should have thrown sessionExpired error")
+        } catch let err as VaultError {
+            switch err {
+            case .sessionExpired:
+                break // 正常にセッション期限切れを検出
+            default:
+                XCTFail("Unexpected error type: \(err)")
+            }
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+
+        // 検証: ロックされたため、復元途中の平文ファイルはディスク上に残留せず削除されている
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destURL.path))
+        // 検証: 暗号化原本はVault内に確実に保護されている
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+        // 検証: 通常ダウンロード一覧には登録されていない
+        XCTAssertNil(env.mockDownloads.savedVideos[video.id])
+        // 検証: UI処理中フラグが確実にfalseへ解除されている
+        XCTAssertFalse(env.vault.isProcessing)
+    }
+
+    // 11. 復元時: ディレクトリ作成失敗テスト
+    func testRestoreFromVault_DestinationDirectoryCreationFailed_FailsGracefullyAndCleansProcessing() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (sourceURL, video) = try createDummyVideoFile(in: env.downloadsDir, name: "DirFailTest.mp4")
+        env.mockDownloads.savedVideos[video.id] = video
+
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: sourceURL,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+
+        let vaultItem = env.vault.items[0]
+        let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
+
+        // 障害注入: ダウンロード先ディレクトリと同名の通常ファイルを配置し、createDirectoryを強制失敗させる
+        try FileManager.default.removeItem(at: env.downloadsDir)
+        try Data("dummy_file_blocking_dir_creation".utf8).write(to: env.downloadsDir)
+
+        do {
+            try await env.vault.restoreFromVault(
+                item: vaultItem,
+                targetFolder: nil,
+                downloads: env.mockDownloads,
+                folderManager: env.mockFolders,
+                thumbnailManager: env.mockThumbnails
+            )
+            XCTFail("Should have thrown directory creation error")
+        } catch {
+            // エラーがスローされたことを確認
+        }
+
+        // 検証: UI状態 isProcessing が確実にfalseへ復帰している
+        XCTAssertFalse(env.vault.isProcessing)
+        // 検証: 暗号化原本は失われず残っている
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+    }
+
+    // 12. 中断・失敗時のUI状態 (isProcessing) 解除テスト
+    func testMoveToVault_Failure_CleansProcessingState() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let nonExistentURL = env.downloadsDir.appendingPathComponent("non_existent.mp4")
+        let video = SavedVideo(
+            id: UUID(),
+            title: "NotFound",
+            relativePath: "IsolatedDownloads/non_existent.mp4",
+            format: .mp4,
+            sourceHost: "example.com",
+            createdAt: Date(),
+            byteSize: 100
+        )
+
+        do {
+            try await env.vault.moveToVault(
+                video: video,
+                sourceURL: nonExistentURL,
+                downloads: env.mockDownloads,
+                folderManager: env.mockFolders,
+                thumbnailManager: env.mockThumbnails
+            )
+            XCTFail("Should fail because file does not exist")
+        } catch {
+            // 失敗を確認
+        }
+
+        // 検証: 準備段階で例外がスローされても、isProcessing が確実に false に戻っている
+        XCTAssertFalse(env.vault.isProcessing)
+    }
 }

@@ -175,6 +175,7 @@ final class VaultManager: ObservableObject {
     struct FaultInjectionConfig {
         var simulateIndexSaveFailure: Bool = false
         var simulateSourceRemovalFailure: Bool = false
+        var onOperationPhase: (() -> Void)? = nil
     }
     var faultConfig = FaultInjectionConfig()
 
@@ -564,6 +565,7 @@ final class VaultManager: ObservableObject {
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
         }
+        let expectedSessionToken = sessionToken
 
         guard !video.isHLS else {
             throw VaultError.hlsNotSupportedYet
@@ -590,6 +592,9 @@ final class VaultManager: ObservableObject {
         isProcessing = true
         processingProgress = 0.0
         processingMessage = String(format: NSLocalizedString("Encrypting \"%@\"…", comment: ""), video.title)
+        defer {
+            isProcessing = false
+        }
 
         let itemID = UUID()
         let itemDir = itemsDirectory.appendingPathComponent(itemID.uuidString, isDirectory: true)
@@ -608,6 +613,16 @@ final class VaultManager: ObservableObject {
             try await Task.detached(priority: .userInitiated) {
                 try VaultCrypto.encryptFile(at: actualSourceURL, to: encryptedVideoURL, using: key)
             }.value
+
+            if isTestInstance {
+                faultConfig.onOperationPhase?()
+            }
+
+            // セッション整合性検証: 暗号化実行中にlock()等でセッションが破棄・変更された場合は即座に中断
+            guard isUnlocked, sessionToken == expectedSessionToken, masterKey != nil else {
+                try? fileManager.removeItem(at: itemDir)
+                throw VaultError.sessionExpired
+            }
 
             // 暗号化ファイルの存在およびサイズ検証
             guard fileManager.fileExists(atPath: encryptedVideoURL.path) else {
@@ -685,7 +700,6 @@ final class VaultManager: ObservableObject {
             actualThumbnail.invalidateCache(for: video)
 
             processingProgress = 1.0
-            isProcessing = false
         } catch {
             // 平文削除成功後は絶対に暗号原本を削除しない
             if !isSourceRemoved {
@@ -695,7 +709,6 @@ final class VaultManager: ObservableObject {
                     items.removeAll(where: { $0.id == itemID })
                 }
             }
-            isProcessing = false
             throw error
         }
     }
@@ -776,6 +789,7 @@ final class VaultManager: ObservableObject {
         guard let key = masterKey, isUnlocked else {
             throw VaultError.masterKeyMissing
         }
+        let expectedSessionToken = sessionToken
 
         let itemDir = itemsDirectory.appendingPathComponent(item.id.uuidString, isDirectory: true)
         let encryptedVideoURL = itemDir.appendingPathComponent(item.encryptedFileName)
@@ -786,48 +800,64 @@ final class VaultManager: ObservableObject {
         isProcessing = true
         processingProgress = 0.0
         processingMessage = String(format: NSLocalizedString("Decrypting \"%@\"…", comment: ""), item.originalTitle)
-
-        let downloadsDir: URL
-        if isTestInstance {
-            guard let explicitDownloadsDir = customDownloadsDirectory else {
-                throw VaultError.fileOperationFailed("Test instance requires customDownloadsDirectory; fallback to Documents/Downloads is prohibited.")
-            }
-            try validateTestURLContainment(explicitDownloadsDir, purpose: "restoreFromVault downloads root")
-            downloadsDir = explicitDownloadsDir
-        } else {
-            let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            downloadsDir = customDownloadsDirectory ?? docs.appendingPathComponent("Downloads", isDirectory: true)
+        defer {
+            isProcessing = false
         }
-        try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
-
-        let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder ?? item.originalFolderName)
-        let targetDir: URL
-        if !cleanFolder.isEmpty {
-            targetDir = downloadsDir.appendingPathComponent(cleanFolder, isDirectory: true)
-            try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
-        } else {
-            targetDir = downloadsDir
-        }
-
-        let ext = (item.originalFileName as NSString).pathExtension
-        let baseName = (item.originalFileName as NSString).deletingPathExtension
-        let destURL = FileNaming.uniqueDestination(
-            in: targetDir,
-            baseName: baseName.isEmpty ? "RestoredVideo" : baseName,
-            fileExtension: ext.isEmpty ? item.format.rawValue : ext
-        )
-
-        // テスト環境における復元先ファイルの隔離検証（復号前に事前検証）
-        try validateTestURLContainment(destURL, purpose: "restoreFromVault destination file")
 
         var isRegisteredInDownloads = false
         var isRestoreCommitted = false
+        var createdDestURL: URL? = nil
 
         do {
+            let downloadsDir: URL
+            if isTestInstance {
+                guard let explicitDownloadsDir = customDownloadsDirectory else {
+                    throw VaultError.fileOperationFailed("Test instance requires customDownloadsDirectory; fallback to Documents/Downloads is prohibited.")
+                }
+                try validateTestURLContainment(explicitDownloadsDir, purpose: "restoreFromVault downloads root")
+                downloadsDir = explicitDownloadsDir
+            } else {
+                let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                downloadsDir = customDownloadsDirectory ?? docs.appendingPathComponent("Downloads", isDirectory: true)
+            }
+            try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+
+            let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder ?? item.originalFolderName)
+            let targetDir: URL
+            if !cleanFolder.isEmpty {
+                targetDir = downloadsDir.appendingPathComponent(cleanFolder, isDirectory: true)
+                try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
+            } else {
+                targetDir = downloadsDir
+            }
+
+            let ext = (item.originalFileName as NSString).pathExtension
+            let baseName = (item.originalFileName as NSString).deletingPathExtension
+            let destURL = FileNaming.uniqueDestination(
+                in: targetDir,
+                baseName: baseName.isEmpty ? "RestoredVideo" : baseName,
+                fileExtension: ext.isEmpty ? item.format.rawValue : ext
+            )
+
+            // テスト環境における復元先ファイルの隔離検証（復号前に事前検証）
+            try validateTestURLContainment(destURL, purpose: "restoreFromVault destination file")
+            createdDestURL = destURL
+
             // 1. ストリーム復号実行
             try await Task.detached(priority: .userInitiated) {
                 try VaultCrypto.decryptFile(at: encryptedVideoURL, to: destURL, using: key)
             }.value
+
+            if isTestInstance {
+                faultConfig.onOperationPhase?()
+            }
+
+            // セッション整合性検証: 復号実行中にlock()等でセッションが破棄・変更された場合は即座に中断
+            guard isUnlocked, sessionToken == expectedSessionToken, masterKey != nil else {
+                // 中断時: 復元先平文ファイルがロック状態のまま残らないよう即時クリーンアップ
+                try? fileManager.removeItem(at: destURL)
+                throw VaultError.sessionExpired
+            }
 
             // 復元先平文ファイルの存在・サイズ検証
             guard fileManager.fileExists(atPath: destURL.path) else {
@@ -908,14 +938,14 @@ final class VaultManager: ObservableObject {
             try? fileManager.removeItem(at: itemDir)
 
             processingProgress = 1.0
-            isProcessing = false
         } catch {
             // ★原本削除フェーズに入った後 (isRestoreCommitted == true) は復元済み平文ファイルを削除しない！
             // 通常一覧に未登録かつ復元確定前に失敗した場合のみ、不完全な平文ファイルを削除
             if !isRestoreCommitted && !isRegisteredInDownloads {
-                try? fileManager.removeItem(at: destURL)
+                if let url = createdDestURL {
+                    try? fileManager.removeItem(at: url)
+                }
             }
-            isProcessing = false
             throw error
         }
     }

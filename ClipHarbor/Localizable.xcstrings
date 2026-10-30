@@ -10263,6 +10263,23 @@
           }
         }
       }
+    },
+    "Vault session expired or was locked. Operation cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault session expired or was locked. Operation cancelled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫のセッションが切断またはロックされたため、処理を中断しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
