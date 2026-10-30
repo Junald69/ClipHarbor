@@ -61,6 +61,7 @@ final class VaultPlayerRestoreController: ObservableObject {
         vaultManager: VaultManager,
         downloads: VaultDownloadManaging,
         folderManager: VaultFolderManaging,
+        thumbnailManager: VaultThumbnailManaging? = nil,
         coordinator: VideoPlaybackCoordinator,
         tearDownPlayer: () -> Void,
         cleanupTemp: (UUID) -> Void,
@@ -105,7 +106,8 @@ final class VaultPlayerRestoreController: ObservableObject {
                 item: vaultItem,
                 targetFolder: nil,
                 downloads: downloads,
-                folderManager: folderManager
+                folderManager: folderManager,
+                thumbnailManager: thumbnailManager
             )
 
             // 5. 復元成功: 処理中フラグを解除した上で画面終了を実行

@@ -1348,6 +1348,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
             tearDownPlayer: { didTearDown = true },
             cleanupTemp: { cleanedUpItemID = $0 },
@@ -1399,6 +1400,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
             tearDownPlayer: { XCTFail("Should not tear down when session is invalid") },
             cleanupTemp: { _ in XCTFail("Should not clean temp when session is invalid") },
@@ -1452,6 +1454,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
             tearDownPlayer: {},
             cleanupTemp: { _ in },
@@ -1500,20 +1503,18 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         var didDismiss = false
 
-        // 実行直後にロック
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000)
-            env.vault.lock()
-        }
-
         await controller.executeRestore(
             context: context,
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
             tearDownPlayer: {},
-            cleanupTemp: { _ in },
+            cleanupTemp: { _ in
+                // クリーンアップ時点でVaultがバックグラウンド等でロックされた状態を注入
+                env.vault.lock()
+            },
             onSuccess: { _, _ in XCTFail("Should not succeed") },
             onReloadItem: { XCTFail("Should NOT reload or recreate plaintext when vault is locked") },
             onDismiss: {
@@ -1550,44 +1551,51 @@ final class VaultFaultInjectionTests: XCTestCase {
             playbackSessionID: UUID()
         )
 
-        // 1回目の実行を開始し、並行して2回目を呼ぶ
         var firstRunSuccessCount = 0
         var secondRunCallCount = 0
+        var reachedInFlight = false
 
-        async let task1: Void = controller.executeRestore(
+        await controller.executeRestore(
             context: context,
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
-            tearDownPlayer: {},
+            tearDownPlayer: {
+                // 実行中フラグが立っており、ユーザーによる画面終了が禁止されていることを検証
+                XCTAssertTrue(controller.isRestoring)
+                XCTAssertFalse(controller.canClose(isDeleting: false))
+                reachedInFlight = true
+
+                // 二重実行試行（isRestoring が true のため即時無視される）
+                Task { @MainActor in
+                    await controller.executeRestore(
+                        context: context,
+                        vaultManager: env.vault,
+                        downloads: env.mockDownloads,
+                        folderManager: env.mockFolders,
+                        thumbnailManager: env.mockThumbnails,
+                        coordinator: coordinator,
+                        tearDownPlayer: {},
+                        cleanupTemp: { _ in },
+                        onSuccess: { _, _ in secondRunCallCount += 1 },
+                        onReloadItem: {},
+                        onDismiss: {}
+                    )
+                }
+            },
             cleanupTemp: { _ in },
             onSuccess: { _, _ in firstRunSuccessCount += 1 },
             onReloadItem: {},
             onDismiss: {}
         )
 
-        // 処理中にユーザーによる閉じる操作が弾かれることを検証
-        XCTAssertFalse(controller.canClose(isDeleting: false))
-
-        // 二重実行試行（弾かれるはず）
-        await controller.executeRestore(
-            context: context,
-            vaultManager: env.vault,
-            downloads: env.mockDownloads,
-            folderManager: env.mockFolders,
-            coordinator: coordinator,
-            tearDownPlayer: {},
-            cleanupTemp: { _ in },
-            onSuccess: { _, _ in secondRunCallCount += 1 },
-            onReloadItem: {},
-            onDismiss: {}
-        )
-
-        _ = await task1
-
+        XCTAssertTrue(reachedInFlight)
         XCTAssertEqual(firstRunSuccessCount, 1)
-        XCTAssertEqual(secondRunCallCount, 0) // 二重実行は完全に無視された
+        XCTAssertEqual(secondRunCallCount, 0)
+        XCTAssertFalse(controller.isRestoring)
+        XCTAssertTrue(controller.canClose(isDeleting: false))
     }
 
     func testRestoreController_ReleasesPlayerAndCoordinatorSessionBeforeRestore() async throws {
@@ -1621,6 +1629,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             vaultManager: env.vault,
             downloads: env.mockDownloads,
             folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails,
             coordinator: coordinator,
             tearDownPlayer: {
                 callOrder.append("tearDownPlayer")
