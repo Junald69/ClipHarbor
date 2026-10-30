@@ -333,19 +333,22 @@ final class VaultCrypto {
 
     // MARK: - Keychain 生体認証鍵管理 (ThisDeviceOnly)
 
-    private static let productionKeychain = ProductionVaultKeychainStorage()
+    @MainActor private static let productionKeychain = ProductionVaultKeychainStorage()
 
     /// 生体認証解除用にマスター鍵をKeychainに安全に保存
+    @MainActor
     static func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
         productionKeychain.saveBiometricMasterKey(key)
     }
 
     /// Keychainから生体認証用マスター鍵を読み出し
+    @MainActor
     static func loadBiometricMasterKey() -> SymmetricKey? {
         productionKeychain.loadBiometricMasterKey()
     }
 
     /// Keychainの生体認証用マスター鍵を削除
+    @MainActor
     @discardableResult
     static func deleteBiometricMasterKey() -> Bool {
         productionKeychain.deleteBiometricMasterKey()
@@ -356,6 +359,7 @@ final class VaultCrypto {
 // MARK: - VaultKeychainStorageProtocol & Production Implementation
 
 /// Vaultマスター鍵のセキュアストレージプロトコル（本番Keychainとテストモックの完全分離）
+@MainActor
 protocol VaultKeychainStorageProtocol: AnyObject {
     func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool
     func loadBiometricMasterKey() -> SymmetricKey?
@@ -364,6 +368,7 @@ protocol VaultKeychainStorageProtocol: AnyObject {
 }
 
 /// 本番環境用Keychainストレージ（サービス: com.clipharbor.app.vault, アカウント: master_key_biometric）
+@MainActor
 final class ProductionVaultKeychainStorage: VaultKeychainStorageProtocol {
     private static let keychainService = "com.clipharbor.app.vault"
     private static let keychainAccount = "master_key_biometric"
