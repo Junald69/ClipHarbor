@@ -1195,16 +1195,16 @@ final class VaultFaultInjectionTests: XCTestCase {
         let isSessionValid = env.vault.isUnlocked && env.vault.sessionToken == fakeToken
         XCTAssertFalse(isSessionValid)
 
-        // フォルダ移動試行: 無効トークン時はVaultError.lockedがスローされることを検証
+        // フォルダ移動試行: 無効トークン時はVaultError.sessionExpiredがスローされることを検証
         let folder = try env.vault.createFolder(name: "TestFolder")
         do {
             guard env.vault.isUnlocked, env.vault.sessionToken == fakeToken else {
-                throw VaultError.locked
+                throw VaultError.sessionExpired
             }
             try env.vault.moveItem(id: vaultItem.id, to: folder.id)
             XCTFail("Should not reach here")
         } catch let err as VaultError {
-            if case .locked = err {
+            if case .sessionExpired = err {
                 // Expected
             } else {
                 XCTFail("Unexpected error: \(err)")
@@ -1216,12 +1216,12 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertFalse(env.vault.isUnlocked)
         do {
             guard env.vault.isUnlocked, env.vault.sessionToken == realToken else {
-                throw VaultError.locked
+                throw VaultError.sessionExpired
             }
             try env.vault.moveItem(id: vaultItem.id, to: folder.id)
             XCTFail("Should not reach here")
         } catch let err as VaultError {
-            if case .locked = err {
+            if case .sessionExpired = err {
                 // Expected
             } else {
                 XCTFail("Unexpected error: \(err)")

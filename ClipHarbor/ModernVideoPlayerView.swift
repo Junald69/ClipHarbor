@@ -1508,7 +1508,7 @@ struct ModernVideoPlayerView: View {
                         guard VaultManager.shared.isUnlocked,
                               let sessionToken = playlistContext.vaultSessionToken,
                               VaultManager.shared.sessionToken == sessionToken else {
-                            throw VaultError.locked
+                            throw VaultError.sessionExpired
                         }
                         try VaultManager.shared.moveItem(id: latestItem.id, to: targetFolderID)
                         playlistContext.updateVaultItemFolder(id: latestItem.id, folderID: targetFolderID)
@@ -1518,7 +1518,7 @@ struct ModernVideoPlayerView: View {
                         guard VaultManager.shared.isUnlocked,
                               let sessionToken = playlistContext.vaultSessionToken,
                               VaultManager.shared.sessionToken == sessionToken else {
-                            throw VaultError.locked
+                            throw VaultError.sessionExpired
                         }
                         let newFolder = try VaultManager.shared.createFolder(name: folderName)
                         try VaultManager.shared.moveItem(id: latestItem.id, to: newFolder.id)
