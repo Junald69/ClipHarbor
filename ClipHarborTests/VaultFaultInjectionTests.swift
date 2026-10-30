@@ -1118,7 +1118,8 @@ final class VaultFaultInjectionTests: XCTestCase {
     }
 
     func testPlaybackSpeed_CoordinatorPreservesRequestedRateAcrossSessions() {
-        let coordinator = VideoPlaybackCoordinator()
+        let coordinator = VideoPlaybackCoordinator.shared
+        defer { coordinator.updatePlaybackRate(1.0) }
         for speed in PlaybackSpeedFormatter.standardSpeeds {
             coordinator.updatePlaybackRate(speed)
             XCTAssertEqual(coordinator.activePlaybackRate, speed)
