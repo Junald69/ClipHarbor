@@ -417,7 +417,7 @@ struct PlayerControlsOverlay: View {
 
                     if isVault, let onRestore = onRestoreFile {
                         Button(action: onRestore) {
-                            Label(NSLocalizedString("Restore", comment: ""), systemImage: "arrow.uturn.backward")
+                            Label(NSLocalizedString("Restore to Normal List", comment: ""), systemImage: "arrow.uturn.backward")
                         }
                     }
 

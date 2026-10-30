@@ -97,6 +97,16 @@ struct ModernVideoPlayerView: View {
     @State private var pendingDeletionContext: PendingDeletionContext?
     @State private var isDeletingItem: Bool = false
 
+    // 復元処理状態
+    struct PendingRestoreContext: Identifiable {
+        let vaultItem: VaultItem
+        let sessionToken: UUID
+        var id: UUID { vaultItem.id }
+        var title: String { vaultItem.originalTitle }
+    }
+    @State private var pendingRestoreContext: PendingRestoreContext?
+    @State private var isRestoringItem: Bool = false
+
     // 操作中状態管理・自動非表示排他制御
     @State private var activeInteractions: Set<String> = []
     @State private var controlExclusionFrames: [CGRect] = []
@@ -166,7 +176,7 @@ struct ModernVideoPlayerView: View {
                             registerUserAction()
                             showMoveSheet = true
                         },
-                        onRestoreFile: playlistContext.isVault ? handleRestoreVaultFile : nil,
+                        onRestoreFile: playlistContext.isVault ? handleRestoreTapped : nil,
                         onDeleteFile: handleDeleteTapped,
                         onToggleFavorite: toggleFavoriteCurrentItem,
                         onInteractionStarted: { handleInteractionStarted($0) },
@@ -245,6 +255,27 @@ struct ModernVideoPlayerView: View {
                 Text(NSLocalizedString("This file will be permanently deleted. This action cannot be undone.", comment: ""))
             } else {
                 Text(NSLocalizedString("Files moved to trash are kept for the configured retention period and can be restored later.", comment: ""))
+            }
+        }
+        .alert(
+            NSLocalizedString("Restore to Normal List", comment: ""),
+            isPresented: Binding(
+                get: { pendingRestoreContext != nil },
+                set: { if !$0 && !isRestoringItem { pendingRestoreContext = nil; scheduleAutoHide(delay: 10.0) } }
+            )
+        ) {
+            Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {
+                pendingRestoreContext = nil
+                scheduleAutoHide(delay: 10.0)
+            }
+            if let context = pendingRestoreContext {
+                Button(NSLocalizedString("Restore", comment: "")) {
+                    executeRestore(for: context)
+                }
+            }
+        } message: {
+            if let context = pendingRestoreContext {
+                Text(String(format: NSLocalizedString("Are you sure you want to restore \"%@\" from Private Vault to normal downloads?", comment: ""), context.title))
             }
         }
         .onChange(of: showTrimmerSheet) { isPresented in
@@ -418,11 +449,11 @@ struct ModernVideoPlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        guard !isDeletingItem && !isRestoringItem && pendingDeletionContext == nil && pendingRestoreContext == nil else { return }
                         handleDoubleTapSeek(isForward: false)
                     }
                     .onTapGesture(count: 1) {
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        guard !isDeletingItem && !isRestoringItem && pendingDeletionContext == nil && pendingRestoreContext == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -432,7 +463,7 @@ struct ModernVideoPlayerView: View {
                     .frame(width: max(60, w * 0.2))
                     .contentShape(Rectangle())
                     .onTapGesture(count: 1) {
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        guard !isDeletingItem && !isRestoringItem && pendingDeletionContext == nil && pendingRestoreContext == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -441,11 +472,11 @@ struct ModernVideoPlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        guard !isDeletingItem && !isRestoringItem && pendingDeletionContext == nil && pendingRestoreContext == nil else { return }
                         handleDoubleTapSeek(isForward: true)
                     }
                     .onTapGesture(count: 1) {
-                        guard !isDeletingItem && pendingDeletionContext == nil else { return }
+                        guard !isDeletingItem && !isRestoringItem && pendingDeletionContext == nil && pendingRestoreContext == nil else { return }
                         guard Date().timeIntervalSince(lastDoubleTapTime) > 0.35 else { return }
                         toggleControlsVisibility()
                     }
@@ -457,7 +488,7 @@ struct ModernVideoPlayerView: View {
                             let startPoint = value.startLocation
                             let isControlActive = !activeInteractions.isEmpty
                             let isInsideControl = areControlsVisible && controlExclusionFrames.contains { $0.insetBy(dx: -10, dy: -10).contains(startPoint) }
-                            let isBlocked = isDeletingItem || pendingDeletionContext != nil || isControlActive || isInsideControl
+                            let isBlocked = isDeletingItem || isRestoringItem || pendingDeletionContext != nil || pendingRestoreContext != nil || isControlActive || isInsideControl
                             isCurrentDragSwipeEligible = !isBlocked
                         }
                     }
@@ -1125,7 +1156,9 @@ struct ModernVideoPlayerView: View {
               isPlaying,
               activeInteractions.isEmpty,
               pendingDeletionContext == nil,
+              pendingRestoreContext == nil,
               !isDeletingItem,
+              !isRestoringItem,
               !showTrimmerSheet,
               !showShareSheet,
               !showMoveSheet,
@@ -1142,7 +1175,9 @@ struct ModernVideoPlayerView: View {
                       self.isPlaying,
                       self.activeInteractions.isEmpty,
                       self.pendingDeletionContext == nil,
+                      self.pendingRestoreContext == nil,
                       !self.isDeletingItem,
+                      !self.isRestoringItem,
                       !self.showTrimmerSheet,
                       !self.showShareSheet,
                       !self.showMoveSheet,
@@ -1349,6 +1384,7 @@ struct ModernVideoPlayerView: View {
     }
 
     private func handleClose() {
+        guard !isDeletingItem && !isRestoringItem else { return }
         activeInteractions.removeAll()
         stopAutoHideTimer()
         isDismissingDueToPiP = false
@@ -1464,34 +1500,83 @@ struct ModernVideoPlayerView: View {
                     }
                 )
             case .vault(let vaultItem):
+                let latestItem = VaultManager.shared.items.first(where: { $0.id == vaultItem.id }) ?? vaultItem
                 MoveToVaultFolderSheet(
-                    currentFolderID: vaultItem.folderID,
+                    currentFolderID: latestItem.folderID,
                     folders: VaultManager.shared.folders,
                     onSelectFolder: { targetFolderID in
-                        do {
-                            try VaultManager.shared.moveItem(id: vaultItem.id, to: targetFolderID)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                        } catch {
-                            showToast(error.localizedDescription)
+                        guard VaultManager.shared.isUnlocked,
+                              let sessionToken = playlistContext.vaultSessionToken,
+                              VaultManager.shared.sessionToken == sessionToken else {
+                            throw VaultError.locked
                         }
+                        try VaultManager.shared.moveItem(id: latestItem.id, to: targetFolderID)
+                        playlistContext.updateVaultItemFolder(id: latestItem.id, folderID: targetFolderID)
+                        showToast(NSLocalizedString("File moved", comment: ""))
                     },
                     onCreateNewFolderAndMove: { folderName in
-                        do {
-                            let newFolder = try VaultManager.shared.createFolder(name: folderName)
-                            try VaultManager.shared.moveItem(id: vaultItem.id, to: newFolder.id)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                        } catch {
-                            showToast(error.localizedDescription)
+                        guard VaultManager.shared.isUnlocked,
+                              let sessionToken = playlistContext.vaultSessionToken,
+                              VaultManager.shared.sessionToken == sessionToken else {
+                            throw VaultError.locked
                         }
+                        let newFolder = try VaultManager.shared.createFolder(name: folderName)
+                        try VaultManager.shared.moveItem(id: latestItem.id, to: newFolder.id)
+                        playlistContext.updateVaultItemFolder(id: latestItem.id, folderID: newFolder.id)
+                        showToast(NSLocalizedString("File moved", comment: ""))
                     }
                 )
             }
         }
     }
 
-    private func handleRestoreVaultFile() {
-        guard let item = playlistContext.currentItem, case .vault(let vaultItem) = item else { return }
-        Task {
+    // MARK: - Vault動画の通常一覧への復元処理
+
+    private func handleRestoreTapped() {
+        guard !isRestoringItem, !isDeletingItem, pendingRestoreContext == nil, pendingDeletionContext == nil else { return }
+        guard let current = playlistContext.currentItem, case .vault(let vaultItem) = current else { return }
+        guard VaultManager.shared.isUnlocked,
+              let sessionToken = playlistContext.vaultSessionToken,
+              VaultManager.shared.sessionToken == sessionToken else {
+            handleClose()
+            return
+        }
+        stopAutoHideTimer()
+        pendingRestoreContext = PendingRestoreContext(vaultItem: vaultItem, sessionToken: sessionToken)
+    }
+
+    private func executeRestore(for context: PendingRestoreContext) {
+        guard !isRestoringItem, !isDeletingItem else { return }
+        let vaultItem = context.vaultItem
+        let targetID = context.id
+        let expectedToken = context.sessionToken
+
+        guard VaultManager.shared.isUnlocked,
+              VaultManager.shared.sessionToken == expectedToken else {
+            pendingRestoreContext = nil
+            handleClose()
+            return
+        }
+
+        isRestoringItem = true
+        stopAutoHideTimer()
+        activeInteractions.removeAll()
+
+        tearDownPlayer()
+        VaultManager.shared.cleanupPlaybackTemp(itemID: targetID)
+
+        Task { @MainActor in
+            defer {
+                isRestoringItem = false
+                pendingRestoreContext = nil
+            }
+
+            guard VaultManager.shared.isUnlocked,
+                  VaultManager.shared.sessionToken == expectedToken else {
+                handleClose()
+                return
+            }
+
             do {
                 let dl = DownloadCenter.shared
                 let fm = VideoFolderManager(downloads: dl)
@@ -1501,14 +1586,14 @@ struct ModernVideoPlayerView: View {
                     downloads: dl,
                     folderManager: fm
                 )
+
+                _ = playlistContext.removeItem(id: targetID)
                 showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), vaultItem.originalTitle))
-                if playlistContext.items.count > 1 {
-                    handleNavigateNext()
-                } else {
-                    handleClose()
-                }
+                handleClose()
             } catch {
                 showToast(String(format: NSLocalizedString("Failed to restore: %@", comment: ""), error.localizedDescription))
+                loadCurrentItem(autoPlay: false)
+                scheduleAutoHide(delay: 10.0)
             }
         }
     }

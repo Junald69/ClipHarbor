@@ -200,21 +200,13 @@ struct PrivateVaultView: View {
                     currentFolderID: item.folderID,
                     folders: vaultManager.folders,
                     onSelectFolder: { targetFolderID in
-                        do {
-                            try vaultManager.moveItem(id: item.id, to: targetFolderID)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                        } catch {
-                            errorMessage = error.localizedDescription
-                        }
+                        try vaultManager.moveItem(id: item.id, to: targetFolderID)
+                        showToast(NSLocalizedString("File moved", comment: ""))
                     },
                     onCreateNewFolderAndMove: { folderName in
-                        do {
-                            let newFolder = try vaultManager.createFolder(name: folderName)
-                            try vaultManager.moveItem(id: item.id, to: newFolder.id)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                        } catch {
-                            errorMessage = error.localizedDescription
-                        }
+                        let newFolder = try vaultManager.createFolder(name: folderName)
+                        try vaultManager.moveItem(id: item.id, to: newFolder.id)
+                        showToast(NSLocalizedString("File moved", comment: ""))
                     }
                 )
             }
@@ -223,28 +215,20 @@ struct PrivateVaultView: View {
                     currentFolderID: currentFolder?.id,
                     folders: vaultManager.folders,
                     onSelectFolder: { targetFolderID in
-                        do {
-                            try vaultManager.moveItems(ids: selectedItemIDs, to: targetFolderID)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                            withAnimation {
-                                isSelectionMode = false
-                                selectedItemIDs.removeAll()
-                            }
-                        } catch {
-                            errorMessage = error.localizedDescription
+                        try vaultManager.moveItems(ids: selectedItemIDs, to: targetFolderID)
+                        showToast(NSLocalizedString("File moved", comment: ""))
+                        withAnimation {
+                            isSelectionMode = false
+                            selectedItemIDs.removeAll()
                         }
                     },
                     onCreateNewFolderAndMove: { folderName in
-                        do {
-                            let newFolder = try vaultManager.createFolder(name: folderName)
-                            try vaultManager.moveItems(ids: selectedItemIDs, to: newFolder.id)
-                            showToast(NSLocalizedString("File moved", comment: ""))
-                            withAnimation {
-                                isSelectionMode = false
-                                selectedItemIDs.removeAll()
-                            }
-                        } catch {
-                            errorMessage = error.localizedDescription
+                        let newFolder = try vaultManager.createFolder(name: folderName)
+                        try vaultManager.moveItems(ids: selectedItemIDs, to: newFolder.id)
+                        showToast(NSLocalizedString("File moved", comment: ""))
+                        withAnimation {
+                            isSelectionMode = false
+                            selectedItemIDs.removeAll()
                         }
                     }
                 )
@@ -1602,20 +1586,25 @@ private struct PrivateVaultPlayerSheet: View {
 struct MoveToVaultFolderSheet: View {
     let currentFolderID: UUID?
     let folders: [VaultFolder]
-    let onSelectFolder: (UUID?) -> Void
-    let onCreateNewFolderAndMove: (String) -> Void
+    let onSelectFolder: (UUID?) throws -> Void
+    let onCreateNewFolderAndMove: (String) throws -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var showNewFolderAlert = false
     @State private var newFolderName = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     Button {
-                        onSelectFolder(nil)
-                        dismiss()
+                        do {
+                            try onSelectFolder(nil)
+                            dismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
                     } label: {
                         HStack {
                             Label(NSLocalizedString("Uncategorized", comment: ""), systemImage: "tray")
@@ -1633,8 +1622,12 @@ struct MoveToVaultFolderSheet: View {
                     Section(header: Text(NSLocalizedString("Folders", comment: ""))) {
                         ForEach(folders) { folder in
                             Button {
-                                onSelectFolder(folder.id)
-                                dismiss()
+                                do {
+                                    try onSelectFolder(folder.id)
+                                    dismiss()
+                                } catch {
+                                    errorMessage = error.localizedDescription
+                                }
                             } label: {
                                 HStack {
                                     Label(folder.name, systemImage: "folder")
@@ -1674,11 +1667,23 @@ struct MoveToVaultFolderSheet: View {
                 Button(NSLocalizedString("Create", comment: "")) {
                     let clean = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !clean.isEmpty {
-                        onCreateNewFolderAndMove(clean)
-                        dismiss()
+                        do {
+                            try onCreateNewFolderAndMove(clean)
+                            dismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
                     }
                 }
                 Button(NSLocalizedString("Cancel", comment: ""), role: .cancel) {}
+            }
+            .alert(NSLocalizedString("Error", comment: ""), isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
             }
         }
         .presentationDetents([.medium, .large])

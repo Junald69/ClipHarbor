@@ -10365,6 +10365,40 @@
           }
         }
       }
+    },
+    "Restore to Normal List": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore to Normal List"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常一覧へ復元"
+          }
+        }
+      }
+    },
+    "Are you sure you want to restore \"%@\" from Private Vault to normal downloads?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to restore \"%@\" from Private Vault to normal downloads?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をPrivate Vaultから通常のダウンロード一覧へ復元しますか？"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -143,6 +143,15 @@ final class PlaybackPlaylistContext: ObservableObject, Equatable {
         items[idx].isFavorite = isFavorite
     }
 
+    /// 指定されたVaultItemのフォルダIDを同期・更新
+    func updateVaultItemFolder(id: UUID, folderID: UUID?) {
+        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
+        if case .vault(var item) = items[idx] {
+            item.folderID = folderID
+            items[idx] = .vault(item)
+        }
+    }
+
     static func == (lhs: PlaybackPlaylistContext, rhs: PlaybackPlaylistContext) -> Bool {
         lhs.isVault == rhs.isVault &&
         lhs.vaultSessionToken == rhs.vaultSessionToken &&
