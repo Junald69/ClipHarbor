@@ -18,6 +18,7 @@ struct AppSettingsView: View {
     @State private var showVaultSettings = false
     @State private var showClearDataSheet = false
     @State private var toastMessage: String?
+    @State private var versionTapCount = 0
 
     // ストレージ実測
     private var totalSavedBytes: Int64 {
@@ -169,6 +170,16 @@ struct AppSettingsView: View {
                         Text(appVersion)
                             .foregroundStyle(.secondary)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        versionTapCount += 1
+                        if versionTapCount >= 5 {
+                            versionTapCount = 0
+                            settingsManager.enableDeveloperDiagnostics.toggle()
+                            let state = settingsManager.enableDeveloperDiagnostics ? NSLocalizedString("Enabled", comment: "") : NSLocalizedString("Disabled", comment: "")
+                            showToast(String(format: "%@: %@", NSLocalizedString("Developer Diagnostics", comment: ""), state))
+                        }
+                    }
 
                     HStack {
                         Text(NSLocalizedString("Build Number", comment: ""))
@@ -181,6 +192,14 @@ struct AppSettingsView: View {
                         AppLicensesView()
                     } label: {
                         Text(NSLocalizedString("Licenses & Security Policy", comment: ""))
+                    }
+                }
+
+                if settingsManager.enableDeveloperDiagnostics {
+                    Section(NSLocalizedString("Developer Diagnostics", comment: "")) {
+                        Toggle(NSLocalizedString("Enable Playback Diagnostics", comment: ""), isOn: $settingsManager.enableDeveloperDiagnostics)
+                    } footer: {
+                        Text(NSLocalizedString("Shows diagnostic stethoscope tool during video playback for troubleshooting.", comment: ""))
                     }
                 }
             }

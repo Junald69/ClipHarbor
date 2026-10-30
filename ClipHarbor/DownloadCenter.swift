@@ -92,7 +92,11 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     // MARK: - 公開操作
 
     @discardableResult
-    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) -> UUID {
+    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) -> UUID? {
+        // HLSダウンロードの二重防御（UIを経由しない呼び出しからもHLSダウンロードを開始させない）
+        guard !candidate.isHLS else {
+            return nil
+        }
         var name = FileNaming.sanitizedBaseName(displayName)
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
@@ -212,7 +216,9 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
             return
         }
         if transfer.candidate.isHLS {
-            launchHLS(transfer)
+            // HLS保存は一時無効化（将来の機能拡張用に基盤コードは保持）
+            finish(transfer.jobID, state: .failed(NSLocalizedString("HLS streaming format is currently not supported for download.", comment: "")), name: transfer.baseName)
+            return
         } else {
             launchFile(transfer)
         }

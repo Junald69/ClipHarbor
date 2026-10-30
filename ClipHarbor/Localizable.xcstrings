@@ -9914,6 +9914,83 @@
           }
         }
       }
+    },
+    "HLS streaming format is currently not supported for download.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS形式（ストリーミング）の保存は現在非対応です。"
+          }
+        }
+      }
+    },
+    "Please enjoy playback directly within the browser.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ内での再生をご利用ください。"
+          }
+        }
+      }
+    },
+    "Download Unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存非対応"
+          }
+        }
+      }
+    },
+    "Developer Diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発者用診断機能"
+          }
+        }
+      }
+    },
+    "Enable Playback Diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生診断機能を有効化"
+          }
+        }
+      }
+    },
+    "Shows diagnostic stethoscope tool during video playback for troubleshooting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トラブルシューティング用として、動画再生中に聴診器アイコンを表示します。"
+          }
+        }
+      }
+    },
+    "Disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

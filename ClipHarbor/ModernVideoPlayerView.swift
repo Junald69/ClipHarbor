@@ -143,10 +143,10 @@ struct ModernVideoPlayerView: View {
                         canGoNext: playlistContext.canGoNext,
                         canGoPrevious: playlistContext.canGoPrevious,
                         isFailed: isVideoFailed,
-                        onShowDiagnostics: {
+                        onShowDiagnostics: AppSettingsManager.shared.enableDeveloperDiagnostics ? {
                             diagnosticReport = buildDiagnosticReport()
                             showDiagnosticsSheet = true
-                        },
+                        } : nil,
                         onClose: handleClose,
                         onEdit: {
                             registerUserAction()
@@ -347,7 +347,7 @@ struct ModernVideoPlayerView: View {
                         }
                         VStack(spacing: 12) {
                             ProgressView().tint(.white)
-                            if showDiagnosticsPrompt {
+                            if AppSettingsManager.shared.enableDeveloperDiagnostics && showDiagnosticsPrompt {
                                 Button {
                                     diagnosticReport = buildDiagnosticReport()
                                     showDiagnosticsSheet = true
@@ -386,14 +386,16 @@ struct ModernVideoPlayerView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(.white.opacity(0.3))
 
-                            Button {
-                                diagnosticReport = buildDiagnosticReport()
-                                showDiagnosticsSheet = true
-                            } label: {
-                                Label("Diagnostics", systemImage: "stethoscope")
+                            if AppSettingsManager.shared.enableDeveloperDiagnostics {
+                                Button {
+                                    diagnosticReport = buildDiagnosticReport()
+                                    showDiagnosticsSheet = true
+                                } label: {
+                                    Label("Diagnostics", systemImage: "stethoscope")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.white.opacity(0.3))
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.white.opacity(0.3))
                         }
                     }
                 }

@@ -76,6 +76,7 @@ struct SaveVideoSheet: View {
     /// MP4保存は「互換性あり」と判定できた場合だけ開始できる（未判定・判定不能・非対応では開始しない）
     private var canStart: Bool {
         if didConfirm { return false }
+        if candidate.isHLS { return false } // HLS形式の保存は一時停止
         if isMP4Selected { return compatibilityDetail != nil }
         return true
     }
@@ -119,7 +120,10 @@ struct SaveVideoSheet: View {
     }
 
     private var startButtonTitle: String {
-        isMP4Selected ? NSLocalizedString("Start Saving as MP4", comment: "") : NSLocalizedString("Download", comment: "")
+        if candidate.isHLS {
+            return NSLocalizedString("Download Unsupported", comment: "")
+        }
+        return isMP4Selected ? NSLocalizedString("Start Saving as MP4", comment: "") : NSLocalizedString("Download", comment: "")
     }
 
     // MARK: - 画面
@@ -127,6 +131,24 @@ struct SaveVideoSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if candidate.isHLS {
+                    Section {
+                        Label {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(NSLocalizedString("HLS streaming format is currently not supported for download.", comment: ""))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(NSLocalizedString("Please enjoy playback directly within the browser.", comment: ""))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+
                 Section("Video Name") {
                     HStack {
                         TextField("Enter video title", text: $videoName)

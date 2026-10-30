@@ -150,6 +150,13 @@ final class AppSettingsManager: ObservableObject {
         }
     }
 
+    /// 開発・検証用 再生診断機能の有効化 (デフォルト: false)
+    @Published var enableDeveloperDiagnostics: Bool {
+        didSet {
+            UserDefaults.standard.set(enableDeveloperDiagnostics, forKey: developerDiagnosticsKey)
+        }
+    }
+
     // MARK: - キー定義
     private let searchEngineKey = "clipHarbor.settings.searchEngine"
     private let trashRetentionKey = "clipHarbor.settings.trashRetentionPeriod"
@@ -158,6 +165,7 @@ final class AppSettingsManager: ObservableObject {
     private let blockAdsAndTrackersKey = "clipHarbor.settings.blockAdsAndTrackers"
     private let blockAnnoyingPopupsKey = "clipHarbor.settings.blockAnnoyingPopups"
     private let whitelistedHostsKey = "clipHarbor.settings.whitelistedHosts"
+    private let developerDiagnosticsKey = "clipHarbor.settings.developerDiagnostics"
 
     private init() {
         // 検索エンジン読み出し (デフォルト: Google)
@@ -206,6 +214,10 @@ final class AppSettingsManager: ObservableObject {
         } else {
             self.whitelistedHosts = []
         }
+
+        // 開発用診断機能読み出し (デフォルト: false)
+        let devDiagVal = UserDefaults.standard.object(forKey: developerDiagnosticsKey) as? Bool ?? false
+        self.enableDeveloperDiagnostics = devDiagVal
     }
 
     // MARK: - ホワイトリスト管理API
