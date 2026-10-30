@@ -362,3 +362,7 @@ private actor HLSExtractionQueue {
         }
     }
 }
+
+
+// MARK: - VaultThumbnailManaging Conformance
+extension VideoThumbnailManager: VaultThumbnailManaging {}

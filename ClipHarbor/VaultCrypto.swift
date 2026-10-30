@@ -331,23 +331,49 @@ final class VaultCrypto {
 
     // MARK: - Keychain 生体認証鍵管理 (ThisDeviceOnly)
 
-    /// 安全防護サーキットブレーカー（テスト時の実Keychain誤アクセス防止）
-    /// テスト実行時は false に設定され、本番Keychain識別子（com.clipharbor.app.vault / master_key_biometric）へのアクセスを物理遮断する
-    static var allowProductionKeychainAccess: Bool = true
+    private static let productionKeychain = ProductionVaultKeychainStorage()
 
     /// 生体認証解除用にマスター鍵をKeychainに安全に保存
     static func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
-        guard allowProductionKeychainAccess else {
-            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain書き込みを拒否しました。")
-            return false
-        }
+        productionKeychain.saveBiometricMasterKey(key)
+    }
+
+    /// Keychainから生体認証用マスター鍵を読み出し
+    static func loadBiometricMasterKey() -> SymmetricKey? {
+        productionKeychain.loadBiometricMasterKey()
+    }
+
+    /// Keychainの生体認証用マスター鍵を削除
+    @discardableResult
+    static func deleteBiometricMasterKey() -> Bool {
+        productionKeychain.deleteBiometricMasterKey()
+    }
+}
+
+
+// MARK: - VaultKeychainStorageProtocol & Production Implementation
+
+/// Vaultマスター鍵のセキュアストレージプロトコル（本番Keychainとテストモックの完全分離）
+protocol VaultKeychainStorageProtocol: AnyObject {
+    func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool
+    func loadBiometricMasterKey() -> SymmetricKey?
+    @discardableResult
+    func deleteBiometricMasterKey() -> Bool
+}
+
+/// 本番環境用Keychainストレージ（サービス: com.clipharbor.app.vault, アカウント: master_key_biometric）
+final class ProductionVaultKeychainStorage: VaultKeychainStorageProtocol {
+    private static let keychainService = "com.clipharbor.app.vault"
+    private static let keychainAccount = "master_key_biometric"
+
+    func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
         let keyData = key.withUnsafeBytes { Data($0) }
         deleteBiometricMasterKey() // 既存のアイテムを削除
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount,
             kSecValueData as String: keyData,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
@@ -356,42 +382,58 @@ final class VaultCrypto {
         return status == errSecSuccess
     }
 
-    /// Keychainから生体認証用マスター鍵を読み出し
-    static func loadBiometricMasterKey() -> SymmetricKey? {
-        guard allowProductionKeychainAccess else {
-            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain読み出しを拒否しました。")
-            return nil
-        }
+    func loadBiometricMasterKey() -> SymmetricKey? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let keyData = item as? Data, keyData.count == keyByteCount else {
+        guard status == errSecSuccess, let keyData = item as? Data, keyData.count == 32 else {
             return nil
         }
 
         return SymmetricKey(data: keyData)
     }
 
-    /// Keychainの生体認証用マスター鍵を削除
     @discardableResult
-    static func deleteBiometricMasterKey() -> Bool {
-        guard allowProductionKeychainAccess else {
-            print("[VaultCrypto] 遮断: テスト実行モードのため本番Keychain削除を拒否しました。")
-            return true
-        }
+    func deleteBiometricMasterKey() -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.keychainAccount
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
+    }
+}
+
+/// テスト用Keychainストレージモック（SecItem APIを一切呼ばず、本番Keychainから完全隔離）
+final class MockVaultKeychainStorage: VaultKeychainStorageProtocol {
+    var storedKey: SymmetricKey?
+    var saveCallCount = 0
+    var loadCallCount = 0
+    var deleteCallCount = 0
+
+    func saveBiometricMasterKey(_ key: SymmetricKey) -> Bool {
+        saveCallCount += 1
+        storedKey = key
+        return true
+    }
+
+    func loadBiometricMasterKey() -> SymmetricKey? {
+        loadCallCount += 1
+        return storedKey
+    }
+
+    @discardableResult
+    func deleteBiometricMasterKey() -> Bool {
+        deleteCallCount += 1
+        storedKey = nil
+        return true
     }
 }

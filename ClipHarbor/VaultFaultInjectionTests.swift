@@ -2,8 +2,9 @@ import Foundation
 import CryptoKit
 import UIKit
 
-// MARK: - テスト用モック（本番データ・UserDefaults・実ファイル隔離）
+// MARK: - テスト用モック（本番データ・UserDefaults・Keychain・実ファイル完全隔離）
 
+@MainActor
 final class MockDownloadManager: VaultDownloadManaging {
     var savedVideos: [UUID: SavedVideo] = [:]
     var persistShouldFail: Bool = false
@@ -24,6 +25,7 @@ final class MockDownloadManager: VaultDownloadManaging {
     }
 }
 
+@MainActor
 final class MockFolderManager: VaultFolderManaging {
     var folderMap: [UUID: String] = [:]
     var removedVideoIDs: [UUID] = []
@@ -42,22 +44,41 @@ final class MockFolderManager: VaultFolderManaging {
     }
 }
 
-/// Vaultデータ保全・整合性保護のための障害注入テスト基盤
+@MainActor
+final class MockThumbnailManager: VaultThumbnailManaging {
+    var cache: [UUID: UIImage] = [:]
+    var invalidatedIDs: [UUID] = []
+
+    func cachedThumbnail(for video: SavedVideo) -> UIImage? {
+        cache[video.id]
+    }
+
+    func cacheThumbnail(_ image: UIImage, for video: SavedVideo) {
+        cache[video.id] = image
+    }
+
+    func invalidateCache(for video: SavedVideo) {
+        invalidatedIDs.append(video.id)
+        cache.removeValue(forKey: video.id)
+    }
+}
+
+/// Vaultデータ保全・整合性保護のための障害注入テスト基盤（環境定義のみ・Phase Aでは実行不可）
 /// - 注: ユーザーの実Vault領域、本番Keychain、本番UserDefaults、実Documents/Downloadsには一切アクセスせず、
-///   専用の一時ディレクトリ（temporaryDirectory）およびモック依存関係内で完結します。
+///   専用の一時ディレクトリ（temporaryDirectory）およびモック依存関係（In-Memory）内で完結します。
 enum VaultFaultInjectionTests {
 
-    /// 安全なテスト専用分離環境を生成
+    /// 安全なテスト専用完全分離環境を生成
+    @MainActor
     static func createIsolatedEnvironment() throws -> (
         baseDir: URL,
         vault: VaultManager,
         downloadsDir: URL,
         mockDownloads: MockDownloadManager,
-        mockFolders: MockFolderManager
+        mockFolders: MockFolderManager,
+        mockThumbnails: MockThumbnailManager,
+        mockKeychain: MockVaultKeychainStorage
     ) {
-        // 安全防護サーキットブレーカー: 本番Keychainアクセスを物理遮断
-        VaultCrypto.allowProductionKeychainAccess = false
-
         let fileManager = FileManager.default
         let baseDir = fileManager.temporaryDirectory.appendingPathComponent("VaultIsolatedTest_\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: baseDir, withIntermediateDirectories: true)
@@ -65,13 +86,21 @@ enum VaultFaultInjectionTests {
         let downloadsDir = baseDir.appendingPathComponent("IsolatedDownloads", isDirectory: true)
         try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
+        let mockKeychain = MockVaultKeychainStorage()
+        let mockDefaults = UserDefaults(suiteName: "com.clipharbor.test.isolated.\(UUID().uuidString)") ?? .standard
         let mockDownloads = MockDownloadManager()
         let mockFolders = MockFolderManager()
+        let mockThumbnails = MockThumbnailManager()
 
-        let vault = VaultManager(baseDirectory: baseDir, downloadsDirectory: downloadsDir)
+        let vault = VaultManager(
+            baseDirectory: baseDir,
+            downloadsDirectory: downloadsDir,
+            keychainStorage: mockKeychain,
+            userDefaults: mockDefaults
+        )
         try vault.setupPasscode("123456", confirmPasscode: "123456", enableBiometrics: false)
 
-        return (baseDir, vault, downloadsDir, mockDownloads, mockFolders)
+        return (baseDir, vault, downloadsDir, mockDownloads, mockFolders, mockThumbnails, mockKeychain)
     }
 
     /// テスト用のダミー動画ファイルを一時領域に生成
