@@ -1129,9 +1129,28 @@ final class VaultFaultInjectionTests: XCTestCase {
 
     // MARK: - Vaultプレイヤー内復元・フォルダ移動検証
 
+    private func makeVaultItem(id: UUID = UUID(), title: String = "Test Video", folderID: UUID? = nil) -> VaultItem {
+        VaultItem(
+            id: id,
+            originalVideoID: UUID(),
+            originalTitle: title,
+            originalFileName: "\(title).mp4",
+            originalRelativePath: "IsolatedDownloads/\(title).mp4",
+            originalFolderName: "",
+            format: .mp4,
+            byteSize: 1024,
+            sourceHost: "example.com",
+            sourcePageURL: nil,
+            createdAt: Date(),
+            vaultAddedAt: Date(),
+            isFavorite: false,
+            folderID: folderID
+        )
+    }
+
     func testVaultPlayer_PlaylistContextItemRemovalAndIndex() {
-        let item1 = VaultItem(id: UUID(), encryptedFileName: "item1.enc", originalTitle: "Video 1", originalFileName: "video1.mp4", fileSize: 1000, duration: 10, createdAt: Date(), folderID: nil, format: .mp4)
-        let item2 = VaultItem(id: UUID(), encryptedFileName: "item2.enc", originalTitle: "Video 2", originalFileName: "video2.mp4", fileSize: 2000, duration: 20, createdAt: Date(), folderID: nil, format: .mp4)
+        let item1 = makeVaultItem(title: "Video 1")
+        let item2 = makeVaultItem(title: "Video 2")
         let token = UUID()
         let playlist = PlaybackPlaylistContext(vaultItems: [item1, item2], initialItem: item1, sessionToken: token)
 
@@ -1153,7 +1172,7 @@ final class VaultFaultInjectionTests: XCTestCase {
     }
 
     func testVaultPlayer_UpdateVaultItemFolderInPlaylist() {
-        let item1 = VaultItem(id: UUID(), encryptedFileName: "item1.enc", originalTitle: "Video 1", originalFileName: "video1.mp4", fileSize: 1000, duration: 10, createdAt: Date(), folderID: nil, format: .mp4)
+        let item1 = makeVaultItem(title: "Video 1")
         let token = UUID()
         let playlist = PlaybackPlaylistContext(vaultItems: [item1], initialItem: item1, sessionToken: token)
 
@@ -1170,12 +1189,10 @@ final class VaultFaultInjectionTests: XCTestCase {
     }
 
     func testVaultPlayer_SessionValidation_RejectsInvalidSessionForRestoreAndMove() async throws {
-        let env = try createIsolatedTestEnvironment()
+        let env = try createTestEnvironment()
         defer { env.cleanup() }
 
-        try env.vault.unlock(with: "123456")
-        let video = SavedVideo(title: "SessionTest", fileName: "session.mp4", fileSize: 500, duration: 5, createdAt: Date(), folder: nil, format: .mp4)
-        let url = try env.createDummyDownloadFile(named: "session.mp4")
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "session.mp4")
 
         try await env.vault.moveToVault(
             video: video,
@@ -1230,12 +1247,10 @@ final class VaultFaultInjectionTests: XCTestCase {
     }
 
     func testVaultPlayer_RestoreFailure_PreservesEncryptedSource() async throws {
-        let env = try createIsolatedTestEnvironment()
+        let env = try createTestEnvironment()
         defer { env.cleanup() }
 
-        try env.vault.unlock(with: "123456")
-        let video = SavedVideo(title: "PreserveTest", fileName: "preserve.mp4", fileSize: 500, duration: 5, createdAt: Date(), folder: nil, format: .mp4)
-        let url = try env.createDummyDownloadFile(named: "preserve.mp4")
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "preserve.mp4")
 
         try await env.vault.moveToVault(
             video: video,
@@ -1257,7 +1272,8 @@ final class VaultFaultInjectionTests: XCTestCase {
                 item: vaultItem,
                 targetFolder: nil,
                 downloads: env.mockDownloads,
-                folderManager: env.mockFolders
+                folderManager: env.mockFolders,
+                thumbnailManager: env.mockThumbnails
             )
             XCTFail("Should fail due to persist failure")
         } catch {
@@ -1271,12 +1287,10 @@ final class VaultFaultInjectionTests: XCTestCase {
     }
 
     func testVaultPlayer_MoveFailure_DoesNotTreatAsSuccess() async throws {
-        let env = try createIsolatedTestEnvironment()
+        let env = try createTestEnvironment()
         defer { env.cleanup() }
 
-        try env.vault.unlock(with: "123456")
-        let video = SavedVideo(title: "MoveFailTest", fileName: "movefail.mp4", fileSize: 500, duration: 5, createdAt: Date(), folder: nil, format: .mp4)
-        let url = try env.createDummyDownloadFile(named: "movefail.mp4")
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "movefail.mp4")
 
         try await env.vault.moveToVault(
             video: video,
@@ -1294,6 +1308,7 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         // フォルダIDはnilのままであり、変更されていないことを検証
         XCTAssertNil(env.vault.items[0].folderID)
-        XCTAssertEqual(env.vault.items(in: nil).count, 1)
+        let rootItems = env.vault.items(in: (nil as UUID?))
+        XCTAssertEqual(rootItems.count, 1)
     }
 }
