@@ -87,7 +87,10 @@ enum VaultFaultInjectionTests {
         try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let mockKeychain = MockVaultKeychainStorage()
-        let mockDefaults = UserDefaults(suiteName: "com.clipharbor.test.isolated.\(UUID().uuidString)") ?? .standard
+        let suiteName = "com.clipharbor.test.isolated.\(UUID().uuidString)"
+        guard let mockDefaults = UserDefaults(suiteName: suiteName), mockDefaults !== UserDefaults.standard else {
+            throw VaultError.fileOperationFailed("Failed to create isolated UserDefaults suite: \(suiteName)")
+        }
         let mockDownloads = MockDownloadManager()
         let mockFolders = MockFolderManager()
         let mockThumbnails = MockThumbnailManager()

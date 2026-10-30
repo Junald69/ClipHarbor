@@ -103,22 +103,31 @@ final class VaultManager: ObservableObject {
         self.customDownloadsDirectory = downloadsDirectory
         self.isTestInstance = (baseDirectory != nil)
 
-        if let customKeychain = keychainStorage {
-            self.keychainStorage = customKeychain
-        } else if baseDirectory != nil {
-            // テストインスタンスはデフォルトでインメモリモックストレージを使用（本番Keychainへの接触を防止）
-            self.keychainStorage = MockVaultKeychainStorage()
+        if isTestInstance {
+            if let customKeychain = keychainStorage {
+                precondition(!(customKeychain is ProductionVaultKeychainStorage), "Fatal: Cannot inject ProductionVaultKeychainStorage into a test VaultManager instance.")
+                self.keychainStorage = customKeychain
+            } else {
+                // テストインスタンスはデフォルトでインメモリモックストレージを使用（本番Keychainへの接触を防止）
+                self.keychainStorage = MockVaultKeychainStorage()
+            }
         } else {
-            self.keychainStorage = ProductionVaultKeychainStorage()
+            self.keychainStorage = keychainStorage ?? ProductionVaultKeychainStorage()
         }
 
-        if let customDefaults = userDefaults {
-            self.defaults = customDefaults
-        } else if baseDirectory != nil {
-            let suite = "com.clipharbor.test.vault.\(UUID().uuidString)"
-            self.defaults = UserDefaults(suiteName: suite) ?? .standard
+        if isTestInstance {
+            if let customDefaults = userDefaults {
+                precondition(customDefaults !== UserDefaults.standard, "Fatal: Cannot inject UserDefaults.standard into a test VaultManager instance.")
+                self.defaults = customDefaults
+            } else {
+                let suiteName = "com.clipharbor.test.vault.\(UUID().uuidString)"
+                guard let suite = UserDefaults(suiteName: suiteName), suite !== UserDefaults.standard else {
+                    fatalError("Fatal: Failed to allocate isolated test UserDefaults suite for test VaultManager: \(suiteName)")
+                }
+                self.defaults = suite
+            }
         } else {
-            self.defaults = .standard
+            self.defaults = userDefaults ?? .standard
         }
 
         setupDirectories()
@@ -127,6 +136,40 @@ final class VaultManager: ObservableObject {
             setupLifecycleObservers()
         }
         cleanupPlaybackTemp() // 起動時に前回の再生残骸を確実に消去
+    }
+
+    // MARK: - テスト環境URL強制隔離検証
+    private func validateTestURLContainment(_ url: URL, purpose: String) throws {
+        guard isTestInstance else { return }
+
+        let resolvedURL = url.resolvingSymlinksInPath().standardized
+        let resolvedPath = resolvedURL.path
+
+        var allowedPrefixes: [String] = []
+        if let base = customBaseDirectory?.resolvingSymlinksInPath().standardized.path {
+            allowedPrefixes.append(base.hasSuffix("/") ? base : base + "/")
+        }
+        if let downloads = customDownloadsDirectory?.resolvingSymlinksInPath().standardized.path {
+            allowedPrefixes.append(downloads.hasSuffix("/") ? downloads : downloads + "/")
+        }
+
+        let isContained = allowedPrefixes.contains { prefix in
+            resolvedPath.hasPrefix(prefix) || resolvedPath == prefix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+
+        guard isContained else {
+            throw VaultError.fileOperationFailed("Security violation: Test file path (\(url.path)) is outside permitted test directories (\(allowedPrefixes.joined(separator: ", "))). Operation aborted for \(purpose).")
+        }
+
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath().standardized.path
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].resolvingSymlinksInPath().standardized.path
+
+        let docsPrefix = docs.hasSuffix("/") ? docs : docs + "/"
+        let appSupportPrefix = appSupport.hasSuffix("/") ? appSupport : appSupport + "/"
+
+        if resolvedPath.hasPrefix(docsPrefix) || resolvedPath.hasPrefix(appSupportPrefix) {
+            throw VaultError.fileOperationFailed("Security violation: Test operation attempted to access production directory (\(resolvedPath)). Operation aborted for \(purpose).")
+        }
     }
 
     // MARK: - ディレクトリ準備・保護設定
@@ -482,7 +525,16 @@ final class VaultManager: ObservableObject {
             throw VaultError.fileOperationFailed(NSLocalizedString("Image files do not support Vault encryption.", comment: ""))
         }
 
-        let actualSourceURL = sourceURL ?? video.fileURL
+        let actualSourceURL: URL
+        if isTestInstance {
+            guard let explicitSource = sourceURL else {
+                throw VaultError.fileOperationFailed("Test instance requires an explicit sourceURL; fallback to SavedVideo.fileURL is prohibited.")
+            }
+            actualSourceURL = explicitSource
+            try validateTestURLContainment(actualSourceURL, purpose: "moveToVault source file")
+        } else {
+            actualSourceURL = sourceURL ?? video.fileURL
+        }
         guard fileManager.fileExists(atPath: actualSourceURL.path) else {
             throw VaultError.fileNotFound
         }
@@ -601,12 +653,15 @@ final class VaultManager: ObservableObject {
         downloads: VaultDownloadManaging,
         folderManager: VaultFolderManaging
     ) async throws {
+        if isTestInstance {
+            throw VaultError.fileOperationFailed("Convenience moveToVault without explicit sourceURL is prohibited for test instances.")
+        }
         try await moveToVault(
             video: video,
             sourceURL: nil,
             downloads: downloads,
             folderManager: folderManager,
-            thumbnailManager: isTestInstance ? MockThumbnailManager() : VideoThumbnailManager.shared
+            thumbnailManager: VideoThumbnailManager.shared
         )
     }
 
@@ -617,6 +672,10 @@ final class VaultManager: ObservableObject {
         folderManager: VaultFolderManaging,
         thumbnailManager: VaultThumbnailManaging? = nil
     ) async -> (succeeded: Int, failed: Int) {
+        if isTestInstance {
+            print("[VaultManager] Batch move without explicit sourceURLs is prohibited for test instances.")
+            return (0, videos.count)
+        }
         var succeeded = 0
         var failed = 0
 
@@ -670,8 +729,17 @@ final class VaultManager: ObservableObject {
         processingProgress = 0.0
         processingMessage = String(format: NSLocalizedString("Decrypting \"%@\"…", comment: ""), item.originalTitle)
 
-        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let downloadsDir = customDownloadsDirectory ?? docs.appendingPathComponent("Downloads", isDirectory: true)
+        let downloadsDir: URL
+        if isTestInstance {
+            guard let explicitDownloadsDir = customDownloadsDirectory else {
+                throw VaultError.fileOperationFailed("Test instance requires customDownloadsDirectory; fallback to Documents/Downloads is prohibited.")
+            }
+            try validateTestURLContainment(explicitDownloadsDir, purpose: "restoreFromVault downloads root")
+            downloadsDir = explicitDownloadsDir
+        } else {
+            let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            downloadsDir = customDownloadsDirectory ?? docs.appendingPathComponent("Downloads", isDirectory: true)
+        }
         try fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolder ?? item.originalFolderName)
@@ -690,6 +758,9 @@ final class VaultManager: ObservableObject {
             baseName: baseName.isEmpty ? "RestoredVideo" : baseName,
             fileExtension: ext.isEmpty ? item.format.rawValue : ext
         )
+
+        // テスト環境における復元先ファイルの隔離検証（復号前に事前検証）
+        try validateTestURLContainment(destURL, purpose: "restoreFromVault destination file")
 
         var isRegisteredInDownloads = false
         var isRestoreCommitted = false
@@ -798,6 +869,11 @@ final class VaultManager: ObservableObject {
         downloads: VaultDownloadManaging,
         folderManager: VaultFolderManaging
     ) async throws {
+        if isTestInstance {
+            guard customDownloadsDirectory != nil else {
+                throw VaultError.fileOperationFailed("restoreFromVault on test instance requires customDownloadsDirectory.")
+            }
+        }
         try await restoreFromVault(
             item: item,
             targetFolder: targetFolder,
@@ -815,6 +891,10 @@ final class VaultManager: ObservableObject {
         folderManager: VaultFolderManaging,
         thumbnailManager: VaultThumbnailManaging? = nil
     ) async -> (succeeded: Int, failed: Int) {
+        if isTestInstance && customDownloadsDirectory == nil {
+            print("[VaultManager] Batch restore on test instance requires customDownloadsDirectory.")
+            return (0, targetItems.count)
+        }
         var succeeded = 0
         var failed = 0
 
