@@ -1021,15 +1021,16 @@ struct ModernVideoPlayerView: View {
         guard let newItem = targetItem else { return }
 
         // 4. 次のメディアの自動再生判定:
-        // - 動画 -> 動画: 再生状態をそのまま引き継ぐ
-        // - 動画 -> 画像: 画像は自動再生不可 (false)
-        // - 画像 -> 動画: 不意な大音量再生を防ぐため停止状態で開始 (false)
-        // - 画像 -> 画像: (false)
+        // - 動画 -> 動画: 前の動画の再生状態（再生中／停止中）を引き継ぐ
+        // - 画像 -> 動画: 動画を自動再生する (true)
+        // - 動画 -> 画像 / 画像 -> 画像: 画像のため自動再生不要 (false)
         let shouldAutoPlay: Bool
-        if !wasImage && !newItem.isImage {
-            shouldAutoPlay = wasPlaying
-        } else {
+        if newItem.isImage {
             shouldAutoPlay = false
+        } else if wasImage {
+            shouldAutoPlay = true
+        } else {
+            shouldAutoPlay = wasPlaying
         }
 
         // 5. 前のリソース解放
