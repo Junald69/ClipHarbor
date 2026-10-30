@@ -971,9 +971,8 @@ struct ModernVideoPlayerView: View {
         registerUserAction()
         let targetRate = playbackRate
         let shouldResume = isPlaying
-        p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
-            guard completed, let self = self else { return }
-            if shouldResume && self.isPlaying && p.currentItem?.status == .readyToPlay {
+        p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { completed in
+            if completed && shouldResume && p.currentItem?.status == .readyToPlay {
                 p.playImmediately(atRate: targetRate)
             }
         }
@@ -986,9 +985,8 @@ struct ModernVideoPlayerView: View {
         registerUserAction()
         let targetRate = playbackRate
         let shouldResume = isPlaying
-        p.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
-            guard completed, let self = self else { return }
-            if shouldResume && self.isPlaying && p.currentItem?.status == .readyToPlay {
+        p.seek(to: CMTime(seconds: clamped, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { completed in
+            if completed && shouldResume && p.currentItem?.status == .readyToPlay {
                 p.playImmediately(atRate: targetRate)
             }
         }
@@ -1495,11 +1493,13 @@ struct ModernVideoPlayerView: View {
         guard let item = playlistContext.currentItem, case .vault(let vaultItem) = item else { return }
         Task {
             do {
+                let dl = DownloadCenter.shared
+                let fm = VideoFolderManager(downloads: dl)
                 try await VaultManager.shared.restoreFromVault(
                     item: vaultItem,
                     targetFolder: nil,
-                    downloads: .shared,
-                    folderManager: VideoFolderManager(downloads: .shared)
+                    downloads: dl,
+                    folderManager: fm
                 )
                 showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), vaultItem.originalTitle))
                 if playlistContext.items.count > 1 {
