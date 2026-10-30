@@ -63,8 +63,10 @@ final class VideoFolderManager: ObservableObject {
         migrateLegacyFolderMetadataIfNeeded()
         syncWithFileSystemAndSavedVideos()
 
-        downloads.onVideoSaved = { [weak self] jobID, video in
-            self?.handleVideoSaved(jobID: jobID, video: video)
+        if downloads.onVideoSaved == nil {
+            downloads.onVideoSaved = { [weak self] jobID, video in
+                self?.handleVideoSaved(jobID: jobID, video: video)
+            }
         }
     }
 

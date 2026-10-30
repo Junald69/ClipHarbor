@@ -1311,4 +1311,356 @@ final class VaultFaultInjectionTests: XCTestCase {
         let rootItems = env.vault.items(in: (nil as UUID?))
         XCTAssertEqual(rootItems.count, 1)
     }
+
+    // MARK: - VaultPlayerRestoreController & VideoFolderManager 回帰テスト
+
+    func testRestoreController_Success_ClearsFlagAndInvokesDismiss() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_success.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let token = env.vault.sessionToken!
+        let coordinator = VideoPlaybackCoordinator.shared
+        let sessionID = UUID()
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: token,
+            playbackSessionID: sessionID
+        )
+
+        var didTearDown = false
+        var cleanedUpItemID: UUID? = nil
+        var successTargetID: UUID? = nil
+        var didDismiss = false
+
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: { didTearDown = true },
+            cleanupTemp: { cleanedUpItemID = $0 },
+            onSuccess: { id, _ in successTargetID = id },
+            onReloadItem: { XCTFail("Should not reload on success") },
+            onDismiss: {
+                // 画面終了実行時点で isRestoring が解除され、canClose が true であることを検証
+                XCTAssertFalse(controller.isRestoring)
+                XCTAssertTrue(controller.canClose(isDeleting: false))
+                didDismiss = true
+            }
+        )
+
+        XCTAssertTrue(didTearDown)
+        XCTAssertEqual(cleanedUpItemID, vaultItem.id)
+        XCTAssertEqual(successTargetID, vaultItem.id)
+        XCTAssertTrue(didDismiss)
+        XCTAssertFalse(controller.isRestoring)
+        XCTAssertNil(controller.pendingContext)
+        XCTAssertEqual(env.vault.items.count, 0)
+    }
+
+    func testRestoreController_SessionInvalidation_DoesNotBlockDismiss() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_session.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let expiredToken = UUID() // 不正トークン
+        let coordinator = VideoPlaybackCoordinator.shared
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: expiredToken,
+            playbackSessionID: UUID()
+        )
+
+        var didDismiss = false
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: { XCTFail("Should not tear down when session is invalid") },
+            cleanupTemp: { _ in XCTFail("Should not clean temp when session is invalid") },
+            onSuccess: { _, _ in XCTFail("Should not succeed") },
+            onReloadItem: { XCTFail("Should not reload") },
+            onDismiss: {
+                // セッション失効時でも isRestoring が false であり、canClose で終了可能であることを検証
+                XCTAssertFalse(controller.isRestoring)
+                XCTAssertTrue(controller.canClose(isDeleting: false))
+                didDismiss = true
+            }
+        )
+
+        XCTAssertTrue(didDismiss)
+        XCTAssertNil(controller.pendingContext)
+        XCTAssertEqual(env.vault.items.count, 1) // 原本保持
+    }
+
+    func testRestoreController_RestoreFailure_PreservesOriginal_AndReloadsIfUnlocked() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_fail.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let token = env.vault.sessionToken!
+        let coordinator = VideoPlaybackCoordinator.shared
+        let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
+
+        // 障害注入
+        env.mockDownloads.persistShouldFail = true
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: token,
+            playbackSessionID: UUID()
+        )
+
+        var didReload = false
+        var didDismiss = false
+
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: {},
+            cleanupTemp: { _ in },
+            onSuccess: { _, _ in XCTFail("Should not succeed") },
+            onReloadItem: {
+                XCTAssertFalse(controller.isRestoring)
+                didReload = true
+            },
+            onDismiss: { didDismiss = true }
+        )
+
+        // 失敗時でも原本とインデックスは完全保持され、アンロック状態なので再ロードされる
+        XCTAssertTrue(didReload)
+        XCTAssertFalse(didDismiss)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: encURL.path))
+        XCTAssertEqual(env.vault.items.count, 1)
+        XCTAssertEqual(env.vault.items[0].id, vaultItem.id)
+        XCTAssertFalse(controller.isRestoring)
+    }
+
+    func testRestoreController_RestoreFailure_WhenVaultLocked_DismissesWithoutReloading() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_lock_fail.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let token = env.vault.sessionToken!
+        let coordinator = VideoPlaybackCoordinator.shared
+
+        // 障害注入 + 復元処理中のロック発生
+        env.mockDownloads.persistShouldFail = true
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: token,
+            playbackSessionID: UUID()
+        )
+
+        var didDismiss = false
+
+        // 実行直後にロック
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000)
+            env.vault.lock()
+        }
+
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: {},
+            cleanupTemp: { _ in },
+            onSuccess: { _, _ in XCTFail("Should not succeed") },
+            onReloadItem: { XCTFail("Should NOT reload or recreate plaintext when vault is locked") },
+            onDismiss: {
+                XCTAssertFalse(controller.isRestoring)
+                XCTAssertTrue(controller.canClose(isDeleting: false))
+                didDismiss = true
+            }
+        )
+
+        XCTAssertTrue(didDismiss)
+        XCTAssertFalse(controller.isRestoring)
+    }
+
+    func testRestoreController_DoubleExecutionProtection() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_double.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let token = env.vault.sessionToken!
+        let coordinator = VideoPlaybackCoordinator.shared
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: token,
+            playbackSessionID: UUID()
+        )
+
+        // 1回目の実行を開始し、並行して2回目を呼ぶ
+        var firstRunSuccessCount = 0
+        var secondRunCallCount = 0
+
+        async let task1: Void = controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: {},
+            cleanupTemp: { _ in },
+            onSuccess: { _, _ in firstRunSuccessCount += 1 },
+            onReloadItem: {},
+            onDismiss: {}
+        )
+
+        // 処理中にユーザーによる閉じる操作が弾かれることを検証
+        XCTAssertFalse(controller.canClose(isDeleting: false))
+
+        // 二重実行試行（弾かれるはず）
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: {},
+            cleanupTemp: { _ in },
+            onSuccess: { _, _ in secondRunCallCount += 1 },
+            onReloadItem: {},
+            onDismiss: {}
+        )
+
+        _ = await task1
+
+        XCTAssertEqual(firstRunSuccessCount, 1)
+        XCTAssertEqual(secondRunCallCount, 0) // 二重実行は完全に無視された
+    }
+
+    func testRestoreController_ReleasesPlayerAndCoordinatorSessionBeforeRestore() async throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        let (url, video) = try createDummyVideoFile(in: env.downloadsDir, name: "ctrl_coord.mp4")
+        try await env.vault.moveToVault(
+            video: video,
+            sourceURL: url,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            thumbnailManager: env.mockThumbnails
+        )
+        let vaultItem = env.vault.items[0]
+        let token = env.vault.sessionToken!
+        let coordinator = VideoPlaybackCoordinator.shared
+        let mySessionID = UUID()
+
+        var callOrder: [String] = []
+
+        let controller = VaultPlayerRestoreController()
+        let context = VaultPlayerRestoreController.PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: token,
+            playbackSessionID: mySessionID
+        )
+
+        await controller.executeRestore(
+            context: context,
+            vaultManager: env.vault,
+            downloads: env.mockDownloads,
+            folderManager: env.mockFolders,
+            coordinator: coordinator,
+            tearDownPlayer: {
+                callOrder.append("tearDownPlayer")
+            },
+            cleanupTemp: { _ in
+                callOrder.append("cleanupTemp")
+            },
+            onSuccess: { _, _ in
+                callOrder.append("onSuccess")
+            },
+            onReloadItem: {},
+            onDismiss: {
+                callOrder.append("onDismiss")
+            }
+        )
+
+        // tearDownPlayer -> cleanupTemp -> onSuccess -> onDismiss の順序を検証
+        XCTAssertEqual(callOrder, ["tearDownPlayer", "cleanupTemp", "onSuccess", "onDismiss"])
+    }
+
+    func testVideoFolderManager_InitDoesNotOverwriteExistingOnVideoSavedCallback() {
+        let dc = DownloadCenter()
+        var callbackInvoked = false
+        dc.onVideoSaved = { _, _ in
+            callbackInvoked = true
+        }
+
+        _ = VideoFolderManager(downloads: dc)
+
+        let testVideo = SavedVideo(
+            id: UUID(),
+            title: "TestCallback",
+            relativePath: "test.mp4",
+            format: .mp4,
+            sourceHost: "example.com",
+            createdAt: Date(),
+            byteSize: 100
+        )
+        dc.onVideoSaved?(UUID(), testVideo)
+
+        XCTAssertTrue(callbackInvoked, "Existing onVideoSaved callback must not be overwritten by new VideoFolderManager")
+    }
 }

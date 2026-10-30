@@ -11,6 +11,128 @@ import ImageIO
 /// - 左右ダブルタップによる10秒シーク & 方向フィードバックバッジ
 /// - 厳格な下部6ボタン（最初から[0秒+即再生]、星型お気に入り、速度、PiP、縦横切替、その他メニュー）
 /// - 左右縦スライダー（画面照度・動画音量）
+// MARK: - Vaultプレイヤー内復元コントローラー
+
+@MainActor
+final class VaultPlayerRestoreController: ObservableObject {
+    @Published private(set) var isRestoring: Bool = false
+    @Published var pendingContext: PendingRestoreContext? = nil
+
+    struct PendingRestoreContext: Identifiable, Equatable {
+        let vaultItem: VaultItem
+        let sessionToken: UUID
+        let playbackSessionID: UUID?
+
+        var id: UUID { vaultItem.id }
+        var title: String { vaultItem.originalTitle }
+    }
+
+    /// ユーザー操作による画面終了が可能かを判定（復元中・削除中は禁止）
+    func canClose(isDeleting: Bool) -> Bool {
+        return !isDeleting && !isRestoring
+    }
+
+    /// 復元リクエスト（セッション検証と保留コンテキストの確定）
+    func requestRestore(
+        item: PlaybackItem?,
+        vaultManager: VaultManager,
+        sessionToken: UUID?,
+        playbackSessionID: UUID?,
+        onSessionInvalid: () -> Void
+    ) {
+        guard !isRestoring, pendingContext == nil else { return }
+        guard let item = item, case .vault(let vaultItem) = item else { return }
+        guard vaultManager.isUnlocked,
+              let currentToken = sessionToken,
+              vaultManager.sessionToken == currentToken else {
+            onSessionInvalid()
+            return
+        }
+        pendingContext = PendingRestoreContext(
+            vaultItem: vaultItem,
+            sessionToken: currentToken,
+            playbackSessionID: playbackSessionID
+        )
+    }
+
+    /// 復元処理の非同期実行
+    func executeRestore(
+        context: PendingRestoreContext,
+        vaultManager: VaultManager,
+        downloads: VaultDownloadManaging,
+        folderManager: VaultFolderManaging,
+        coordinator: VideoPlaybackCoordinator,
+        tearDownPlayer: () -> Void,
+        cleanupTemp: (UUID) -> Void,
+        onSuccess: (UUID, String) -> Void,
+        onReloadItem: () -> Void,
+        onDismiss: () -> Void
+    ) async {
+        guard !isRestoring else { return }
+
+        let vaultItem = context.vaultItem
+        let targetID = context.id
+        let expectedToken = context.sessionToken
+        let targetSessionID = context.playbackSessionID
+
+        // 1. 開始直前のセッション検証（ロック時は即時終了）
+        guard vaultManager.isUnlocked,
+              vaultManager.sessionToken == expectedToken else {
+            pendingContext = nil
+            onDismiss()
+            return
+        }
+
+        // 2. 処理中フラグを有効化（ユーザーによる画面終了や多重操作を抑止）
+        isRestoring = true
+
+        // 3. プレイヤーと該当Coordinatorセッションの完全解放、一時平文クリーンアップ
+        tearDownPlayer()
+        coordinator.stopAndRelease(sessionID: targetSessionID)
+        cleanupTemp(targetID)
+
+        // 4. ファイル操作直前のセッション再確認
+        guard vaultManager.isUnlocked,
+              vaultManager.sessionToken == expectedToken else {
+            isRestoring = false
+            pendingContext = nil
+            onDismiss()
+            return
+        }
+
+        do {
+            try await vaultManager.restoreFromVault(
+                item: vaultItem,
+                targetFolder: nil,
+                downloads: downloads,
+                folderManager: folderManager
+            )
+
+            // 5. 復元成功: 処理中フラグを解除した上で画面終了を実行
+            isRestoring = false
+            pendingContext = nil
+            onSuccess(targetID, vaultItem.originalTitle)
+            onDismiss()
+        } catch {
+            // 6. 復元失敗: セッション有効性と原本存在を検証
+            guard vaultManager.isUnlocked,
+                  vaultManager.sessionToken == expectedToken,
+                  vaultManager.items.contains(where: { $0.id == targetID }) else {
+                // ロック済みまたは原本消失時は再復号を行わず安全に終了
+                isRestoring = false
+                pendingContext = nil
+                onDismiss()
+                return
+            }
+
+            // セッション有効かつ原本存在時のみ安全に再読込
+            isRestoring = false
+            pendingContext = nil
+            onReloadItem()
+        }
+    }
+}
+
 /// - iOS 16 回転制御 & 終了時のブラウザ縦画面復帰
 struct ModernVideoPlayerView: View {
     @ObservedObject var playlistContext: PlaybackPlaylistContext
@@ -98,14 +220,16 @@ struct ModernVideoPlayerView: View {
     @State private var isDeletingItem: Bool = false
 
     // 復元処理状態
-    struct PendingRestoreContext: Identifiable {
-        let vaultItem: VaultItem
-        let sessionToken: UUID
-        var id: UUID { vaultItem.id }
-        var title: String { vaultItem.originalTitle }
+    @StateObject private var restoreController = VaultPlayerRestoreController()
+
+    private var isRestoringItem: Bool {
+        restoreController.isRestoring
     }
-    @State private var pendingRestoreContext: PendingRestoreContext?
-    @State private var isRestoringItem: Bool = false
+
+    private var pendingRestoreContext: VaultPlayerRestoreController.PendingRestoreContext? {
+        get { restoreController.pendingContext }
+        nonmutating set { restoreController.pendingContext = newValue }
+    }
 
     // 操作中状態管理・自動非表示排他制御
     @State private var activeInteractions: Set<String> = []
@@ -1099,7 +1223,7 @@ struct ModernVideoPlayerView: View {
         switch item {
         case .normal(let video):
             do {
-                let newFavorite = try VideoFolderManager(downloads: .shared).toggleFavorite(for: video)
+                let newFavorite = try VideoFolderManager.shared.toggleFavorite(for: video)
                 playlistContext.updateFavorite(id: video.id, isFavorite: newFavorite)
             } catch {
                 showToast(String(format: NSLocalizedString("Failed to update favorite: %@", comment: ""), error.localizedDescription))
@@ -1290,12 +1414,12 @@ struct ModernVideoPlayerView: View {
 
             switch targetItem {
             case .normal(let video):
-                let folder = VideoFolderManager(downloads: .shared).folderName(for: video)
+                let folder = VideoFolderManager.shared.folderName(for: video)
                 let result = await TrashManager.shared.moveToTrash(
                     video: video,
                     folderName: folder,
                     downloads: .shared,
-                    folderManager: VideoFolderManager(downloads: .shared)
+                    folderManager: VideoFolderManager.shared
                 )
                 switch result {
                 case .success:
@@ -1384,7 +1508,7 @@ struct ModernVideoPlayerView: View {
     }
 
     private func handleClose() {
-        guard !isDeletingItem && !isRestoringItem else { return }
+        guard !isDeletingItem && restoreController.canClose(isDeleting: isDeletingItem) else { return }
         activeInteractions.removeAll()
         stopAutoHideTimer()
         isDismissingDueToPiP = false
@@ -1432,7 +1556,7 @@ struct ModernVideoPlayerView: View {
         guard let item = playlistContext.currentItem else { return }
         switch item {
         case .normal(let video):
-            let folderManager = VideoFolderManager(downloads: .shared)
+            let folderManager = VideoFolderManager.shared
             _ = folderManager.renameVideo(video, to: newTitle)
             showToast(NSLocalizedString("Title changed", comment: ""))
         case .vault(let vaultItem):
@@ -1489,7 +1613,7 @@ struct ModernVideoPlayerView: View {
         if let item = playlistContext.currentItem {
             switch item {
             case .normal(let video):
-                let folderManager = VideoFolderManager(downloads: .shared)
+                let folderManager = VideoFolderManager.shared
                 MoveToFolderSheet(
                     video: video,
                     currentFolder: folderManager.folderName(for: video),
@@ -1533,68 +1657,50 @@ struct ModernVideoPlayerView: View {
     // MARK: - Vault動画の通常一覧への復元処理
 
     private func handleRestoreTapped() {
-        guard !isRestoringItem, !isDeletingItem, pendingRestoreContext == nil, pendingDeletionContext == nil else { return }
-        guard let current = playlistContext.currentItem, case .vault(let vaultItem) = current else { return }
-        guard VaultManager.shared.isUnlocked,
-              let sessionToken = playlistContext.vaultSessionToken,
-              VaultManager.shared.sessionToken == sessionToken else {
-            handleClose()
-            return
-        }
+        guard !isDeletingItem, pendingDeletionContext == nil else { return }
         stopAutoHideTimer()
-        pendingRestoreContext = PendingRestoreContext(vaultItem: vaultItem, sessionToken: sessionToken)
+        restoreController.requestRestore(
+            item: playlistContext.currentItem,
+            vaultManager: .shared,
+            sessionToken: playlistContext.vaultSessionToken,
+            playbackSessionID: playbackSessionID,
+            onSessionInvalid: {
+                handleClose()
+            }
+        )
     }
 
-    private func executeRestore(for context: PendingRestoreContext) {
-        guard !isRestoringItem, !isDeletingItem else { return }
-        let vaultItem = context.vaultItem
-        let targetID = context.id
-        let expectedToken = context.sessionToken
-
-        guard VaultManager.shared.isUnlocked,
-              VaultManager.shared.sessionToken == expectedToken else {
-            pendingRestoreContext = nil
-            handleClose()
-            return
-        }
-
-        isRestoringItem = true
+    private func executeRestore(for context: VaultPlayerRestoreController.PendingRestoreContext) {
+        guard !isDeletingItem else { return }
         stopAutoHideTimer()
         activeInteractions.removeAll()
 
-        tearDownPlayer()
-        VaultManager.shared.cleanupPlaybackTemp(itemID: targetID)
-
         Task { @MainActor in
-            defer {
-                isRestoringItem = false
-                pendingRestoreContext = nil
-            }
-
-            guard VaultManager.shared.isUnlocked,
-                  VaultManager.shared.sessionToken == expectedToken else {
-                handleClose()
-                return
-            }
-
-            do {
-                let dl = DownloadCenter.shared
-                let fm = VideoFolderManager(downloads: dl)
-                try await VaultManager.shared.restoreFromVault(
-                    item: vaultItem,
-                    targetFolder: nil,
-                    downloads: dl,
-                    folderManager: fm
-                )
-
-                _ = playlistContext.removeItem(id: targetID)
-                showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), vaultItem.originalTitle))
-                handleClose()
-            } catch {
-                showToast(String(format: NSLocalizedString("Failed to restore: %@", comment: ""), error.localizedDescription))
-                loadCurrentItem(autoPlay: false)
-                scheduleAutoHide(delay: 10.0)
-            }
+            await restoreController.executeRestore(
+                context: context,
+                vaultManager: .shared,
+                downloads: DownloadCenter.shared,
+                folderManager: VideoFolderManager.shared,
+                coordinator: coordinator,
+                tearDownPlayer: { [weak self] in
+                    self?.tearDownPlayer()
+                    self?.playbackSessionID = nil
+                },
+                cleanupTemp: { targetID in
+                    VaultManager.shared.cleanupPlaybackTemp(itemID: targetID)
+                },
+                onSuccess: { [weak self] targetID, title in
+                    _ = self?.playlistContext.removeItem(id: targetID)
+                    self?.showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), title))
+                },
+                onReloadItem: { [weak self] in
+                    self?.loadCurrentItem(autoPlay: false)
+                    self?.scheduleAutoHide(delay: 10.0)
+                },
+                onDismiss: { [weak self] in
+                    self?.handleClose()
+                }
+            )
         }
     }
 
