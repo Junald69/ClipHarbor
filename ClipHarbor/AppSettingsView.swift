@@ -196,8 +196,10 @@ struct AppSettingsView: View {
                 }
 
                 if settingsManager.enableDeveloperDiagnostics {
-                    Section(NSLocalizedString("Developer Diagnostics", comment: "")) {
+                    Section {
                         Toggle(NSLocalizedString("Enable Playback Diagnostics", comment: ""), isOn: $settingsManager.enableDeveloperDiagnostics)
+                    } header: {
+                        Text(NSLocalizedString("Developer Diagnostics", comment: ""))
                     } footer: {
                         Text(NSLocalizedString("Shows diagnostic stethoscope tool during video playback for troubleshooting.", comment: ""))
                     }
