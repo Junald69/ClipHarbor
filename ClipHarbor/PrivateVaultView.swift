@@ -311,6 +311,14 @@ struct PrivateVaultView: View {
             } message: {
                 Text(errorMessage ?? "")
             }
+            .onChange(of: vaultManager.isUnlocked) { isUnlocked in
+                if !isUnlocked {
+                    resetVaultUIState()
+                }
+            }
+            .onDisappear {
+                resetVaultUIState()
+            }
         }
     }
 
@@ -404,58 +412,60 @@ struct PrivateVaultView: View {
         let hasItems = !displayedItems.isEmpty
 
         return ZStack(alignment: .bottom) {
-            if isRoot && !hasFolders && !hasItems {
-                emptyVaultPlaceholder
-            } else if !isRoot && !hasItems {
-                emptyFolderPlaceholder
-            } else {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        securityInfoBanner
+            VStack(spacing: 0) {
+                if let warning = vaultManager.folderMetadataWarning {
+                    folderWarningBanner(warning)
+                }
 
-                        if let warning = vaultManager.folderMetadataWarning {
-                            folderWarningBanner(warning)
-                        }
+                if isRoot && !hasFolders && !hasItems {
+                    emptyVaultPlaceholder
+                } else if !isRoot && !hasItems {
+                    emptyFolderPlaceholder
+                } else {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            securityInfoBanner
 
-                        LazyVGrid(columns: gridColumns, spacing: 18) {
-                            // ルート画面: フォルダカード一覧を表示
-                            if isRoot {
-                                ForEach(vaultManager.folders) { folder in
-                                    vaultFolderCard(folder: folder)
+                            LazyVGrid(columns: gridColumns, spacing: 18) {
+                                // ルート画面: フォルダカード一覧を表示
+                                if isRoot {
+                                    ForEach(vaultManager.folders) { folder in
+                                        vaultFolderCard(folder: folder)
+                                    }
+                                }
+
+                                // 動画カード一覧を表示（ルートなら未分類、フォルダ内ならそのフォルダ内の動画）
+                                ForEach(displayedItems) { item in
+                                    AlohaVaultCardView(
+                                        item: item,
+                                        isSelectionMode: isSelectionMode,
+                                        isSelected: selectedItemIDs.contains(item.id),
+                                        onSelect: {
+                                            if selectedItemIDs.contains(item.id) {
+                                                selectedItemIDs.remove(item.id)
+                                            } else {
+                                                selectedItemIDs.insert(item.id)
+                                            }
+                                        },
+                                        onPlay: {
+                                            playItem(item)
+                                        },
+                                        onMove: {
+                                            movingItem = item
+                                        },
+                                        onRestore: {
+                                            restoreItem(item)
+                                        },
+                                        onDelete: {
+                                            deletingItem = item
+                                        }
+                                    )
                                 }
                             }
-
-                            // 動画カード一覧を表示（ルートなら未分類、フォルダ内ならそのフォルダ内の動画）
-                            ForEach(displayedItems) { item in
-                                AlohaVaultCardView(
-                                    item: item,
-                                    isSelectionMode: isSelectionMode,
-                                    isSelected: selectedItemIDs.contains(item.id),
-                                    onSelect: {
-                                        if selectedItemIDs.contains(item.id) {
-                                            selectedItemIDs.remove(item.id)
-                                        } else {
-                                            selectedItemIDs.insert(item.id)
-                                        }
-                                    },
-                                    onPlay: {
-                                        playItem(item)
-                                    },
-                                    onMove: {
-                                        movingItem = item
-                                    },
-                                    onRestore: {
-                                        restoreItem(item)
-                                    },
-                                    onDelete: {
-                                        deletingItem = item
-                                    }
-                                )
-                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, isSelectionMode ? 80 : 24)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, isSelectionMode ? 80 : 24)
                     }
                 }
             }
@@ -802,6 +812,29 @@ struct PrivateVaultView: View {
                 noticeMessage = nil
             }
         }
+    }
+
+    /// ロック時および画面非表示時のUI状態完全クリア
+    /// - 閲覧中フォルダをルート(nil)に戻し、再解錠時に必ずルート画面を表示
+    /// - 選択状態、動画ID、フォルダ操作用文字列・参照をクリアし、復号済みフォルダ名をメモリ上に残さない
+    private func resetVaultUIState() {
+        currentFolder = nil
+        isSelectionMode = false
+        selectedItemIDs.removeAll()
+        newFolderName = ""
+        showNewFolderAlert = false
+        renamingFolder = nil
+        renameFolderInput = ""
+        deletingFolder = nil
+        movingItem = nil
+        showBatchMoveSheet = false
+        showBatchDeleteAlert = false
+        deletingItem = nil
+        activePlayingItem = nil
+        activePlaybackURL = nil
+        showImportSheet = false
+        showVaultSettings = false
+        showChangePasscode = false
     }
 }
 
