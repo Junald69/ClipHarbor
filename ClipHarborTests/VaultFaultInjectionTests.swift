@@ -1327,7 +1327,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             thumbnailManager: env.mockThumbnails
         )
         let vaultItem = env.vault.items[0]
-        let token = env.vault.sessionToken!
+        let token = env.vault.sessionToken
         let coordinator = VideoPlaybackCoordinator.shared
         let sessionID = UUID()
 
@@ -1430,7 +1430,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             thumbnailManager: env.mockThumbnails
         )
         let vaultItem = env.vault.items[0]
-        let token = env.vault.sessionToken!
+        let token = env.vault.sessionToken
         let coordinator = VideoPlaybackCoordinator.shared
         let encURL = env.baseDir.appendingPathComponent("Vault/items/\(vaultItem.id.uuidString)/video.enc")
 
@@ -1485,7 +1485,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             thumbnailManager: env.mockThumbnails
         )
         let vaultItem = env.vault.items[0]
-        let token = env.vault.sessionToken!
+        let token = env.vault.sessionToken
         let coordinator = VideoPlaybackCoordinator.shared
 
         // 障害注入 + 復元処理中のロック発生
@@ -1540,7 +1540,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             thumbnailManager: env.mockThumbnails
         )
         let vaultItem = env.vault.items[0]
-        let token = env.vault.sessionToken!
+        let token = env.vault.sessionToken
         let coordinator = VideoPlaybackCoordinator.shared
 
         let controller = VaultPlayerRestoreController()
@@ -1603,7 +1603,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             thumbnailManager: env.mockThumbnails
         )
         let vaultItem = env.vault.items[0]
-        let token = env.vault.sessionToken!
+        let token = env.vault.sessionToken
         let coordinator = VideoPlaybackCoordinator.shared
         let mySessionID = UUID()
 
