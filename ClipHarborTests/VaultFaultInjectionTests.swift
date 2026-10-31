@@ -2026,7 +2026,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2094,7 +2094,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2151,7 +2151,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2208,7 +2208,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2269,7 +2269,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2368,7 +2368,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
@@ -2478,7 +2478,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let dc = DownloadCenter()
-        dc.saved = []
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
         let fm = VideoFolderManager(downloads: dc)
         let zipMgr = ZipArchiveManager(
             userDefaults: defaults,
