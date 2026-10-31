@@ -1978,4 +1978,36 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertFalse(env.vault.isUnlocked)
         XCTAssertEqual(env.vault.sessionToken, lockedToken)
     }
+
+    func testStealthSettings_DependencyAndReconciliationWithCardHide() throws {
+        let suiteName = "com.clipharbor.test.stealth.dependency.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName), defaults !== UserDefaults.standard else {
+            XCTFail("Failed to create isolated UserDefaults")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // 1. 以前のバージョンで「ステルスON・カード非表示OFF」が保存されていたケース:
+        //    更新後もステルス状態を維持し、安全にカード非表示をONへ整合・永続化すること
+        defaults.set(true, forKey: VaultStealthSettingsStore.stealthModeKey)
+        defaults.set(false, forKey: VaultStealthSettingsStore.hideVaultInFileListKey)
+
+        XCTAssertTrue(VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults))
+        XCTAssertTrue(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults))
+        XCTAssertEqual(defaults.object(forKey: VaultStealthSettingsStore.hideVaultInFileListKey) as? Bool, true)
+
+        // 2. ステルスON中はカード非表示をOFFに変更しようとしてもON固定が維持されること
+        let whileStealthResult = VaultStealthSettingsStore.saveHideVaultInFileList(false, to: defaults)
+        XCTAssertTrue(whileStealthResult)
+        XCTAssertTrue(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults))
+
+        // 3. ステルスをOFFにすると、カード非表示はONのまま残り、その後OFFへの変更が再び可能になること
+        VaultStealthSettingsStore.saveStealthModeEnabled(false, to: defaults)
+        XCTAssertFalse(VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults))
+        XCTAssertTrue(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults), "ステルス解除直後もカード非表示はONのまま維持されること")
+
+        let afterStealthOffResult = VaultStealthSettingsStore.saveHideVaultInFileList(false, to: defaults)
+        XCTAssertFalse(afterStealthOffResult, "ステルス解除後はカード非表示をOFFへ変更可能になること")
+        XCTAssertFalse(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults))
+    }
 }

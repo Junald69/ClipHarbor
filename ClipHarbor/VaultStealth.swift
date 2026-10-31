@@ -68,6 +68,10 @@ enum VaultStealthSettingsStore {
 
     static func saveStealthModeEnabled(_ enabled: Bool, to defaults: UserDefaults) {
         defaults.set(enabled, forKey: stealthModeKey)
+        if enabled {
+            // ステルスON時はカード非表示設定も必ずONへ整合・固定する
+            defaults.set(true, forKey: hideVaultInFileListKey)
+        }
     }
 
     /// アクセスジェスチャー読み出し（未保存・不正値は長押しへフォールバック）
@@ -79,8 +83,16 @@ enum VaultStealthSettingsStore {
         defaults.set(gesture.rawValue, forKey: accessGestureKey)
     }
 
-    /// 旧カード非表示設定の読み出し（新キー優先、未保存時のみ旧隠しモードを引き継ぐ。初期値: false=カード表示）
+    /// 旧カード非表示設定の読み出し
+    /// - ステルスON保存時は（旧バージョンでカード非表示OFFだった場合も含め）安全にONへ整合・永続化
+    /// - ステルスOFF時は新キー優先、未保存時のみ旧隠しモードを引き継ぐ（初期値: false=カード表示）
     static func loadHideVaultInFileList(from defaults: UserDefaults) -> Bool {
+        if loadStealthModeEnabled(from: defaults) {
+            if (defaults.object(forKey: hideVaultInFileListKey) as? Bool) != true {
+                defaults.set(true, forKey: hideVaultInFileListKey)
+            }
+            return true
+        }
         if let existingVal = defaults.object(forKey: hideVaultInFileListKey) as? Bool {
             return existingVal
         }
@@ -89,6 +101,17 @@ enum VaultStealthSettingsStore {
             return legacyVal
         }
         return false
+    }
+
+    /// カード非表示設定の保存（ステルスON中はOFFへの変更を受け付けずON固定を維持）
+    @discardableResult
+    static func saveHideVaultInFileList(_ hide: Bool, to defaults: UserDefaults) -> Bool {
+        if loadStealthModeEnabled(from: defaults) {
+            defaults.set(true, forKey: hideVaultInFileListKey)
+            return true
+        }
+        defaults.set(hide, forKey: hideVaultInFileListKey)
+        return hide
     }
 }
 

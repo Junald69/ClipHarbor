@@ -10688,6 +10688,23 @@
           }
         }
       }
+    },
+    "To use Stealth Mode, please turn on \"Hide Private Vault from File List\" first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To use Stealth Mode, please turn on \"Hide Private Vault from File List\" first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードを利用するには、先にPrivate Vaultを非表示にしてください"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

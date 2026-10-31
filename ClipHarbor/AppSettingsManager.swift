@@ -120,17 +120,25 @@ final class AppSettingsManager: ObservableObject {
     }
 
     /// ファイル一覧でのPrivate Vaultカード非表示設定 (true = 非表示, false = 表示)
+    /// - ステルスモードON中はON固定となり、OFFへは変更できない
     @Published var hideVaultInFileList: Bool {
         didSet {
-            UserDefaults.standard.set(hideVaultInFileList, forKey: hideVaultInFileListKey)
+            if isStealthModeEnabled && !hideVaultInFileList {
+                hideVaultInFileList = true
+                return
+            }
+            _ = VaultStealthSettingsStore.saveHideVaultInFileList(hideVaultInFileList, to: UserDefaults.standard)
         }
     }
 
     /// Private Vault ステルスモード (true = 通常画面から全入口を非表示, デフォルト: false)
-    /// - 旧 hideVaultInFileList とは独立。ON/OFF いずれの切替でも旧カード非表示設定は変更しない
+    /// - ON時はカード非表示設定もON固定。OFFへ戻した際もカード非表示設定はONのまま残す
     @Published var isStealthModeEnabled: Bool {
         didSet {
             VaultStealthSettingsStore.saveStealthModeEnabled(isStealthModeEnabled, to: UserDefaults.standard)
+            if isStealthModeEnabled && !hideVaultInFileList {
+                hideVaultInFileList = true
+            }
         }
     }
 
@@ -198,11 +206,12 @@ final class AppSettingsManager: ObservableObject {
             self.trashRetentionPeriod = .threeDays
         }
 
-        // Private Vault表示設定読み出し（新キー優先、未保存時のみ旧隠しモード引き継ぎ、初期値: false=カード表示）
-        self.hideVaultInFileList = VaultStealthSettingsStore.loadHideVaultInFileList(from: UserDefaults.standard)
-
         // ステルスモード読み出し（初期値: OFF。旧設定から自動で完全ステルスへは変換しない）
-        self.isStealthModeEnabled = VaultStealthSettingsStore.loadStealthModeEnabled(from: UserDefaults.standard)
+        let loadedStealth = VaultStealthSettingsStore.loadStealthModeEnabled(from: UserDefaults.standard)
+        // Private Vault表示設定読み出し（ステルスON保存時は自動でONへ整合、それ以外は新キー優先・旧キー引き継ぎ）
+        let loadedHideCard = VaultStealthSettingsStore.loadHideVaultInFileList(from: UserDefaults.standard)
+        self.isStealthModeEnabled = loadedStealth
+        self.hideVaultInFileList = loadedHideCard
         // アクセスジェスチャー読み出し（不正値は長押しへフォールバック）
         self.stealthAccessGesture = VaultStealthSettingsStore.loadAccessGesture(from: UserDefaults.standard)
 

@@ -384,8 +384,6 @@ struct FileManagerView: View {
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
-                    Divider()
-                    pocVerificationMenu
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 14, weight: .semibold))
@@ -1527,30 +1525,6 @@ struct FileManagerView: View {
         }
         .padding(14)
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    // MARK: - PoC検証メニュー
-
-    private var pocVerificationMenu: some View {
-        Menu {
-            Button {
-                _ = exports.startPoCTestA_MuxedFMP4()
-            } label: {
-                Label("Test A: Unified Video/Audio fMP4 → MP4", systemImage: "checkmark.seal")
-            }
-            Button {
-                _ = exports.startPoCTestB_AppleSeparateAudioFMP4()
-            } label: {
-                Label("Test B: Apple Official Separate Audio fMP4 → MP4 Join", systemImage: "waveform.badge.plus")
-            }
-            Button {
-                _ = exports.startPoCTestC_MPEGTS()
-            } label: {
-                Label("Test C: MPEG-TS Format Unsupported Check", systemImage: "film.stack")
-            }
-        } label: {
-            Label("fMP4→MP4 PoC On-Device Test (A/B/C)", systemImage: "testtube.2")
-        }
     }
 
     // MARK: - プレースホルダー表示

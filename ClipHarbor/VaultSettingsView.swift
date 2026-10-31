@@ -48,51 +48,12 @@ struct VaultSettingsView: View {
                     }
                 }
 
-                // セクション 2: ステルスモード
-                Section {
-                    Toggle(isOn: Binding(
-                        get: { settingsManager.isStealthModeEnabled },
-                        set: { enabled in
-                            if enabled {
-                                // 有効化前に必ずジェスチャーの説明と練習を経由（ロックアウト防止）
-                                showStealthRehearsal = true
-                            } else {
-                                settingsManager.isStealthModeEnabled = false
-                                showToast(NSLocalizedString("Stealth Mode disabled", comment: ""))
-                            }
-                        }
-                    )) {
-                        Label(NSLocalizedString("Stealth Mode", comment: ""), systemImage: "eye.slash")
-                    }
-
-                    Picker(NSLocalizedString("Access Gesture", comment: ""), selection: $settingsManager.stealthAccessGesture) {
-                        ForEach(StealthAccessGesture.allCases) { gesture in
-                            Text(gesture.title).tag(gesture)
-                        }
-                    }
-                    .disabled(settingsManager.isStealthModeEnabled)
-
-                    Text(settingsManager.stealthAccessGesture.instruction)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } header: {
-                    Text(NSLocalizedString("Stealth Mode", comment: ""))
-                } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(NSLocalizedString("When Stealth Mode is on, the Vault card, menus, Move to Vault actions, and related descriptions are hidden from normal screens. The only way in is the selected gesture on the \"Files\" title, followed by your passcode or Face ID. Stealth Mode can only be turned off here after unlocking.", comment: ""))
-                        if settingsManager.isStealthModeEnabled {
-                            Text(NSLocalizedString("Turn off Stealth Mode to change the access gesture.", comment: ""))
-                        }
-                    }
-                    .font(.caption2)
-                }
-
-                // セクション 3: 表示設定 (Private Vault一覧表示設定 / 旧設定・ステルスとは独立)
+                // セクション 2: 表示設定 (Private Vault一覧表示設定)
                 Section {
                     Toggle(isOn: $settingsManager.hideVaultInFileList) {
                         Text(NSLocalizedString("Hide Private Vault from File List", comment: ""))
                     }
+                    .disabled(settingsManager.isStealthModeEnabled)
                 } header: {
                     Text(NSLocalizedString("Display Settings", comment: ""))
                 } footer: {
@@ -105,7 +66,53 @@ struct VaultSettingsView: View {
                     .font(.caption2)
                 }
 
-                // セクション 3: セキュリティとロック条件
+                // セクション 3: ステルスモード
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { settingsManager.isStealthModeEnabled },
+                        set: { enabled in
+                            if enabled {
+                                guard settingsManager.hideVaultInFileList else { return }
+                                // 有効化前に必ずジェスチャーの説明と練習を経由（ロックアウト防止）
+                                showStealthRehearsal = true
+                            } else {
+                                settingsManager.isStealthModeEnabled = false
+                                showToast(NSLocalizedString("Stealth Mode disabled", comment: ""))
+                            }
+                        }
+                    )) {
+                        Label(NSLocalizedString("Stealth Mode", comment: ""), systemImage: "eye.slash")
+                    }
+                    .disabled(!settingsManager.hideVaultInFileList)
+
+                    Picker(NSLocalizedString("Access Gesture", comment: ""), selection: $settingsManager.stealthAccessGesture) {
+                        ForEach(StealthAccessGesture.allCases) { gesture in
+                            Text(gesture.title).tag(gesture)
+                        }
+                    }
+                    .disabled(!settingsManager.hideVaultInFileList || settingsManager.isStealthModeEnabled)
+
+                    Text(settingsManager.stealthAccessGesture.instruction)
+                        .font(.caption)
+                        .foregroundStyle(settingsManager.hideVaultInFileList ? .secondary : .tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } header: {
+                    Text(NSLocalizedString("Stealth Mode", comment: ""))
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !settingsManager.hideVaultInFileList {
+                            Text(NSLocalizedString("To use Stealth Mode, please turn on \"Hide Private Vault from File List\" first.", comment: ""))
+                        } else {
+                            Text(NSLocalizedString("When Stealth Mode is on, the Vault card, menus, Move to Vault actions, and related descriptions are hidden from normal screens. The only way in is the selected gesture on the \"Files\" title, followed by your passcode or Face ID. Stealth Mode can only be turned off here after unlocking.", comment: ""))
+                            if settingsManager.isStealthModeEnabled {
+                                Text(NSLocalizedString("Turn off Stealth Mode to change the access gesture.", comment: ""))
+                            }
+                        }
+                    }
+                    .font(.caption2)
+                }
+
+                // セクション 4: セキュリティとロック条件
                 Section(NSLocalizedString("Security Specifications", comment: "")) {
                     HStack {
                         Text(NSLocalizedString("Encryption", comment: ""))
