@@ -97,14 +97,15 @@ enum TextDocumentCodec {
 
         // 4. 改行コード検知
         let lineEnding: TextDocumentMetadata.LineEnding
-        let crlfCount = decodedString.components(separatedBy: "\r\n").count - 1
-        let lfOnlyCount = decodedString.filter { $0 == "\n" }.count - crlfCount
+        let hasCRLF = decodedString.contains("\r\n")
+        let withoutCRLF = decodedString.replacingOccurrences(of: "\r\n", with: "")
+        let hasStandaloneLF = withoutCRLF.contains("\n")
 
-        if crlfCount > 0 && lfOnlyCount == 0 {
+        if hasCRLF && !hasStandaloneLF {
             lineEnding = .crlf
-        } else if lfOnlyCount > 0 && crlfCount == 0 {
+        } else if hasStandaloneLF && !hasCRLF {
             lineEnding = .lf
-        } else if crlfCount > 0 && lfOnlyCount > 0 {
+        } else if hasCRLF && hasStandaloneLF {
             lineEnding = .mixed
         } else {
             lineEnding = .lf

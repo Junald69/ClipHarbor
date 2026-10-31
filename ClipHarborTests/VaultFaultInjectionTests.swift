@@ -4768,7 +4768,7 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         // 孤立したファイルを Trash ディレクトリ配下の UUID ディレクトリ内に直接配置
         let orphanUUID = UUID()
-        let orphanDir = trashDir.appendingPathComponent(orphanUUID.uuidString, isDirectory: true)
+        let orphanDir = trashDir.appendingPathComponent("Trash", isDirectory: true).appendingPathComponent(orphanUUID.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: orphanDir, withIntermediateDirectories: true)
         let orphanFile = orphanDir.appendingPathComponent("orphaned_document.txt")
         try Data("orphan text content".utf8).write(to: orphanFile)
