@@ -4710,19 +4710,21 @@ final class VaultFaultInjectionTests: XCTestCase {
         let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
 
         // 1. 通常のMP4動画の移動と復元
-        let mp4File = downloadsDir.appendingPathComponent("sample_video.mp4")
-        try Data("dummy mp4 video bytes".utf8).write(to: mp4File)
-
+        let videoUniqueName = "sample_video_\(UUID().uuidString).mp4"
         let video = SavedVideo(
             id: UUID(),
             title: "sample_video",
-            relativePath: "Documents/Downloads/sample_video.mp4",
+            relativePath: "Documents/Downloads/\(videoUniqueName)",
             format: .mp4,
             sourceHost: "clipharbor.test",
             createdAt: Date(),
             byteSize: 22,
             sourcePageURL: "https://clipharbor.test/page"
         )
+        let videoRealURL = video.fileURL
+        try FileManager.default.createDirectory(at: videoRealURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("dummy mp4 video bytes".utf8).write(to: videoRealURL)
+        defer { try? FileManager.default.removeItem(at: videoRealURL) }
         dc.addSaved(video)
 
         // ゴミ箱へ移動
