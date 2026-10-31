@@ -231,6 +231,16 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
+    /// 新規作成フォルダへの移動失敗クリーンアップ時等に、論理フォルダの登録を解除する
+    func unregisterLogicalFolderIfNeeded(_ rawName: String) {
+        let clean = Self.sanitizedFolderName(rawName)
+        guard !clean.isEmpty else { return }
+        if folders.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            folders.removeAll { $0.caseInsensitiveCompare(clean) == .orderedSame }
+            persistState()
+        }
+    }
+
     /// フォルダ削除時の退避計画レコード（事前計画・移動確認・逆順ロールバック用）
     private struct FolderEvacuationRecord {
         enum ItemKind {

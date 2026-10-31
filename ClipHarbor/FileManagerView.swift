@@ -231,10 +231,16 @@ struct FileManagerView: View {
             .onAppear {
                 folderManager.syncWithFileSystemAndSavedVideos()
                 trashManager.purgeExpiredItems()
+                if let notice = zipManager.unresolvedRecoveryNotice {
+                    errorMessage = notice
+                }
             }
             .onChange(of: scenePhase) { phase in
                 if phase == .active {
                     folderManager.syncWithFileSystemAndSavedVideos()
+                    if let notice = zipManager.unresolvedRecoveryNotice {
+                        errorMessage = notice
+                    }
                 }
             }
             .fullScreenCover(item: $playingVideo) { video in

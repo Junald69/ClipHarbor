@@ -486,6 +486,13 @@ final class ZipArchiveManager: ObservableObject {
     private let userDefaults: UserDefaults
     private let customDownloadsRootURL: URL?
     private let customStagingRootURL: URL?
+    private let customStateDirectoryURL: URL?
+
+    /// 障害復旧・未解決状態の通知メッセージ（UI・起動時に参照）
+    @Published private(set) var unresolvedRecoveryNotice: String? = nil
+
+    /// テスト用の永続化失敗注入クロージャ
+    var metadataPersistFailureInjector: (() throws -> Void)? = nil
 
     private var activeCancellationToken: ZipCancellationToken? = nil
 
@@ -495,11 +502,13 @@ final class ZipArchiveManager: ObservableObject {
     init(
         userDefaults: UserDefaults = .standard,
         customDownloadsRootURL: URL? = nil,
-        customStagingRootURL: URL? = nil
+        customStagingRootURL: URL? = nil,
+        customStateDirectoryURL: URL? = nil
     ) {
         self.userDefaults = userDefaults
         self.customDownloadsRootURL = customDownloadsRootURL
         self.customStagingRootURL = customStagingRootURL
+        self.customStateDirectoryURL = customStateDirectoryURL
         loadPersistedManagedFiles()
         recoverPendingOperationsIfNeeded()
 
@@ -507,6 +516,32 @@ final class ZipArchiveManager: ObservableObject {
         Task.detached(priority: .utility) {
             Self.cleanupOrphanedStagingDirectories(at: stagingRoot)
         }
+    }
+
+    // MARK: - 永続化ステートディレクトリ・ファイルパス
+
+    var stateDirectoryURL: URL {
+        if let custom = customStateDirectoryURL {
+            try? FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+            return custom
+        }
+        if let customDownloads = customDownloadsRootURL {
+            let dir = customDownloads.deletingLastPathComponent().appendingPathComponent("ManagedFilesState", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        }
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = appSupport.appendingPathComponent("ClipHarbor", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private var journalFileURL: URL {
+        stateDirectoryURL.appendingPathComponent("managed_files_journal.json")
+    }
+
+    private var metadataFileURL: URL {
+        stateDirectoryURL.appendingPathComponent("managed_files_metadata.json")
     }
 
     // MARK: - ディレクトリ解決
@@ -883,12 +918,14 @@ final class ZipArchiveManager: ObservableObject {
             throw VideoFolderManager.FolderError.emptyName
         }
 
-        // Unicode正規化と大文字小文字違いを考慮した同一判定（no-op）
-        let normCurrent = item.title.precomposedStringWithCanonicalMapping
-        let normNew = cleanNewBase.precomposedStringWithCanonicalMapping
-        if normCurrent == normNew {
+        // 同名（完全一致）なら safe no-op
+        if cleanNewBase == item.title {
             return item
         }
+
+        // 大文字・小文字のみ、またはUnicode正準等価（NFC/NFD）のみの違いか判定
+        let isCaseOrNormOnly = (cleanNewBase != item.title) &&
+            (cleanNewBase.precomposedStringWithCanonicalMapping.caseInsensitiveCompare(item.title.precomposedStringWithCanonicalMapping) == .orderedSame)
 
         let fm = FileManager.default
         let sourceURL = resolveFileURL(for: item)
@@ -905,22 +942,71 @@ final class ZipArchiveManager: ObservableObject {
             )
         }
 
+        // シンボリックリンクの拒否（移動元ファイル・親ディレクトリ）
+        let srcVals = try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if srcVals?.isSymbolicLink == true {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Symbolic links are not supported.", comment: "")
+            )
+        }
+
         let parentDir = sourceURL.deletingLastPathComponent()
+        let parentVals = try? parentDir.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if parentVals?.isSymbolicLink == true {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Symbolic links are not supported.", comment: "")
+            )
+        }
+
         let destURL = parentDir.appendingPathComponent(cleanNewBase).appendingPathExtension(item.fileExtension)
 
-        // 宛先がDownloads管理領域内であることを境界検証
+        // 宛先がDownloads管理領域内（またはDocuments直下）であることを境界検証
         let canonicalDest = destURL.standardizedFileURL.resolvingSymlinksInPath().path
-        let canonicalRoot = downloadsRootURL.standardizedFileURL.resolvingSymlinksInPath().path
-        let prefix = canonicalRoot.hasSuffix("/") ? canonicalRoot : canonicalRoot + "/"
-        guard canonicalDest.hasPrefix(prefix) || canonicalDest == canonicalRoot else {
+        let canonicalDownloads = downloadsRootURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let dlPrefix = canonicalDownloads.hasSuffix("/") ? canonicalDownloads : canonicalDownloads + "/"
+
+        let isInDownloads = canonicalDest.hasPrefix(dlPrefix) || canonicalDest == canonicalDownloads
+        var isInDocumentsRoot = false
+        if !isInDownloads && customDownloadsRootURL == nil {
+            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.resolvingSymlinksInPath().path
+            let docsPrefix = docs.hasSuffix("/") ? docs : docs + "/"
+            if canonicalDest.hasPrefix(docsPrefix) {
+                let sub = String(canonicalDest.dropFirst(docsPrefix.count))
+                if !sub.contains("/") {
+                    isInDocumentsRoot = true
+                }
+            }
+        }
+
+        guard isInDownloads || isInDocumentsRoot else {
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Destination path is invalid.", comment: "")
             )
         }
 
-        // 同一親ディレクトリ内で同名ファイルが既に存在する場合は上書きを阻止
-        if destURL.path.caseInsensitiveCompare(sourceURL.path) != .orderedSame && fm.fileExists(atPath: destURL.path) {
-            throw VideoFolderManager.FolderError.alreadyExists
+        // 宛先パスのシンボリックリンク拒否
+        let destVals = try? destURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if destVals?.isSymbolicLink == true {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Symbolic links are not supported.", comment: "")
+            )
+        }
+
+        // 他のファイルとの衝突確認（APFS case-insensitive および Unicode NFC/NFD 正準等価性を考慮）
+        if !isCaseOrNormOnly {
+            if fm.fileExists(atPath: destURL.path) {
+                throw VideoFolderManager.FolderError.alreadyExists
+            }
+            if let siblings = try? fm.contentsOfDirectory(atPath: parentDir.path) {
+                let normTargetName = "\(cleanNewBase).\(item.fileExtension)".precomposedStringWithCanonicalMapping
+                let hasCollision = siblings.contains { name in
+                    name != sourceURL.lastPathComponent &&
+                    name.precomposedStringWithCanonicalMapping.caseInsensitiveCompare(normTargetName) == .orderedSame
+                }
+                if hasCollision {
+                    throw VideoFolderManager.FolderError.alreadyExists
+                }
+            }
         }
 
         guard let destRelative = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customDownloadsRootURL) else {
@@ -945,25 +1031,49 @@ final class ZipArchiveManager: ObservableObject {
         )
         try recordPendingOperation(op)
 
-        // 物理リネーム実行
-        do {
-            try fm.moveItem(at: sourceURL, to: destURL)
-        } catch {
-            clearPendingOperation()
-            throw VideoFolderManager.FolderError.fileOperationFailed(
-                String(format: NSLocalizedString("Failed to rename file: %@", comment: ""), error.localizedDescription)
-            )
+        // 物理リネーム実行（APFSの大文字小文字のみの変更時は2段階中間リネームを行う）
+        var moveError: Error? = nil
+        if isCaseOrNormOnly {
+            let tempURL = parentDir.appendingPathComponent(".rename_case_tmp_\(UUID().uuidString)")
+            do {
+                try fm.moveItem(at: sourceURL, to: tempURL)
+                do {
+                    try fm.moveItem(at: tempURL, to: destURL)
+                } catch {
+                    try? fm.moveItem(at: tempURL, to: sourceURL)
+                    throw error
+                }
+            } catch {
+                moveError = error
+            }
+        } else {
+            do {
+                try fm.moveItem(at: sourceURL, to: destURL)
+            } catch {
+                moveError = error
+            }
+        }
+
+        let srcExistsAfter = fm.fileExists(atPath: sourceURL.path)
+        let dstExistsAfter = fm.fileExists(atPath: destURL.path)
+
+        if let err = moveError {
+            if !isCaseOrNormOnly && !srcExistsAfter && dstExistsAfter {
+                // moveItemが例外を返したが、実ファイルはdestに移動成立していたケース
+            } else if srcExistsAfter && dstExistsAfter {
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    NSLocalizedString("File move conflict occurred.", comment: "")
+                )
+            } else {
+                clearPendingOperation()
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to rename file: %@", comment: ""), err.localizedDescription)
+                )
+            }
         }
 
         // 物理移動の成立確認
-        guard fm.fileExists(atPath: destURL.path) && !fm.fileExists(atPath: sourceURL.path) else {
-            if fm.fileExists(atPath: destURL.path) && fm.fileExists(atPath: sourceURL.path) {
-                clearPendingOperation()
-                throw VideoFolderManager.FolderError.fileOperationFailed(
-                    NSLocalizedString("Failed to rename file due to duplicate files.", comment: "")
-                )
-            }
-            try? fm.moveItem(at: destURL, to: sourceURL)
+        guard dstExistsAfter else {
             clearPendingOperation()
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Failed to rename file.", comment: "")
@@ -972,7 +1082,7 @@ final class ZipArchiveManager: ObservableObject {
 
         // メタデータ更新（UUID・createdAt・サイズ・フォルダ・サブパスは100%維持）
         guard let idx = managedFiles.firstIndex(where: { $0.id == item.id }) else {
-            clearPendingOperation()
+            // インデックスに対象IDが消失した場合も復旧情報を維持！
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Item not found in index.", comment: "")
             )
@@ -984,17 +1094,33 @@ final class ZipArchiveManager: ObservableObject {
 
         do {
             try persistManagedFilesThrowing()
-        } catch {
-            // メタデータ保存失敗時は物理ロールバック
-            try? fm.moveItem(at: destURL, to: sourceURL)
-            managedFiles[idx] = previousItem
             clearPendingOperation()
+        } catch {
+            // メタデータ保存失敗時は物理ロールバックを試行
+            var rollbackSucceeded = false
+            if isCaseOrNormOnly {
+                let tempURL = parentDir.appendingPathComponent(".rename_case_tmp_\(UUID().uuidString)")
+                if (try? fm.moveItem(at: destURL, to: tempURL)) != nil {
+                    if (try? fm.moveItem(at: tempURL, to: sourceURL)) != nil {
+                        rollbackSucceeded = fm.fileExists(atPath: sourceURL.path) && !fm.fileExists(atPath: destURL.path)
+                    }
+                }
+            } else {
+                rollbackSucceeded = (try? fm.moveItem(at: destURL, to: sourceURL)) != nil
+            }
+
+            if rollbackSucceeded {
+                managedFiles[idx] = previousItem
+                try? persistManagedFilesThrowing()
+                clearPendingOperation()
+            } else {
+                // ロールバック失敗時は復旧ジャーナルを維持！
+            }
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 String(format: NSLocalizedString("Failed to save file metadata: %@", comment: ""), error.localizedDescription)
             )
         }
 
-        clearPendingOperation()
         return managedFiles[idx]
     }
 
@@ -1033,32 +1159,29 @@ final class ZipArchiveManager: ObservableObject {
             )
         }
 
+        // シンボリックリンクの拒否
+        let srcVals = try? sourceURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if srcVals?.isSymbolicLink == true {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Symbolic links are not supported.", comment: "")
+            )
+        }
+
         // 移動先ディレクトリの特定
         let targetDir: URL
         var didCreateFolder = false
         if cleanTarget.isEmpty {
             targetDir = downloadsRootURL
         } else {
-            if customDownloadsRootURL != nil {
-                targetDir = downloadsRootURL.appendingPathComponent(cleanTarget, isDirectory: true)
-                if !fm.fileExists(atPath: targetDir.path) {
-                    try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-                    didCreateFolder = true
-                }
+            targetDir = downloadsRootURL.appendingPathComponent(cleanTarget, isDirectory: true)
+            let folderExistedOnDisk = fm.fileExists(atPath: targetDir.path)
+            let folderExistedInManager = folderManager.folders.contains(where: { $0.caseInsensitiveCompare(cleanTarget) == .orderedSame })
+            if !folderExistedOnDisk {
+                try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+                didCreateFolder = true
+            }
+            if !folderExistedInManager {
                 folderManager.registerLogicalFolderIfNeeded(cleanTarget)
-            } else {
-                let existed = folderManager.folders.contains(cleanTarget)
-                do {
-                    targetDir = try VideoFolderManager.ensureSubfolder(named: cleanTarget)
-                    if !existed {
-                        didCreateFolder = true
-                        _ = folderManager.createFolder(name: cleanTarget)
-                    }
-                } catch {
-                    throw VideoFolderManager.FolderError.fileOperationFailed(
-                        NSLocalizedString("Failed to access destination folder.", comment: "")
-                    )
-                }
             }
         }
 
@@ -1072,6 +1195,14 @@ final class ZipArchiveManager: ObservableObject {
         guard canonicalDest.hasPrefix(prefix) || canonicalDest == canonicalRoot else {
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Destination path is invalid.", comment: "")
+            )
+        }
+
+        // 宛先パスのシンボリックリンク拒否
+        let destVals = try? destURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+        if destVals?.isSymbolicLink == true {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Symbolic links are not supported.", comment: "")
             )
         }
 
@@ -1103,33 +1234,57 @@ final class ZipArchiveManager: ObservableObject {
         try recordPendingOperation(op)
 
         // 物理移動実行
+        var moveError: Error? = nil
         do {
             try fm.moveItem(at: sourceURL, to: destURL)
         } catch {
-            if didCreateFolder {
-                let contents = (try? fm.contentsOfDirectory(atPath: targetDir.path)) ?? []
-                if contents.isEmpty {
-                    try? fm.removeItem(at: targetDir)
-                }
-            }
-            clearPendingOperation()
-            throw VideoFolderManager.FolderError.fileOperationFailed(
-                String(format: NSLocalizedString("Failed to move file: %@", comment: ""), error.localizedDescription)
-            )
+            moveError = error
         }
 
-        // 物理移動成立確認
-        guard fm.fileExists(atPath: destURL.path) && !fm.fileExists(atPath: sourceURL.path) else {
-            if fm.fileExists(atPath: destURL.path) && fm.fileExists(atPath: sourceURL.path) {
+        // 物理移動のディスク上での成立確認（moveItemがエラーを返した場合も実ファイルの所在地を確認）
+        let srcExistsAfter = fm.fileExists(atPath: sourceURL.path)
+        let dstExistsAfter = fm.fileExists(atPath: destURL.path)
+
+        if let err = moveError {
+            if !srcExistsAfter && dstExistsAfter {
+                // moveItemは例外を投げたが、移動自体は成立していた
+            } else if srcExistsAfter && dstExistsAfter {
+                // 移動元と移動先の両方に実ファイルが存在する競合状態
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    NSLocalizedString("File move conflict occurred.", comment: "")
+                )
+            } else {
                 clearPendingOperation()
+                if didCreateFolder {
+                    Self.safelyCleanupNewlyCreatedFolderIfNeeded(
+                        targetDir,
+                        destinationFileURL: destURL,
+                        folderName: cleanTarget,
+                        folderManager: folderManager,
+                        fileManager: fm
+                    )
+                }
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to move file: %@", comment: ""), err.localizedDescription)
+                )
+            }
+        }
+
+        guard dstExistsAfter && !srcExistsAfter else {
+            if dstExistsAfter && srcExistsAfter {
                 throw VideoFolderManager.FolderError.fileOperationFailed(
                     NSLocalizedString("File move conflict occurred.", comment: "")
                 )
             }
             try? fm.moveItem(at: destURL, to: sourceURL)
             if didCreateFolder {
-                let contents = (try? fm.contentsOfDirectory(atPath: targetDir.path)) ?? []
-                if contents.isEmpty { try? fm.removeItem(at: targetDir) }
+                Self.safelyCleanupNewlyCreatedFolderIfNeeded(
+                    targetDir,
+                    destinationFileURL: destURL,
+                    folderName: cleanTarget,
+                    folderManager: folderManager,
+                    fileManager: fm
+                )
             }
             clearPendingOperation()
             throw VideoFolderManager.FolderError.fileOperationFailed(
@@ -1146,7 +1301,7 @@ final class ZipArchiveManager: ObservableObject {
 
         // メタデータ更新（UUID維持、folderName更新、親直下配置のためrelativeSubpath=nil）
         guard let idx = managedFiles.firstIndex(where: { $0.id == item.id }) else {
-            clearPendingOperation()
+            // インデックスに対象IDが消失した場合も復旧情報を維持！
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Item not found in index.", comment: "")
             )
@@ -1160,17 +1315,29 @@ final class ZipArchiveManager: ObservableObject {
 
         do {
             try persistManagedFilesThrowing()
+            clearPendingOperation()
         } catch {
             // メタデータ保存失敗時は物理ロールバック
-            try? fm.moveItem(at: destURL, to: sourceURL)
-            managedFiles[idx] = previousItem
-            clearPendingOperation()
+            var rollbackSucceeded = false
+            do {
+                try fm.moveItem(at: destURL, to: sourceURL)
+                rollbackSucceeded = fm.fileExists(atPath: sourceURL.path) && !fm.fileExists(atPath: destURL.path)
+            } catch {
+                rollbackSucceeded = false
+            }
+
+            if rollbackSucceeded {
+                managedFiles[idx] = previousItem
+                try? persistManagedFilesThrowing()
+                clearPendingOperation()
+            } else {
+                // ロールバック失敗時は復旧ジャーナルを維持！
+            }
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 String(format: NSLocalizedString("Failed to save file metadata: %@", comment: ""), error.localizedDescription)
             )
         }
 
-        clearPendingOperation()
         return managedFiles[idx]
     }
 
@@ -2158,7 +2325,16 @@ final class ZipArchiveManager: ObservableObject {
     // MARK: - 永続化とヘルパー
 
     private func loadPersistedManagedFiles() {
-        guard let data = userDefaults.data(forKey: Self.managedFilesKey),
+        let fm = FileManager.default
+        var rawData: Data? = nil
+        if fm.fileExists(atPath: metadataFileURL.path),
+           let fileData = try? Data(contentsOf: metadataFileURL) {
+            rawData = fileData
+        } else if let defaultsData = userDefaults.data(forKey: Self.managedFilesKey) {
+            rawData = defaultsData
+        }
+
+        guard let data = rawData,
               let decoded = try? JSONDecoder().decode([ManagedFileItem].self, from: data) else {
             managedFiles = []
             return
@@ -2176,7 +2352,11 @@ final class ZipArchiveManager: ObservableObject {
     }
 
     func persistManagedFilesThrowing() throws {
+        if let injector = metadataPersistFailureInjector {
+            try injector()
+        }
         let data = try JSONEncoder().encode(managedFiles)
+        try data.write(to: metadataFileURL, options: .atomic)
         userDefaults.set(data, forKey: Self.managedFilesKey)
     }
 
@@ -2186,14 +2366,22 @@ final class ZipArchiveManager: ObservableObject {
 
     func recordPendingOperation(_ op: ManagedFilePendingOperation) throws {
         let data = try JSONEncoder().encode(op)
+        try data.write(to: journalFileURL, options: .atomic)
         userDefaults.set(data, forKey: Self.pendingOperationKey)
     }
 
     func clearPendingOperation() {
+        try? FileManager.default.removeItem(at: journalFileURL)
         userDefaults.removeObject(forKey: Self.pendingOperationKey)
     }
 
     func loadPendingOperation() -> ManagedFilePendingOperation? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: journalFileURL.path),
+           let fileData = try? Data(contentsOf: journalFileURL),
+           let decoded = try? JSONDecoder().decode(ManagedFilePendingOperation.self, from: fileData) {
+            return decoded
+        }
         guard let data = userDefaults.data(forKey: Self.pendingOperationKey),
               let decoded = try? JSONDecoder().decode(ManagedFilePendingOperation.self, from: data) else {
             return nil
@@ -2204,10 +2392,15 @@ final class ZipArchiveManager: ObservableObject {
     func resolveRelativePathToURL(_ relativePath: String) -> URL {
         let norm = FileClassification.normalizedRelativePath(relativePath)
         if let custom = customDownloadsRootURL {
-            let prefix = "Documents/Downloads/"
-            if norm.hasPrefix(prefix) {
-                let sub = String(norm.dropFirst(prefix.count))
+            let dlPrefix = "Documents/Downloads/"
+            if norm.hasPrefix(dlPrefix) {
+                let sub = String(norm.dropFirst(dlPrefix.count))
                 return custom.appendingPathComponent(sub)
+            }
+            let docPrefix = "Documents/"
+            if norm.hasPrefix(docPrefix) {
+                let sub = String(norm.dropFirst(docPrefix.count))
+                return custom.deletingLastPathComponent().appendingPathComponent(sub)
             }
         }
         return URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(norm)
@@ -2245,17 +2438,58 @@ final class ZipArchiveManager: ObservableObject {
                 )
                 managedFiles.insert(restored, at: 0)
             }
-            try? persistManagedFilesThrowing()
-            clearPendingOperation()
+            do {
+                try persistManagedFilesThrowing()
+                // 永続化成功時のみジャーナルをクリアする
+                clearPendingOperation()
+                unresolvedRecoveryNotice = nil
+            } catch {
+                // 永続化失敗時はジャーナルを消去せず保持する
+                unresolvedRecoveryNotice = String(format: NSLocalizedString("Failed to recover file metadata: %@", comment: ""), error.localizedDescription)
+            }
         } else if srcExists && !dstExists {
-            // 物理移動前、またはロールバック済み
+            // 物理移動前、または正常にロールバック完了済み
             clearPendingOperation()
+            unresolvedRecoveryNotice = nil
         } else if srcExists && dstExists {
-            // 両方に実ファイルが存在する競合ケース：勝手に削除せず両方保持し、ジャーナルをクリア
-            clearPendingOperation()
+            // 両方に実ファイルが存在する競合ケース：勝手に削除せず両方保持し、ジャーナルを維持
+            unresolvedRecoveryNotice = NSLocalizedString("Conflict detected: File exists at both source and destination.", comment: "")
         } else {
             // 両方不在
             clearPendingOperation()
+            unresolvedRecoveryNotice = nil
+        }
+    }
+
+    /// 新規作成されたフォルダが完全に空（かつ移動先ファイルが存在しない）であることが厳密に証明できた場合のみ安全に削除し、メタデータも整合させる
+    nonisolated static func safelyCleanupNewlyCreatedFolderIfNeeded(
+        _ targetDir: URL,
+        destinationFileURL: URL,
+        folderName: String,
+        folderManager: VideoFolderManager,
+        fileManager fm: FileManager
+    ) {
+        // 1. 移動先にファイルが存在する可能性がある場合は絶対にフォルダを削除しない
+        if fm.fileExists(atPath: destinationFileURL.path) {
+            return
+        }
+
+        // 2. ディレクトリの読み取りエラーは明示的な失敗として扱い、削除を中止する（try?による空判定は厳禁）
+        do {
+            let items = try fm.contentsOfDirectory(atPath: targetDir.path).filter {
+                $0 != ".DS_Store" && $0 != "__MACOSX"
+            }
+            // 3. 1つでもファイルが存在する場合は削除しない
+            guard items.isEmpty else { return }
+
+            // 4. 空であることが確認できた場合のみ物理削除
+            try fm.removeItem(at: targetDir)
+
+            // 5. フォルダ管理メタデータとの整合性を維持（論理フォルダ登録解除）
+            folderManager.unregisterLogicalFolderIfNeeded(folderName)
+        } catch {
+            // 読み取り失敗または削除失敗時は何もしない（データを失うリスクを回避）
+            print("Failed to clean up folder \(folderName): \(error)")
         }
     }
 
@@ -2273,18 +2507,17 @@ final class ZipArchiveManager: ObservableObject {
 
         var current = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
         while current.path != topPath && current.path.hasPrefix(topPath) {
-            let contents = (try? fm.contentsOfDirectory(atPath: current.path))?.filter {
-                $0 != ".DS_Store" && $0 != "__MACOSX"
-            } ?? ["NON_EMPTY"]
-            if contents.isEmpty {
-                let parent = current.deletingLastPathComponent()
-                do {
+            do {
+                let rawContents = try fm.contentsOfDirectory(atPath: current.path)
+                let contents = rawContents.filter { $0 != ".DS_Store" && $0 != "__MACOSX" }
+                if contents.isEmpty {
+                    let parent = current.deletingLastPathComponent()
                     try fm.removeItem(at: current)
-                } catch {
+                    current = parent
+                } else {
                     break
                 }
-                current = parent
-            } else {
+            } catch {
                 break
             }
         }

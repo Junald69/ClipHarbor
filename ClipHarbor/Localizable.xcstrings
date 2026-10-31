@@ -11555,6 +11555,57 @@
           }
         }
       }
+    },
+    "Conflict detected: File exists at both source and destination.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conflict detected: File exists at both source and destination."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "競合が検出されました: 移動元と移動先の両方にファイルが存在します。"
+          }
+        }
+      }
+    },
+    "Symbolic links are not supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbolic links are not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンボリックリンクはサポートされていません。"
+          }
+        }
+      }
+    },
+    "Failed to recover file metadata: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to recover file metadata: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル情報の復元に失敗しました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
