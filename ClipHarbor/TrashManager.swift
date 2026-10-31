@@ -639,7 +639,7 @@ final class TrashManager: ObservableObject {
                         format: item.format,
                         sourceHost: item.sourceHost,
                         createdAt: Date(),
-                        byteSize: item.byteSize,
+                        byteSize: (try? self.fileManager.attributesOfItem(atPath: destURL.path)[.size] as? Int64) ?? item.byteSize ?? 0,
                         sourcePageURL: item.sourcePageURL,
                         isFavorite: item.isFavorite ?? false
                     )
@@ -779,7 +779,7 @@ final class TrashManager: ObservableObject {
                         relativePath: newRelativePath,
                         fileExtension: ext,
                         createdAt: Date(),
-                        byteSize: item.byteSize,
+                        byteSize: (try? self.fileManager.attributesOfItem(atPath: destURL.path)[.size] as? Int64) ?? item.byteSize ?? 0,
                         folderName: cleanFolder,
                         relativeSubpath: item.relativeSubpath
                     )
