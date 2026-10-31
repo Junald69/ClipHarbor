@@ -11691,6 +11691,261 @@
           }
         }
       }
+    },
+    "Edit Text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストを編集"
+          }
+        }
+      }
+    },
+    "Unsaved Changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsaved Changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存の変更"
+          }
+        }
+      }
+    },
+    "Discard Changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard Changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更を破棄"
+          }
+        }
+      }
+    },
+    "Save & Close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save & Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存して閉じる"
+          }
+        }
+      }
+    },
+    "You have unsaved changes. Do you want to discard them or save before closing?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You have unsaved changes. Do you want to discard them or save before closing?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存の変更があります。破棄しますか？それとも保存して閉じますか？"
+          }
+        }
+      }
+    },
+    "Save Failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存に失敗しました"
+          }
+        }
+      }
+    },
+    "Read Only": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read Only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用"
+          }
+        }
+      }
+    },
+    "Chars: %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chars: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字数: %lld"
+          }
+        }
+      }
+    },
+    "Lines: %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lines: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行数: %lld"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "Loading document...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading document..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドキュメントを読み込み中..."
+          }
+        }
+      }
+    },
+    "Binary file detected. Editing is disabled to prevent corruption.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binary file detected. Editing is disabled to prevent corruption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バイナリファイルが検出されました。ファイル破損防止のため編集は無効化されています。"
+          }
+        }
+      }
+    },
+    "Unsupported text encoding (not valid UTF-8). Opened in read-only mode to prevent data corruption.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported text encoding (not valid UTF-8). Opened in read-only mode to prevent data corruption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非対応の文字コード（UTF-8ではありません）です。データ破損防止のため読み取り専用で開きました。"
+          }
+        }
+      }
+    },
+    "The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の処理によって外部で変更されています。競合する変更の上書きを防ぐため保存を中止しました。"
+          }
+        }
+      }
+    },
+    "Failed to save metadata and rollback failed. File is preserved in trash directory: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to save metadata and rollback failed. File is preserved in trash directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メタデータの保存に失敗し、ロールバックにも失敗しました。ファイルはゴミ箱ディレクトリ内に保護されています: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

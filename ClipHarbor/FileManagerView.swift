@@ -60,6 +60,7 @@ struct FileManagerView: View {
     @State private var renameManagedFileInput = ""
     @State private var movingManagedFile: ManagedFileItem?
     @State private var deletingManagedFile: ManagedFileItem?
+    @State private var editingTextDocument: ManagedFileItem?
 
     // 画像インポート
     @State private var showPhotosPicker = false
@@ -264,7 +265,7 @@ struct FileManagerView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.image, .zip],
+                allowedContentTypes: [.image, .zip, .plainText, .text],
                 allowsMultipleSelection: true
             ) { result in
                 handleFileImport(result: result)
@@ -437,6 +438,9 @@ struct FileManagerView: View {
                         }
                     }
                 )
+            }
+            .sheet(item: $editingTextDocument) { item in
+                TextDocumentEditorSheet(item: item, zipManager: zipManager)
             }
             .sheet(isPresented: $showTrashSheet) {
                 TrashView(
@@ -662,6 +666,9 @@ struct FileManagerView: View {
                     AlohaManagedFileCardView(
                         item: fileItem,
                         isOperating: zipManager.activeOperation != nil,
+                        onOpenText: {
+                            editingTextDocument = fileItem
+                        },
                         onExtract: fileItem.isZip ? {
                             handleExtractZip(fileItem)
                         } : nil,
@@ -952,6 +959,9 @@ struct FileManagerView: View {
                                 AlohaManagedFileCardView(
                                     item: fileItem,
                                     isOperating: zipManager.activeOperation != nil,
+                                    onOpenText: {
+                                        editingTextDocument = fileItem
+                                    },
                                     onExtract: fileItem.isZip ? {
                                         handleExtractZip(fileItem)
                                     } : nil,
@@ -1159,6 +1169,9 @@ struct FileManagerView: View {
                                 AlohaManagedFileCardView(
                                     item: fileItem,
                                     isOperating: zipManager.activeOperation != nil,
+                                    onOpenText: {
+                                        editingTextDocument = fileItem
+                                    },
                                     onExtract: fileItem.isZip ? {
                                         handleExtractZip(fileItem)
                                     } : nil,
@@ -1561,7 +1574,9 @@ struct FileManagerView: View {
                         }
                     }
 
-                    if url.pathExtension.lowercased() == "zip" {
+                    let ext = url.pathExtension.lowercased()
+                    let isText = ["txt", "text", "md", "markdown"].contains(ext)
+                    if ext == "zip" || isText {
                         await MainActor.run {
                             do {
                                 let imported = try zipManager.importExternalFile(
@@ -1570,7 +1585,7 @@ struct FileManagerView: View {
                                     downloads: downloads,
                                     folderManager: folderManager
                                 )
-                                showToast(String(format: NSLocalizedString("Imported \"%@\"", comment: ""), "\(imported.title).zip"))
+                                showToast(String(format: NSLocalizedString("Imported \"%@\"", comment: ""), "\(imported.title).\(imported.fileExtension)"))
                             } catch {
                                 errorMessage = error.localizedDescription
                             }
@@ -2202,6 +2217,7 @@ private struct AlohaVideoCardView: View {
 private struct AlohaManagedFileCardView: View {
     let item: ManagedFileItem
     var isOperating: Bool = false
+    var onOpenText: (() -> Void)? = nil
     var onExtract: (() -> Void)? = nil
     var onCompress: (() -> Void)? = nil
     var onRename: (() -> Void)? = nil
@@ -2222,6 +2238,12 @@ private struct AlohaManagedFileCardView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(isOperating)
+                    } else if let onOpenText = onOpenText, item.isTextDocument {
+                        Button(action: onOpenText) {
+                            tileVisual
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isOperating)
                     } else {
                         tileVisual
                     }
@@ -2229,6 +2251,13 @@ private struct AlohaManagedFileCardView: View {
 
                 // 右上「…」メニュー（Phase F1 / F2-A 対応済みの機能を表示）
                 Menu {
+                    if item.isTextDocument, let onOpenText = onOpenText, item.fileExists {
+                        Button(action: onOpenText) {
+                            Label("Edit Text", systemImage: "square.and.pencil")
+                        }
+                        .disabled(isOperating)
+                    }
+
                     if item.isZip, let onExtract = onExtract {
                         Button(action: onExtract) {
                             Label("Extract Files", systemImage: "archivebox")

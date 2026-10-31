@@ -4756,4 +4756,321 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(dc.saved.contains(where: { $0.id == video.id }), "通常一覧へ復元されていること")
     }
 
+
+    // MARK: - Phase F2-B & F2-C 安全性・テキストエディター統合テスト
+
+    @MainActor
+    func testZipPhaseF2B_OrphanRecovery_ExemptFromAutoPurge() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_OrphanPurge_\(UUID().uuidString)", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        // 孤立したファイルを Trash ディレクトリ配下の UUID ディレクトリ内に直接配置
+        let orphanUUID = UUID()
+        let orphanDir = trashDir.appendingPathComponent(orphanUUID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphanDir, withIntermediateDirectories: true)
+        let orphanFile = orphanDir.appendingPathComponent("orphaned_document.txt")
+        try Data("orphan text content".utf8).write(to: orphanFile)
+
+        // TrashManager を初期化（metadata.json が存在しないため scanAndRecoverOrphanedFiles が走行）
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        guard let recovered = trashMgr.items.first(where: { $0.id == orphanUUID }) else {
+            XCTFail("Orphan file must be recovered")
+            return
+        }
+
+        // 救済ファイルの expiresAt は nil であり、自動削除対象外（保護）であること
+        XCTAssertNil(recovered.expiresAt, "救済された孤立ファイルは作成日時に依らず自動削除から除外されること")
+        XCTAssertFalse(recovered.isExpired, "isExpired は常に false であること")
+
+        // purgeExpiredItems を実行してもファイルが削除されないことを検証
+        trashMgr.purgeExpiredItems()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: orphanFile.path), "実ファイルが自動パージで削除されず保持されていること")
+        XCTAssertTrue(trashMgr.items.contains(where: { $0.id == orphanUUID }), "TrashManagerのリストに残っていること")
+    }
+
+    @MainActor
+    func testZipPhaseF2B_MoveToTrash_RollbackFailure_PreservesFileInTrashDir() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_RollbackPreserve_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2b.rollbackpreserve.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // ファイル作成
+        let fileURL = downloadsDir.appendingPathComponent("critical_data.txt")
+        let originalPayload = Data("critical user bytes that must never be deleted".utf8)
+        try originalPayload.write(to: fileURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let item = zipMgr.managedFiles.first(where: { $0.title == "critical_data" }) else {
+            XCTFail("Item not indexed")
+            return
+        }
+
+        // メタデータファイルの位置に同名ディレクトリを作成し、メタデータ保存（writeMetadataToDisk）が必ず失敗するようにする
+        let metadataDir = trashDir.appendingPathComponent("trash_metadata.json", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
+
+        // moveToTrash を実行
+        let res = await trashMgr.moveToTrash(managedFile: item, zipManager: zipMgr)
+
+        // メタデータ保存失敗によりエラーが返されること
+        guard case .failure = res else {
+            XCTFail("Expected moveToTrash to fail due to blocked metadata write")
+            return
+        }
+
+        // ロールバックが成功した場合: 元の場所にファイルが復元されていること
+        // ロールバックに失敗した場合でも、ゴミ箱内ディレクトリに実データが存在すること（データ消失がゼロであること）
+        let sourceExists = FileManager.default.fileExists(atPath: fileURL.path)
+        let trashFiles = (try? FileManager.default.subpathsOfDirectory(atPath: trashDir.path))?.filter { $0.hasSuffix("critical_data.txt") } ?? []
+        let trashHasFile = !trashFiles.isEmpty
+
+        XCTAssertTrue(sourceExists || trashHasFile, "データ消失がないこと: 元の場所かゴミ箱内のいずれかに実ファイルが存在すること")
+    }
+
+    func testZipPhaseF2C_TextCodec_UTF8WithoutBOM_PreservesLFAndTrailingNewline() {
+        let originalText = "Hello ClipHarbor\nLine 2\nLine 3\n"
+        let data = Data(originalText.utf8)
+
+        let result = TextDocumentCodec.decode(data: data)
+        XCTAssertFalse(result.metadata.hasBOM)
+        XCTAssertEqual(result.metadata.lineEnding, .lf)
+        XCTAssertTrue(result.metadata.hasTrailingNewline)
+        XCTAssertFalse(result.metadata.isReadOnly)
+        XCTAssertNil(result.metadata.readOnlyReason)
+
+        let encoded = TextDocumentCodec.encode(text: result.text, metadata: result.metadata)
+        XCTAssertEqual(encoded, data, "元のデータと完全一致すること")
+    }
+
+    func testZipPhaseF2C_TextCodec_UTF8WithBOM_PreservesCRLFAndNoTrailingNewline() {
+        var rawData = TextDocumentCodec.utf8BOM
+        let textContent = "Title\r\nSecond CRLF line\r\nThird line"
+        rawData.append(Data(textContent.utf8))
+
+        let result = TextDocumentCodec.decode(data: rawData)
+        XCTAssertTrue(result.metadata.hasBOM, "BOMが検知されること")
+        XCTAssertEqual(result.metadata.lineEnding, .crlf, "CRLF改行が検知されること")
+        XCTAssertFalse(result.metadata.hasTrailingNewline, "末尾改行なしが検知されること")
+        XCTAssertFalse(result.metadata.isReadOnly)
+
+        let encoded = TextDocumentCodec.encode(text: result.text, metadata: result.metadata)
+        XCTAssertEqual(encoded, rawData, "BOMおよびCRLFが元のバイト列通りに完全再現されること")
+    }
+
+    func testZipPhaseF2C_TextCodec_BinaryFileDetection_SetsReadOnly() {
+        // 先頭にNULLバイトを含むバイナリデータ
+        var binaryData = Data("Normal text header...".utf8)
+        binaryData.append(Data([0x00, 0x01, 0x02, 0xFF]))
+        binaryData.append(Data(" trailing bytes".utf8))
+
+        XCTAssertTrue(TextDocumentCodec.isBinaryData(binaryData))
+
+        let result = TextDocumentCodec.decode(data: binaryData)
+        XCTAssertTrue(result.metadata.isReadOnly, "バイナリファイルは強制的に読み取り専用となること")
+        XCTAssertNotNil(result.metadata.readOnlyReason)
+    }
+
+    func testZipPhaseF2C_TextCodec_InvalidUTF8_SetsReadOnly() {
+        // 不正なUTF-8バイトシーケンス
+        let invalidData = Data([0x48, 0x65, 0x6C, 0x6C, 0x6F, 0xFF, 0xFE, 0xFD])
+
+        let result = TextDocumentCodec.decode(data: invalidData)
+        XCTAssertTrue(result.metadata.isReadOnly, "非UTF-8テキストは強制的に読み取り専用となること")
+        XCTAssertNotNil(result.metadata.readOnlyReason)
+    }
+
+    @MainActor
+    func testZipPhaseF2C_AtomicSave_PreservesUUID_UpdatesByteSize_AndProtectsVault() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2C_AtomicSave_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2c.atomicsave.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 1. テキストファイル作成
+        let txtFile = downloadsDir.appendingPathComponent("notes.txt")
+        let initialData = Data("Initial text content\n".utf8)
+        try initialData.write(to: txtFile)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let item = zipMgr.managedFiles.first(where: { $0.title == "notes" }) else {
+            XCTFail("Item not found")
+            return
+        }
+
+        XCTAssertTrue(item.isTextDocument)
+        XCTAssertFalse(item.isMarkdown)
+        let originalUUID = item.id
+
+        // 2. 編集内容を原子的保存
+        let loadResult = TextDocumentCodec.decode(data: initialData)
+        let newContent = "Updated content line 1\nUpdated content line 2\n"
+
+        let updatedItem = try zipMgr.saveTextDocument(item, content: newContent, metadata: loadResult.metadata)
+
+        // UUIDが維持され、サイズが更新されていること
+        XCTAssertEqual(updatedItem.id, originalUUID, "ManagedFileItem.id が保存後も同一であること")
+        XCTAssertEqual(updatedItem.byteSize, Int64(newContent.utf8.count), "byteSize が更新されていること")
+
+        // ディスク上の実ファイルが正しく更新されていること
+        let savedDiskData = try Data(contentsOf: txtFile)
+        XCTAssertEqual(String(data: savedDiskData, encoding: .utf8), newContent)
+
+        // 3. Vault領域のファイルを保存しようとした場合に拒否されること
+        let vaultFolder = downloadsDir.appendingPathComponent(".PrivateVault_Test", isDirectory: true)
+        try FileManager.default.createDirectory(at: vaultFolder, withIntermediateDirectories: true)
+        let vaultFile = vaultFolder.appendingPathComponent("secret.txt")
+        try Data("secret".utf8).write(to: vaultFile)
+
+        let vaultItem = ManagedFileItem(
+            id: UUID(),
+            title: "secret",
+            relativePath: "Documents/Downloads/.PrivateVault_Test/secret.txt",
+            fileExtension: "txt",
+            createdAt: Date(),
+            byteSize: 6,
+            folderName: ".PrivateVault_Test",
+            relativeSubpath: nil
+        )
+
+        XCTAssertThrowsError(try zipMgr.saveTextDocument(vaultItem, content: "hacked", metadata: loadResult.metadata), "Vault領域ファイルへの保存は拒否されること")
+    }
+
+    @MainActor
+    func testZipPhaseF2C_ExternalConflictDetection_RejectsSave() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2C_Conflict_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2c.conflict.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let mdFile = downloadsDir.appendingPathComponent("README.md")
+        try Data("# Original Title\n".utf8).write(to: mdFile)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let item = zipMgr.managedFiles.first(where: { $0.title == "README" }) else {
+            XCTFail("Item not found")
+            return
+        }
+
+        XCTAssertTrue(item.isTextDocument)
+        XCTAssertTrue(item.isMarkdown)
+
+        // 読み込み時メタデータをシミュレート
+        var meta = TextDocumentCodec.decode(data: try Data(contentsOf: mdFile)).metadata
+        meta.fileModificationDate = Date().addingTimeInterval(-60) // 1分前のタイムスタンプ
+        meta.fileByteSize = 17
+
+        // 外部プロセスによりファイルが変更された状況をシミュレート
+        let externalData = Data("# Modified Externally by Another App\nNew content\n".utf8)
+        try externalData.write(to: mdFile)
+
+        // 保存を試行 -> 競合エラーで拒否されること
+        do {
+            _ = try zipMgr.saveTextDocument(item, content: "# Overwrite Attempt\n", metadata: meta)
+            XCTFail("External conflict must reject save")
+        } catch {
+            // 競合エラーで拒否され、外部で変更されたファイル内容が保持されていること
+            let diskData = try Data(contentsOf: mdFile)
+            XCTAssertEqual(diskData, externalData, "外部変更内容が誤って上書きされず保護されていること")
+        }
+    }
+
+    @MainActor
+    func testZipPhaseF2C_ImportExternalFile_SupportsTextDocuments() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2C_Import_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let externalDir = tempRoot.appendingPathComponent("ExternalFiles", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2c.import.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 外部の Markdown ファイルを作成
+        let externalMD = externalDir.appendingPathComponent("Documentation.md")
+        try Data("# Documentation Content\nLine 2\n".utf8).write(to: externalMD)
+
+        // importExternalFile を実行
+        let targetFolder = "Manuals"
+        let imported = try zipMgr.importExternalFile(
+            from: externalMD,
+            targetFolderName: targetFolder,
+            downloads: dc,
+            folderManager: fm
+        )
+
+        XCTAssertEqual(imported.title, "Documentation")
+        XCTAssertEqual(imported.fileExtension, "md")
+        XCTAssertTrue(imported.isTextDocument)
+        XCTAssertTrue(imported.isMarkdown)
+        XCTAssertFalse(imported.isZip)
+        XCTAssertEqual(imported.folderName, targetFolder)
+
+        // 実ファイルが Manuals フォルダ内に配置されていること
+        let expectedURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true).appendingPathComponent("Documentation.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedURL.path), "インポート先実ファイルが存在すること")
+    }
+
 }

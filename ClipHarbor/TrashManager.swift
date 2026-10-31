@@ -274,6 +274,58 @@ final class TrashManager: ObservableObject {
         }
     }
 
+    /// ファイル移動失敗・メタデータ書き込み失敗時の安全ロールバック
+    /// - Returns: 移動元へのロールバックが確認できた場合は true（ゴミ箱側一時ディレクトリを安全に破棄可能）。
+    ///            ロールバックに失敗した場合は false（実データ消失を防ぐためゴミ箱内ファイルを残す）。
+    @discardableResult
+    private func safelyRollbackMoveOrPreserve(
+        sourceURL: URL,
+        destURL: URL,
+        itemDir: URL
+    ) -> Bool {
+        let sourceExistsBefore = fileManager.fileExists(atPath: sourceURL.path)
+        let destExistsBefore = fileManager.fileExists(atPath: destURL.path)
+
+        // もし移動先が存在しないなら、元データは移動していない（または移動前に失敗）
+        if !destExistsBefore {
+            if let contents = try? fileManager.contentsOfDirectory(atPath: itemDir.path), contents.isEmpty {
+                try? fileManager.removeItem(at: itemDir)
+            }
+            return true
+        }
+
+        // 移動先にファイルが存在する場合
+        if !sourceExistsBefore {
+            // 移動元に戻すロールバックを試行
+            do {
+                try fileManager.moveItem(at: destURL, to: sourceURL)
+            } catch {
+                print("[TrashManager] Rollback moveItem failed: \(error)")
+            }
+        }
+
+        let sourceExistsAfter = fileManager.fileExists(atPath: sourceURL.path)
+        let destExistsAfter = fileManager.fileExists(atPath: destURL.path)
+
+        if sourceExistsAfter {
+            // 移動元への復元が確認できた場合のみ、ゴミ箱側の一時ディレクトリを削除可能
+            if !destExistsAfter {
+                try? fileManager.removeItem(at: itemDir)
+                return true
+            } else {
+                // 両方に存在する場合: 移動元が確実に存在するので、destURLを削除してからitemDirをクリーンアップ
+                try? fileManager.removeItem(at: destURL)
+                try? fileManager.removeItem(at: itemDir)
+                return true
+            }
+        } else {
+            // 移動元に実ファイルが存在しない！
+            // ロールバックに失敗したため、実データ消失を防ぐためゴミ箱内の実ファイルは絶対に削除してはならない！
+            print("[TrashManager] CRITICAL: Rollback failed to restore file to sourceURL. Preserving file at destURL: \(destURL.path)")
+            return false
+        }
+    }
+
     // MARK: - 動画のゴミ箱へ移動（非同期・サムネイル永続化・ロールバック完備）
 
     @discardableResult
@@ -372,11 +424,19 @@ final class TrashManager: ObservableObject {
                     do {
                         try self.writeMetadataToDisk(updatedItems)
                     } catch {
-                        // ロールバック: 元の場所へ戻し、一時ディレクトリを削除
-                        try? self.fileManager.moveItem(at: destURL, to: sourceURL)
-                        try? self.fileManager.removeItem(at: itemDir)
+                        let rollbackSucceeded = self.safelyRollbackMoveOrPreserve(
+                            sourceURL: sourceURL,
+                            destURL: destURL,
+                            itemDir: itemDir
+                        )
+                        let errorMsg: String
+                        if rollbackSucceeded {
+                            errorMsg = String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
+                        } else {
+                            errorMsg = String(format: NSLocalizedString("Failed to save metadata and rollback failed. File is preserved in trash directory: %@", comment: ""), error.localizedDescription)
+                        }
                         continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 501, userInfo: [
-                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
+                            NSLocalizedDescriptionKey: errorMsg
                         ])))
                         return
                     }
@@ -390,8 +450,11 @@ final class TrashManager: ObservableObject {
                         continuation.resume(returning: .success(trashItem))
                     }
                 } catch {
-                    // 移動失敗時は一時ディレクトリを片付け、元の一覧は一切触らない
-                    try? self.fileManager.removeItem(at: itemDir)
+                    _ = self.safelyRollbackMoveOrPreserve(
+                        sourceURL: sourceURL,
+                        destURL: destURL,
+                        itemDir: itemDir
+                    )
                     continuation.resume(returning: .failure(error))
                 }
             }
@@ -489,10 +552,19 @@ final class TrashManager: ObservableObject {
                     do {
                         try self.writeMetadataToDisk(updatedItems)
                     } catch {
-                        try? self.fileManager.moveItem(at: destURL, to: sourceURL)
-                        try? self.fileManager.removeItem(at: itemDir)
+                        let rollbackSucceeded = self.safelyRollbackMoveOrPreserve(
+                            sourceURL: sourceURL,
+                            destURL: destURL,
+                            itemDir: itemDir
+                        )
+                        let errorMsg: String
+                        if rollbackSucceeded {
+                            errorMsg = String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
+                        } else {
+                            errorMsg = String(format: NSLocalizedString("Failed to save metadata and rollback failed. File is preserved in trash directory: %@", comment: ""), error.localizedDescription)
+                        }
                         continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 501, userInfo: [
-                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
+                            NSLocalizedDescriptionKey: errorMsg
                         ])))
                         return
                     }
@@ -504,7 +576,11 @@ final class TrashManager: ObservableObject {
                         continuation.resume(returning: .success(trashItem))
                     }
                 } catch {
-                    try? self.fileManager.removeItem(at: itemDir)
+                    _ = self.safelyRollbackMoveOrPreserve(
+                        sourceURL: sourceURL,
+                        destURL: destURL,
+                        itemDir: itemDir
+                    )
                     continuation.resume(returning: .failure(error))
                 }
             }
@@ -1029,7 +1105,8 @@ final class TrashManager: ObservableObject {
             let attrs = try? fileManager.attributesOfItem(atPath: firstFile.path)
             let byteSize = attrs?[.size] as? Int64
             let deletedAt = (attrs?[.creationDate] as? Date) ?? Date()
-            let expiresAt = deletedAt.addingTimeInterval(72 * 3600)
+            // 救済ファイルは元の削除日時や保持設定が不明なため、作成日時を根拠に期限を決めず自動削除対象から除外（保護）
+            let expiresAt: Date? = nil
 
             let item = TrashItem(
                 id: id,

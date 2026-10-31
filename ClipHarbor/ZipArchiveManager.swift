@@ -163,6 +163,18 @@ struct ManagedFileItem: Identifiable, Codable, Equatable, Hashable {
         fileExtension.lowercased() == "zip"
     }
 
+    /// テキスト文書（TXT/MD）であるかどうか
+    var isTextDocument: Bool {
+        let ext = fileExtension.lowercased()
+        return ["txt", "text", "md", "markdown"].contains(ext)
+    }
+
+    /// Markdownファイルであるかどうか
+    var isMarkdown: Bool {
+        let ext = fileExtension.lowercased()
+        return ["md", "markdown"].contains(ext)
+    }
+
     var formatLabel: String {
         let clean = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "FILE" : clean.uppercased()
@@ -1456,8 +1468,8 @@ final class ZipArchiveManager: ObservableObject {
         folderManager: VideoFolderManager
     ) throws -> ManagedFileItem {
         let ext = sourceURL.pathExtension.lowercased()
-        guard ext == "zip" else {
-            throw ZipOperationError.invalidArchive
+        guard !ext.isEmpty else {
+            throw ZipOperationError.unsupportedSourceForCompression(NSLocalizedString("Invalid file extension.", comment: ""))
         }
 
         let fm = FileManager.default
@@ -1479,10 +1491,18 @@ final class ZipArchiveManager: ObservableObject {
 
         let rawBaseName = sourceURL.deletingPathExtension().lastPathComponent
         let cleanBase = FileNaming.sanitizedBaseName(rawBaseName)
+        let fallbackBase: String
+        if ext == "zip" {
+            fallbackBase = "Archive"
+        } else if ["txt", "text", "md", "markdown"].contains(ext) {
+            fallbackBase = "Document"
+        } else {
+            fallbackBase = "File"
+        }
         let destURL = FileNaming.uniqueDestination(
             in: targetDir,
-            baseName: cleanBase.isEmpty ? "Archive" : cleanBase,
-            fileExtension: "zip"
+            baseName: cleanBase.isEmpty ? fallbackBase : cleanBase,
+            fileExtension: ext
         )
 
         // Data(contentsOf:) を使わず FileManager.copyItem でストリームコピー
@@ -1499,7 +1519,7 @@ final class ZipArchiveManager: ObservableObject {
             id: UUID(),
             title: destURL.deletingPathExtension().lastPathComponent,
             relativePath: normRel,
-            fileExtension: "zip",
+            fileExtension: ext,
             createdAt: Date(),
             byteSize: byteSize,
             folderName: cleanFolder,
@@ -1510,6 +1530,115 @@ final class ZipArchiveManager: ObservableObject {
         persistManagedFiles()
         folderManager.syncWithFileSystemAndSavedVideos()
         return newItem
+    }
+
+    // MARK: - テキスト文書の編集と原子的保存 (Phase F2-C)
+
+    /// テキスト文書（TXT/MD）の変更を安全に原子的保存する
+    /// - Parameters:
+    ///   - item: 対象の ManagedFileItem
+    ///   - content: 編集後のテキスト
+    ///   - metadata: BOM・改行コード・変更検知用メタデータ
+    /// - Returns: 更新後の ManagedFileItem
+    @discardableResult
+    func saveTextDocument(
+        _ item: ManagedFileItem,
+        content: String,
+        metadata: TextDocumentMetadata
+    ) throws -> ManagedFileItem {
+        guard !metadata.isReadOnly else {
+            throw NSError(
+                domain: "TextDocumentEditor",
+                code: 403,
+                userInfo: [NSLocalizedDescriptionKey: NSLocalizedString("File is read-only.", comment: "")]
+            )
+        }
+
+        let targetURL = resolveFileURL(for: item)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: targetURL.path) else {
+            throw ZipOperationError.fileNotFound
+        }
+
+        // Private Vault 領域の保護チェック
+        if FileClassification.isInsideVaultOrTempArea(targetURL) {
+            throw ZipOperationError.unsupportedSourceForCompression(
+                NSLocalizedString("Cannot operate on files inside Private Vault.", comment: "")
+            )
+        }
+
+        // 外部競合チェック（編集開始後の外部変更検知）
+        let currentAttrs = try? fm.attributesOfItem(atPath: targetURL.path)
+        let currentModDate = currentAttrs?[.modificationDate] as? Date
+        let currentSize = currentAttrs?[.size] as? Int64
+
+        if let openModDate = metadata.fileModificationDate, let currentMod = currentModDate {
+            if abs(currentMod.timeIntervalSince(openModDate)) > 1.0 && currentSize != metadata.fileByteSize {
+                throw ZipOperationError.extractionFailed(
+                    NSLocalizedString("The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes.", comment: "")
+                )
+            }
+        }
+
+        // 1. 保存用バイト列の生成（BOM、改行コード、末尾改行の完全再現）
+        let encodedData = TextDocumentCodec.encode(text: content, metadata: metadata)
+
+        // 2. 同一ディレクトリに一時ファイル作成 (.filename.tmp.<uuid>)
+        let dirURL = targetURL.deletingLastPathComponent()
+        let tempURL = dirURL.appendingPathComponent(".\(targetURL.lastPathComponent).tmp.\(UUID().uuidString)")
+
+        do {
+            try encodedData.write(to: tempURL, options: .atomic)
+
+            // 3. 原子的置換 (replaceItemAt)
+            do {
+                _ = try fm.replaceItemAt(
+                    targetURL,
+                    withItemAt: tempURL,
+                    backupItemName: nil,
+                    options: .withoutDeletingBackupItem
+                )
+            } catch {
+                let targetExists = fm.fileExists(atPath: targetURL.path)
+                let tempExists = fm.fileExists(atPath: tempURL.path)
+
+                if !targetExists && tempExists {
+                    try? fm.moveItem(at: tempURL, to: targetURL)
+                } else if tempExists {
+                    try? fm.removeItem(at: tempURL)
+                }
+
+                let targetStillExists = fm.fileExists(atPath: targetURL.path)
+                if targetStillExists {
+                    throw ZipOperationError.extractionFailed(
+                        String(format: NSLocalizedString("Atomic replace failed, but original file is verified intact: %@", comment: ""), error.localizedDescription)
+                    )
+                } else {
+                    throw ZipOperationError.extractionFailed(
+                        String(format: NSLocalizedString("CRITICAL: Atomic replace failed and original file was affected: %@", comment: ""), error.localizedDescription)
+                    )
+                }
+            }
+
+            // 4. メタデータの更新（byteSize, 更新反映）
+            let updatedAttrs = try? fm.attributesOfItem(atPath: targetURL.path)
+            let newSize = (updatedAttrs?[.size] as? Int64) ?? Int64(encodedData.count)
+
+            var updatedItems = managedFiles
+            if let idx = updatedItems.firstIndex(where: { $0.id == item.id }) {
+                var modifiedItem = updatedItems[idx]
+                modifiedItem.byteSize = newSize
+                updatedItems[idx] = modifiedItem
+                managedFiles = updatedItems
+                try persistManagedFilesThrowing()
+                return modifiedItem
+            } else {
+                return item
+            }
+        } catch {
+            try? fm.removeItem(at: tempURL)
+            throw error
+        }
     }
 
     // MARK: - 進行中ジョブのキャンセル
