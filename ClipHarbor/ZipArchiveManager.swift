@@ -625,6 +625,11 @@ final class ZipArchiveManager: ObservableObject {
                 let relToDownloads = String(norm.dropFirst(prefix.count))
                 return customRoot.appendingPathComponent(relToDownloads)
             }
+            let docPrefix = "Documents/"
+            if norm.hasPrefix(docPrefix) {
+                let sub = String(norm.dropFirst(docPrefix.count))
+                return customRoot.deletingLastPathComponent().appendingPathComponent(sub)
+            }
         }
         return item.fileURL
     }

@@ -3818,10 +3818,11 @@ final class VaultFaultInjectionTests: XCTestCase {
         )
         zipMgr.recoverPendingOperationsIfNeeded()
 
-        // 競合時はどちらのファイルも勝手に削除しないこと
+        // 競合時はどちらのファイルも勝手に削除せず、未解決状態の復旧ジャーナルを維持すること
         XCTAssertTrue(FileManager.default.fileExists(atPath: srcFile.path), "元ファイルが保持されること")
         XCTAssertTrue(FileManager.default.fileExists(atPath: dstFile.path), "移動先ファイルが保持されること")
-        XCTAssertNil(defaults.data(forKey: journalKey), "無限復旧ループを防ぐためジャーナルはクリアされること")
+        XCTAssertNotNil(zipMgr.loadPendingOperation(), "未解決競合時は復旧ジャーナルを消去せず保持すること")
+        XCTAssertNotNil(zipMgr.unresolvedRecoveryNotice, "未解決状態が通知されること")
     }
 
     @MainActor
