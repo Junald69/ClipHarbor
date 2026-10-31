@@ -425,7 +425,7 @@ final class TrashManager: ObservableObject {
             }
         }
 
-        let sourceURL = zipManager.resolveFileURL(for: managedFile)
+        let sourceURL = await MainActor.run { zipManager.resolveFileURL(for: managedFile) }
         guard fileManager.fileExists(atPath: sourceURL.path) else {
             return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
                 NSLocalizedDescriptionKey: NSLocalizedString("Target file was not found on device.", comment: "")
@@ -700,6 +700,8 @@ final class TrashManager: ObservableObject {
             ]))
         }
 
+        let downloadsDir = await MainActor.run { zipManager.downloadsRootURL }
+
         return await withCheckedContinuation { continuation in
             ioQueue.async { [weak self] in
                 guard let self = self else {
@@ -710,10 +712,6 @@ final class TrashManager: ObservableObject {
                 }
 
                 do {
-                    let downloadsDir = zipManager.customDownloadsRootURL ?? {
-                        let docs = self.fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-                        return docs.appendingPathComponent("Downloads", isDirectory: true)
-                    }()
                     try self.fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
                     let cleanFolder = VideoFolderManager.sanitizedFolderName(item.originalFolderName)
@@ -747,7 +745,7 @@ final class TrashManager: ObservableObject {
                         fileExtension: ext.isEmpty ? "bin" : ext
                     )
 
-                    guard let newRelativePath = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: zipManager.customDownloadsRootURL) else {
+                    guard let newRelativePath = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: downloadsDir) else {
                         throw NSError(domain: "TrashManager", code: 500, userInfo: [
                             NSLocalizedDescriptionKey: NSLocalizedString("Failed to determine destination path for restore.", comment: "")
                         ])

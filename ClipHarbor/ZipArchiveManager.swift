@@ -694,6 +694,11 @@ final class ZipArchiveManager: ObservableObject {
         return item.fileURL
     }
 
+    /// 実ファイルURLから正規化済みコンテナ相対パスを算出（カスタムテストルート対応）
+    func normalizedContainerRelativePath(for url: URL) -> String? {
+        FileClassification.normalizedContainerRelativePath(for: url, customRootURL: customDownloadsRootURL)
+    }
+
     // MARK: - ファイルシステムとの整合性スキャン（重複排除・UUID維持・多階層対応）
 
     /// `Documents/Downloads`（および全サブフォルダ階層）をスキャンし、
