@@ -8,8 +8,9 @@
 //
 
 import Foundation
+import CryptoKit
 
-/// テキスト文書のメタデータ（BOM、改行形式、末尾改行、保護フラグ）
+/// テキスト文書のメタデータ（BOM、改行形式、末尾改行、保護フラグ、ハッシュ）
 struct TextDocumentMetadata: Equatable {
     enum LineEnding: String, Equatable {
         case lf = "LF"
@@ -24,6 +25,7 @@ struct TextDocumentMetadata: Equatable {
     var readOnlyReason: String?
     var fileModificationDate: Date?
     var fileByteSize: Int64?
+    var contentHash: String?
 }
 
 /// テキスト読み込み結果
@@ -36,6 +38,12 @@ struct TextDocumentLoadResult {
 enum TextDocumentCodec {
     /// UTF-8 BOM（Byte Order Mark: 0xEF, 0xBB, 0xBF）
     static let utf8BOM = Data([0xEF, 0xBB, 0xBF])
+
+    /// SHA256 ハッシュ文字列の算出（外部変更検知・完全性検証用）
+    static func computeSHA256(of data: Data) -> String {
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
 
     /// バイナリファイル判定
     /// 先頭最大4096バイトをスキャンし、NULLバイト（0x00）が存在すればバイナリと判定
@@ -51,6 +59,8 @@ enum TextDocumentCodec {
         fileModificationDate: Date? = nil,
         fileByteSize: Int64? = nil
     ) -> TextDocumentLoadResult {
+        let contentHash = computeSHA256(of: data)
+
         // 1. バイナリ検知（NULLバイト検出）
         if isBinaryData(data) {
             let fallbackText = String(decoding: data.prefix(2048), as: UTF8.self)
@@ -63,7 +73,8 @@ enum TextDocumentCodec {
                     isReadOnly: true,
                     readOnlyReason: NSLocalizedString("Binary file detected. Editing is disabled to prevent corruption.", comment: ""),
                     fileModificationDate: fileModificationDate,
-                    fileByteSize: fileByteSize
+                    fileByteSize: fileByteSize,
+                    contentHash: contentHash
                 )
             )
         }
@@ -90,7 +101,8 @@ enum TextDocumentCodec {
                     isReadOnly: true,
                     readOnlyReason: NSLocalizedString("Unsupported text encoding (not valid UTF-8). Opened in read-only mode to prevent data corruption.", comment: ""),
                     fileModificationDate: fileModificationDate,
-                    fileByteSize: fileByteSize
+                    fileByteSize: fileByteSize,
+                    contentHash: contentHash
                 )
             )
         }
@@ -111,6 +123,11 @@ enum TextDocumentCodec {
             lineEnding = .lf
         }
 
+        // 混在改行コード（.mixed）の場合は保存時の改行意図しない変換を防ぐため読み取り専用として保護
+        let isMixed = (lineEnding == .mixed)
+        let isReadOnly = isMixed
+        let readOnlyReason = isMixed ? NSLocalizedString("Mixed line endings detected (LF and CRLF). Opened in read-only mode to prevent unintended line ending conversion.", comment: "") : nil
+
         // 5. 末尾改行の検知
         let hasTrailingNewline = decodedString.hasSuffix("\n") || decodedString.hasSuffix("\r\n")
 
@@ -125,10 +142,11 @@ enum TextDocumentCodec {
                 hasBOM: hasBOM,
                 lineEnding: lineEnding,
                 hasTrailingNewline: hasTrailingNewline,
-                isReadOnly: false,
-                readOnlyReason: nil,
+                isReadOnly: isReadOnly,
+                readOnlyReason: readOnlyReason,
                 fileModificationDate: fileModificationDate,
-                fileByteSize: fileByteSize
+                fileByteSize: fileByteSize,
+                contentHash: contentHash
             )
         )
     }

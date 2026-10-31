@@ -1570,17 +1570,41 @@ final class ZipArchiveManager: ObservableObject {
             )
         }
 
-        // 外部競合チェック（編集開始後の外部変更検知）
+        // 外部競合チェック（保存直前に元ファイルの状態を再検証）
         let currentAttrs = try? fm.attributesOfItem(atPath: targetURL.path)
         let currentModDate = currentAttrs?[.modificationDate] as? Date
         let currentSize = currentAttrs?[.size] as? Int64
 
+        // 1. サイズ変更の即時検知
+        if let openSize = metadata.fileByteSize, let currentSize = currentSize, currentSize != openSize {
+            throw ZipOperationError.conflictingEntries(
+                NSLocalizedString("The file has been modified externally by another process (file size changed). Save was cancelled to prevent overwriting conflicting changes.", comment: "")
+            )
+        }
+
+        // 2. 更新日時の変化検知
+        let modDateChanged: Bool
         if let openModDate = metadata.fileModificationDate, let currentMod = currentModDate {
-            if abs(currentMod.timeIntervalSince(openModDate)) > 1.0 && currentSize != metadata.fileByteSize {
-                throw ZipOperationError.conflictingEntries(
-                    NSLocalizedString("The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes.", comment: "")
-                )
+            modDateChanged = (abs(currentMod.timeIntervalSince(openModDate)) > 0.001)
+        } else {
+            modDateChanged = false
+        }
+
+        // 3. ハッシュによる内容検証（同一サイズ書き換え、1秒以内の変更、日時変化時の完全検証）
+        if let openHash = metadata.contentHash {
+            if let currentData = try? Data(contentsOf: targetURL) {
+                let currentHash = TextDocumentCodec.computeSHA256(of: currentData)
+                if currentHash != openHash {
+                    throw ZipOperationError.conflictingEntries(
+                        NSLocalizedString("The file has been modified externally by another process (content hash mismatch). Save was cancelled to prevent overwriting conflicting changes.", comment: "")
+                    )
+                }
             }
+        } else if modDateChanged {
+            // contentHash がない場合（後方互換）: 更新日時の差で競合と判定
+            throw ZipOperationError.conflictingEntries(
+                NSLocalizedString("The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes.", comment: "")
+            )
         }
 
         // 1. 保存用バイト列の生成（BOM、改行コード、末尾改行の完全再現）
@@ -1601,24 +1625,52 @@ final class ZipArchiveManager: ObservableObject {
                     backupItemName: nil,
                     options: .withoutDeletingBackupItem
                 )
-            } catch {
+            } catch let replaceError {
                 let targetExists = fm.fileExists(atPath: targetURL.path)
                 let tempExists = fm.fileExists(atPath: tempURL.path)
 
-                if !targetExists && tempExists {
-                    try? fm.moveItem(at: tempURL, to: targetURL)
-                } else if tempExists {
-                    try? fm.removeItem(at: tempURL)
-                }
+                if targetExists {
+                    // 元ファイルが存在する場合、単なる存在確認だけでなくハッシュで無傷かを再検証
+                    var originalIntact = false
+                    if let openHash = metadata.contentHash,
+                       let currentData = try? Data(contentsOf: targetURL) {
+                        originalIntact = (TextDocumentCodec.computeSHA256(of: currentData) == openHash)
+                    }
 
-                let targetStillExists = fm.fileExists(atPath: targetURL.path)
-                if targetStillExists {
-                    throw ZipOperationError.ioError(
-                        String(format: NSLocalizedString("Atomic replace failed, but original file is verified intact: %@", comment: ""), error.localizedDescription)
-                    )
+                    if originalIntact {
+                        // 元ファイルが無傷であることがハッシュで証明された場合のみ一時ファイルを削除
+                        if tempExists {
+                            try? fm.removeItem(at: tempURL)
+                        }
+                        throw ZipOperationError.ioError(
+                            String(format: NSLocalizedString("Atomic replace failed, but original file is verified intact by content hash: %@", comment: ""), replaceError.localizedDescription)
+                        )
+                    } else {
+                        // 元ファイルの内容ハッシュが不一致または検証不可:
+                        // 元ファイルが無傷とは断定できないため、編集データの消失を防ぐべく一時ファイルを絶対に削除せず保持する
+                        let preservedPath = tempURL.path
+                        throw ZipOperationError.ioError(
+                            String(format: NSLocalizedString("CRITICAL: Atomic replace failed and original file integrity cannot be verified. Edited data is preserved at: %@", comment: ""), preservedPath)
+                        )
+                    }
+                } else if tempExists {
+                    // 元ファイルが存在せず、一時ファイルのみが存在する場合
+                    // これは「元データ復旧」ではなく「編集データの緊急救済」
+                    do {
+                        try fm.moveItem(at: tempURL, to: targetURL)
+                        throw ZipOperationError.ioError(
+                            String(format: NSLocalizedString("Atomic replace failed and original file was lost; rescued edited data to destination: %@", comment: ""), replaceError.localizedDescription)
+                        )
+                    } catch let moveError {
+                        // 移動にも失敗した場合は一時ファイルを絶対に削除せず保持
+                        let preservedPath = tempURL.path
+                        throw ZipOperationError.ioError(
+                            String(format: NSLocalizedString("CRITICAL: Atomic replace failed, original file lost, and temporary file preserved at %@: %@", comment: ""), preservedPath, moveError.localizedDescription)
+                        )
+                    }
                 } else {
                     throw ZipOperationError.ioError(
-                        String(format: NSLocalizedString("CRITICAL: Atomic replace failed and original file was affected: %@", comment: ""), error.localizedDescription)
+                        String(format: NSLocalizedString("CRITICAL: Atomic replace failed and both original and temporary files are missing: %@", comment: ""), replaceError.localizedDescription)
                     )
                 }
             }
@@ -1639,7 +1691,17 @@ final class ZipArchiveManager: ObservableObject {
                 return item
             }
         } catch {
-            try? fm.removeItem(at: tempURL)
+            // 一時ファイルが重大エラー時の保護対象として保持されている場合は削除しない
+            if let zipErr = error as? ZipOperationError {
+                switch zipErr {
+                case .ioError(let msg) where msg.contains("CRITICAL") || msg.contains("preserved at"):
+                    break
+                default:
+                    try? fm.removeItem(at: tempURL)
+                }
+            } else {
+                try? fm.removeItem(at: tempURL)
+            }
             throw error
         }
     }
@@ -2558,6 +2620,312 @@ final class ZipArchiveManager: ObservableObject {
         persistManagedFiles()
         return createdItem
     }
+
+// MARK: - 複数選択一括ZIP圧縮（Phase F2-D）
+
+/// 複数選択一括ZIP圧縮の対象ソース
+struct BatchCompressionSource: Sendable {
+    enum SourcePayload: Sendable {
+        case video(id: UUID, title: String)
+        case managedFile(id: UUID, title: String)
+    }
+
+    let payload: SourcePayload
+    let fileURL: URL
+    let relativeName: String
+    let byteSize: Int64
+    let isHLS: Bool
+
+    init(video: SavedVideo) {
+        self.payload = .video(id: video.id, title: video.title)
+        self.fileURL = video.fileURL
+        self.relativeName = video.fileURL.lastPathComponent
+        self.byteSize = video.byteSize ?? 0
+        self.isHLS = video.isHLS || video.format == .hls || video.fileURL.pathExtension.lowercased() == "movpkg"
+    }
+
+    init(managedFile: ManagedFileItem, resolvedURL: URL) {
+        self.payload = .managedFile(id: managedFile.id, title: managedFile.title)
+        self.fileURL = resolvedURL
+        self.relativeName = resolvedURL.lastPathComponent
+        self.byteSize = managedFile.byteSize
+        let lowerExt = resolvedURL.pathExtension.lowercased()
+        let lowerName = resolvedURL.lastPathComponent.lowercased()
+        self.isHLS = (lowerExt == "movpkg" || lowerName.contains(".movpkg"))
+    }
+}
+
+extension ZipArchiveManager {
+    /// アーカイブ内での同名ファイル衝突を解決（連番サフィックスの自動付与）
+    static func resolveArchiveEntryNames(from sources: [BatchCompressionSource]) -> [(source: BatchCompressionSource, entryName: String)] {
+        var usedNames = Set<String>()
+        var result: [(BatchCompressionSource, String)] = []
+
+        for item in sources {
+            let originalName = item.relativeName
+            var candidateName = originalName
+            var counter = 1
+
+            let baseName = (originalName as NSString).deletingPathExtension
+            let ext = (originalName as NSString).pathExtension
+
+            while usedNames.contains(candidateName.lowercased()) {
+                if ext.isEmpty {
+                    candidateName = "\(baseName) (\(counter))"
+                } else {
+                    candidateName = "\(baseName) (\(counter)).\(ext)"
+                }
+                counter += 1
+            }
+
+            usedNames.insert(candidateName.lowercased())
+            result.append((item, candidateName))
+        }
+
+        return result
+    }
+
+    /// 選択された複数の動画および一般ファイルを単一のZIPアーカイブに一括圧縮（Phase F2-D）
+    /// - Parameters:
+    ///   - videos: 選択された SavedVideo の配列
+    ///   - managedFiles: 選択された ManagedFileItem の配列
+    ///   - targetFolderName: 出力先フォルダ（空文字の場合はルート Downloads）
+    ///   - downloads: DownloadCenter
+    ///   - folderManager: VideoFolderManager
+    /// - Returns: 生成された ZIP の ManagedFileItem
+    @discardableResult
+    func compressMultipleItems(
+        videos: [SavedVideo],
+        managedFiles: [ManagedFileItem],
+        targetFolderName: String = "",
+        downloads: DownloadCenter,
+        folderManager: VideoFolderManager
+    ) async throws -> ManagedFileItem {
+        guard activeOperation == nil else {
+            throw ZipOperationError.operationInProgress
+        }
+
+        let fm = FileManager.default
+        var sources: [BatchCompressionSource] = []
+
+        // 1. 動画ソースの解決・検証
+        for v in videos {
+            guard fm.fileExists(atPath: v.fileURL.path) else {
+                throw ZipOperationError.fileNotFound
+            }
+            if FileClassification.isInsideVaultOrTempArea(v.fileURL) {
+                throw ZipOperationError.unsupportedSourceForCompression(
+                    NSLocalizedString("Cannot compress files inside Private Vault.", comment: "")
+                )
+            }
+            sources.append(BatchCompressionSource(video: v))
+        }
+
+        // 2. 一般ファイルソースの解決・検証
+        for m in managedFiles {
+            let url = resolveFileURL(for: m)
+            guard fm.fileExists(atPath: url.path) else {
+                throw ZipOperationError.fileNotFound
+            }
+            if FileClassification.isInsideVaultOrTempArea(url) {
+                throw ZipOperationError.unsupportedSourceForCompression(
+                    NSLocalizedString("Cannot compress files inside Private Vault.", comment: "")
+                )
+            }
+            sources.append(BatchCompressionSource(managedFile: m, resolvedURL: url))
+        }
+
+        guard !sources.isEmpty else {
+            throw ZipOperationError.unsupportedSourceForCompression(
+                NSLocalizedString("No files selected for compression.", comment: "")
+            )
+        }
+
+        // 3. HLS混入チェック（1件でもHLSが含まれていれば即座に中止。部分圧縮は絶対に行わない）
+        if sources.contains(where: { $0.isHLS }) {
+            throw ZipOperationError.unsupportedSourceForCompression(
+                NSLocalizedString("HLS video packages cannot be compressed into ZIP archives. Please unselect HLS items.", comment: "")
+            )
+        }
+
+        // 4. シンボリックリンクの排除
+        for src in sources {
+            let res = try? src.fileURL.resourceValues(forKeys: [.isSymbolicLinkKey])
+            if res?.isSymbolicLink == true {
+                throw ZipOperationError.symlinkNotAllowed(src.relativeName)
+            }
+        }
+
+        // 5. 空き容量検証（合計サイズ x 1.5 + 32MB）
+        let totalSourceBytes = sources.reduce(Int64(0)) { $0 + $1.byteSize }
+        if let freeSpace = Self.availableDiskSpace(at: downloadsRootURL),
+           freeSpace < totalSourceBytes + 32 * 1024 * 1024 {
+            throw ZipOperationError.insufficientDiskSpace
+        }
+
+        let opID = UUID()
+        let token = ZipCancellationToken()
+        activeCancellationToken = token
+        Self.registerActiveOperation(opID)
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyyMMdd_HHmmss"
+        let timestamp = dateFormatter.string(from: Date())
+        let archiveBaseName = "Archive_\(timestamp)"
+
+        activeOperation = ZipOperationStatus(
+            id: opID,
+            kind: .compressing,
+            targetTitle: archiveBaseName,
+            fractionCompleted: 0.0,
+            currentEntryName: archiveBaseName
+        )
+
+        defer {
+            Self.unregisterActiveOperation(opID)
+            activeCancellationToken = nil
+            activeOperation = nil
+        }
+
+        let stagingRoot = stagingRootDirectoryURL
+        let cleanFolder = VideoFolderManager.sanitizedFolderName(targetFolderName)
+        let root = downloadsRootURL
+        let targetDir: URL
+        if cleanFolder.isEmpty {
+            targetDir = root
+        } else {
+            targetDir = root.appendingPathComponent(cleanFolder, isDirectory: true)
+        }
+
+        let plannedEntries = Self.resolveArchiveEntryNames(from: sources)
+        let capturedTotalBytes = max(1, totalSourceBytes)
+
+        let finalZipURL: URL = try await Task.detached(priority: .userInitiated) { [weak self] in
+            let fileManager = FileManager.default
+            let opStagingDir = stagingRoot.appendingPathComponent(opID.uuidString, isDirectory: true)
+            let stagingZipURL = opStagingDir.appendingPathComponent("output.zip")
+
+            defer {
+                try? fileManager.removeItem(at: opStagingDir)
+            }
+
+            try fileManager.createDirectory(at: opStagingDir, withIntermediateDirectories: true)
+
+            let archive: Archive
+            do {
+                archive = try Archive(url: stagingZipURL, accessMode: .create)
+            } catch {
+                throw ZipOperationError.ioError(NSLocalizedString("Failed to initialize ZIP archive.", comment: ""))
+            }
+
+            var cumulativeBytesRead: Int64 = 0
+            var lastUIUpdate = Date.distantPast
+
+            for (idx, planned) in plannedEntries.enumerated() {
+                if Task.isCancelled || token.isCancelled {
+                    throw ZipOperationError.cancelled
+                }
+
+                let srcURL = planned.source.fileURL
+                let entryName = planned.entryName
+                guard fileManager.fileExists(atPath: srcURL.path) else {
+                    throw ZipOperationError.fileNotFound
+                }
+
+                let modDate = ((try? fileManager.attributesOfItem(atPath: srcURL.path))?[.modificationDate] as? Date) ?? Date()
+                let readHandle: FileHandle
+                do {
+                    readHandle = try FileHandle(forReadingFrom: srcURL)
+                } catch {
+                    throw ZipOperationError.fileNotFound
+                }
+                defer { try? readHandle.close() }
+
+                do {
+                    try archive.addEntry(
+                        with: entryName,
+                        type: .file,
+                        uncompressedSize: planned.source.byteSize,
+                        modificationDate: modDate,
+                        permissions: 0o644,
+                        compressionMethod: .deflate,
+                        bufferSize: Self.streamBufferSize,
+                        progress: nil
+                    ) { position, size in
+                        if Task.isCancelled || token.isCancelled {
+                            throw Archive.ArchiveError.cancelledOperation
+                        }
+                        try readHandle.seek(toOffset: UInt64(position))
+                        let data = (try readHandle.read(upToCount: size)) ?? Data()
+                        cumulativeBytesRead += Int64(data.count)
+
+                        let now = Date()
+                        if now.timeIntervalSince(lastUIUpdate) >= 0.08 {
+                            lastUIUpdate = now
+                            let byteFrac = Double(cumulativeBytesRead) / Double(capturedTotalBytes)
+                            let countFrac = Double(idx + 1) / Double(plannedEntries.count)
+                            let frac = min(0.95, max(byteFrac, countFrac * 0.2))
+                            Task { @MainActor [weak self] in
+                                guard let self = self, self.activeOperation?.id == opID else { return }
+                                self.activeOperation?.fractionCompleted = frac
+                                self.activeOperation?.currentEntryName = entryName
+                            }
+                        }
+                        return data
+                    }
+                } catch Archive.ArchiveError.cancelledOperation {
+                    throw ZipOperationError.cancelled
+                } catch let zipErr as ZipOperationError {
+                    throw zipErr
+                } catch {
+                    throw ZipOperationError.ioError(error.localizedDescription)
+                }
+            }
+
+            if Task.isCancelled || token.isCancelled {
+                throw ZipOperationError.cancelled
+            }
+
+            try fileManager.createDirectory(at: targetDir, withIntermediateDirectories: true)
+
+            let destURL = Self.uniqueFileDestination(
+                in: targetDir,
+                baseName: archiveBaseName,
+                fileExtension: "zip"
+            )
+
+            try fileManager.moveItem(at: stagingZipURL, to: destURL)
+            return destURL
+        }.value
+
+        let attrs = (try? fm.attributesOfItem(atPath: finalZipURL.path)) ?? [:]
+        let zipByteSize = (attrs[.size] as? Int64) ?? 0
+        guard let normRel = FileClassification.normalizedContainerRelativePath(for: finalZipURL, customRootURL: customDownloadsRootURL) else {
+            throw ZipOperationError.ioError(NSLocalizedString("Failed to register created ZIP file.", comment: ""))
+        }
+
+        let (resolvedFolder, subfolderPrefix) = FileClassification.extractFolderAndSubpath(fromRelativePath: normRel)
+        let effectiveFolder = resolvedFolder.isEmpty ? cleanFolder : resolvedFolder
+
+        let createdItem = ManagedFileItem(
+            id: UUID(),
+            title: finalZipURL.deletingPathExtension().lastPathComponent,
+            relativePath: normRel,
+            fileExtension: "zip",
+            createdAt: Date(),
+            byteSize: zipByteSize,
+            folderName: effectiveFolder,
+            relativeSubpath: subfolderPrefix
+        )
+
+        managedFiles.removeAll { $0.normalizedRelativePath == normRel }
+        managedFiles.insert(createdItem, at: 0)
+        try persistManagedFilesThrowing()
+        folderManager.syncWithFileSystemAndSavedVideos()
+
+        return createdItem
+    }
+}
 
     // MARK: - 永続化とヘルパー
 

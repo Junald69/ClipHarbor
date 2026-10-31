@@ -11946,6 +11946,210 @@
           }
         }
       }
+    },
+    "Mixed line endings detected (LF and CRLF). Opened in read-only mode to prevent unintended line ending conversion.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixed line endings detected (LF and CRLF). Opened in read-only mode to prevent unintended line ending conversion."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混在した改行コード（LFとCRLF）が検出されました。意図しない改行形式の変換を防ぐため、読み取り専用で開きました。"
+          }
+        }
+      }
+    },
+    "HLS video packages cannot be compressed into ZIP archives. Please unselect HLS items.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS video packages cannot be compressed into ZIP archives. Please unselect HLS items."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS動画パッケージはZIPに圧縮できません。HLS項目の選択を解除してください。"
+          }
+        }
+      }
+    },
+    "No files selected for compression.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No files selected for compression."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮するファイルが選択されていません。"
+          }
+        }
+      }
+    },
+    "Are you sure you want to move %lld selected items to Trash?\n(Permanently deleted after 3 days)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to move %lld selected items to Trash?\n(Permanently deleted after 3 days)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した%lld件の項目をゴミ箱へ移動しますか？\n（3日後に完全削除されます）"
+          }
+        }
+      }
+    },
+    "Moved %lld items to Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved %lld items to Trash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の項目をゴミ箱に移動しました"
+          }
+        }
+      }
+    },
+    "Moved %lld items to %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moved %lld items to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件の項目を%@に移動しました"
+          }
+        }
+      }
+    },
+    "The file has been modified externally by another process (file size changed). Save was cancelled to prevent overwriting conflicting changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file has been modified externally by another process (file size changed). Save was cancelled to prevent overwriting conflicting changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが別のプロセスによって外部変更されました（ファイルサイズ変更）。競合による上書きを防ぐため保存を中止しました。"
+          }
+        }
+      }
+    },
+    "The file has been modified externally by another process (content hash mismatch). Save was cancelled to prevent overwriting conflicting changes.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file has been modified externally by another process (content hash mismatch). Save was cancelled to prevent overwriting conflicting changes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが別のプロセスによって外部変更されました（ハッシュ不一致）。競合による上書きを防ぐため保存を中止しました。"
+          }
+        }
+      }
+    },
+    "Atomic replace failed, but original file is verified intact by content hash: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atomic replace failed, but original file is verified intact by content hash: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原子的置換に失敗しましたが、元ファイルは内容ハッシュにより無傷であることが確認されました: %@"
+          }
+        }
+      }
+    },
+    "CRITICAL: Atomic replace failed and original file integrity cannot be verified. Edited data is preserved at: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CRITICAL: Atomic replace failed and original file integrity cannot be verified. Edited data is preserved at: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "致命的エラー: 原子的置換に失敗し、元ファイルの整合性を確認できません。編集データは保持されました: %@"
+          }
+        }
+      }
+    },
+    "Atomic replace failed and original file was lost; rescued edited data to destination: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atomic replace failed and original file was lost; rescued edited data to destination: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原子的置換に失敗し元ファイルが失われましたが、編集データを目的地へ救済しました: %@"
+          }
+        }
+      }
+    },
+    "CRITICAL: Atomic replace failed, original file lost, and temporary file preserved at %@: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CRITICAL: Atomic replace failed, original file lost, and temporary file preserved at %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "致命的エラー: 原子的置換に失敗し元ファイルが失われました。一時ファイルは%@に保護されました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

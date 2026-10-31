@@ -313,10 +313,11 @@ final class TrashManager: ObservableObject {
                 try? fileManager.removeItem(at: itemDir)
                 return true
             } else {
-                // 両方に存在する場合: 移動元が確実に存在するので、destURLを削除してからitemDirをクリーンアップ
-                try? fileManager.removeItem(at: destURL)
-                try? fileManager.removeItem(at: itemDir)
-                return true
+                // 移動元と移動先の両方に実ファイルが存在する場合：
+                // 移動元ファイルのサイズや存在のみを理由に移動先ファイルを削除してはならない。
+                // 同一内容や所有関係が証明できない限り両方保持し、競合状態として扱う。
+                print("[TrashManager] CONFLICT: Both sourceURL (\(sourceURL.path)) and destURL (\(destURL.path)) exist. Preserving both files to prevent data loss.")
+                return false
             }
         } else {
             // 移動元に実ファイルが存在しない！

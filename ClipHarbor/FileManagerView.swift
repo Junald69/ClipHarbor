@@ -41,6 +41,11 @@ struct FileManagerView: View {
     // 複数選択モード
     @State private var isSelecting = false
     @State private var selectedVideoIDs: Set<UUID> = []
+    @State private var selectedManagedFileIDs: Set<UUID> = []
+
+    private var totalSelectedCount: Int {
+        selectedVideoIDs.count + selectedManagedFileIDs.count
+    }
     @State private var showBatchMoveSheet = false
     @State private var showBatchDeleteAlert = false
 
@@ -150,7 +155,10 @@ struct FileManagerView: View {
                 let currentVideos = searchText.isEmpty
                     ? folderManager.videos(in: .uncategorized)
                     : folderManager.videos(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchText) }
-                selectionBottomBar(currentVideos: currentVideos)
+                let currentFiles = searchText.isEmpty
+                    ? sortManagedFiles(zipManager.managedFiles(in: .uncategorized))
+                    : sortManagedFiles(zipManager.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchText) })
+                selectionBottomBar(currentVideos: currentVideos, currentFiles: currentFiles)
             } else {
                 floatingBottomBar(isRoot: true)
             }
@@ -222,7 +230,7 @@ struct FileManagerView: View {
                 privacyShieldOverlay
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
-            .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count) : NSLocalizedString("Files", comment: ""))
+            .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount) : NSLocalizedString("Files", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 rootToolbarContent
@@ -293,7 +301,7 @@ struct FileManagerView: View {
     private var rootToolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             if isSelecting {
-                Text(String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count))
+                Text(String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount))
                     .font(.headline)
             } else if navigationPath.isEmpty {
                 Text("Files")
@@ -319,6 +327,7 @@ struct FileManagerView: View {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSelecting = false
                         selectedVideoIDs.removeAll()
+                        selectedManagedFileIDs.removeAll()
                     }
                 }
             } else {
@@ -339,6 +348,7 @@ struct FileManagerView: View {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isSelecting = false
                         selectedVideoIDs.removeAll()
+                        selectedManagedFileIDs.removeAll()
                     }
                 }
                 .font(.body.weight(.semibold))
@@ -348,6 +358,7 @@ struct FileManagerView: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSelecting = true
                             selectedVideoIDs.removeAll()
+                            selectedManagedFileIDs.removeAll()
                         }
                     } label: {
                         Label("Select", systemImage: "checkmark.circle")
@@ -467,7 +478,7 @@ struct FileManagerView: View {
             }
             .sheet(isPresented: $showBatchMoveSheet) {
                 BatchMoveToFolderSheet(
-                    count: selectedVideoIDs.count,
+                    count: totalSelectedCount,
                     folders: folderManager.folders,
                     onSelectFolder: { targetFolder in
                         handleBatchMoveToFolder(targetFolder: targetFolder)
@@ -485,7 +496,7 @@ struct FileManagerView: View {
                     handleBatchMoveToTrash(videos: downloads.saved)
                 }
             } message: {
-                Text(String(format: NSLocalizedString("Are you sure you want to move %lld selected videos to Trash?\n(Permanently deleted after 3 days)", comment: ""), selectedVideoIDs.count))
+                Text(String(format: NSLocalizedString("Are you sure you want to move %lld selected items to Trash?\n(Permanently deleted after 3 days)", comment: ""), totalSelectedCount))
             }
             .alert(NSLocalizedString("New Folder", comment: ""), isPresented: $showNewFolderAlert) {
                 TextField("Folder Name", text: $newFolderName)
@@ -665,6 +676,15 @@ struct FileManagerView: View {
                 ForEach(uncategorizedFiles) { fileItem in
                     AlohaManagedFileCardView(
                         item: fileItem,
+                        isSelecting: isSelecting,
+                        isSelected: selectedManagedFileIDs.contains(fileItem.id),
+                        onToggleSelect: {
+                            if selectedManagedFileIDs.contains(fileItem.id) {
+                                selectedManagedFileIDs.remove(fileItem.id)
+                            } else {
+                                selectedManagedFileIDs.insert(fileItem.id)
+                            }
+                        },
                         isOperating: zipManager.activeOperation != nil,
                         onOpenText: {
                             editingTextDocument = fileItem
@@ -958,6 +978,15 @@ struct FileManagerView: View {
                             ForEach(filteredManagedFiles) { fileItem in
                                 AlohaManagedFileCardView(
                                     item: fileItem,
+                                    isSelecting: isSelecting,
+                                    isSelected: selectedManagedFileIDs.contains(fileItem.id),
+                                    onToggleSelect: {
+                                        if selectedManagedFileIDs.contains(fileItem.id) {
+                                            selectedManagedFileIDs.remove(fileItem.id)
+                                        } else {
+                                            selectedManagedFileIDs.insert(fileItem.id)
+                                        }
+                                    },
                                     isOperating: zipManager.activeOperation != nil,
                                     onOpenText: {
                                         editingTextDocument = fileItem
@@ -991,12 +1020,12 @@ struct FileManagerView: View {
 
             // フォルダ内フローティング操作バー（選択モード切替対応）
             if isSelecting {
-                selectionBottomBar(currentVideos: filteredVideos)
+                selectionBottomBar(currentVideos: filteredVideos, currentFiles: filteredManagedFiles)
             } else {
                 floatingBottomBar(isRoot: false)
             }
         }
-        .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count) : filter.title)
+        .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount) : filter.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -1005,6 +1034,7 @@ struct FileManagerView: View {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isSelecting = false
                             selectedVideoIDs.removeAll()
+                            selectedManagedFileIDs.removeAll()
                         }
                     }
                     .font(.body.weight(.semibold))
@@ -1014,6 +1044,7 @@ struct FileManagerView: View {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 isSelecting = true
                                 selectedVideoIDs.removeAll()
+                                selectedManagedFileIDs.removeAll()
                             }
                         } label: {
                             Label("Select", systemImage: "checkmark.circle")
@@ -1168,6 +1199,15 @@ struct FileManagerView: View {
                             ForEach(matchedManaged) { fileItem in
                                 AlohaManagedFileCardView(
                                     item: fileItem,
+                                    isSelecting: isSelecting,
+                                    isSelected: selectedManagedFileIDs.contains(fileItem.id),
+                                    onToggleSelect: {
+                                        if selectedManagedFileIDs.contains(fileItem.id) {
+                                            selectedManagedFileIDs.remove(fileItem.id)
+                                        } else {
+                                            selectedManagedFileIDs.insert(fileItem.id)
+                                        }
+                                    },
                                     isOperating: zipManager.activeOperation != nil,
                                     onOpenText: {
                                         editingTextDocument = fileItem
@@ -1349,17 +1389,23 @@ struct FileManagerView: View {
 
     // MARK: - 複数選択モード専用フローティングバー
 
-    private func selectionBottomBar(currentVideos: [SavedVideo]) -> some View {
-        HStack(spacing: 12) {
+    private func selectionBottomBar(currentVideos: [SavedVideo], currentFiles: [ManagedFileItem] = []) -> some View {
+        let totalCount = totalSelectedCount
+        let allCurrentCount = currentVideos.count + currentFiles.count
+        let isAllSelected = (totalCount == allCurrentCount && allCurrentCount > 0)
+
+        return HStack(spacing: 12) {
             // 全選択 / 選択解除ボタン
             Button {
-                if selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty {
+                if isAllSelected {
                     selectedVideoIDs.removeAll()
+                    selectedManagedFileIDs.removeAll()
                 } else {
                     selectedVideoIDs = Set(currentVideos.map { $0.id })
+                    selectedManagedFileIDs = Set(currentFiles.map { $0.id })
                 }
             } label: {
-                Text(selectedVideoIDs.count == currentVideos.count && !currentVideos.isEmpty ? NSLocalizedString("Deselect All", comment: "") : NSLocalizedString("Select All", comment: ""))
+                Text(isAllSelected ? NSLocalizedString("Deselect All", comment: "") : NSLocalizedString("Select All", comment: ""))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 12)
@@ -1370,7 +1416,7 @@ struct FileManagerView: View {
             Spacer()
 
             // 選択件数
-            Text(String(format: NSLocalizedString("%lld selected", comment: ""), selectedVideoIDs.count))
+            Text(String(format: NSLocalizedString("%lld selected", comment: ""), totalCount))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
 
@@ -1384,11 +1430,23 @@ struct FileManagerView: View {
                 } label: {
                     Image(systemName: "folder")
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.primary)
+                        .foregroundStyle(totalCount == 0 ? Color.secondary : Color.primary)
                         .frame(width: 34, height: 34)
                         .background(Color(.secondarySystemBackground), in: Circle())
                 }
-                .disabled(selectedVideoIDs.isEmpty)
+                .disabled(totalCount == 0)
+
+                // 一括ZIP圧縮（Phase F2-D）
+                Button {
+                    handleBatchCompress()
+                } label: {
+                    Image(systemName: "doc.zipper")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(totalCount == 0 ? Color.secondary : Color.blue)
+                        .frame(width: 34, height: 34)
+                        .background(totalCount == 0 ? Color(.secondarySystemBackground) : Color.blue.opacity(0.12), in: Circle())
+                }
+                .disabled(totalCount == 0)
 
                 // 一括Private Vault移動（ステルス中は非表示）
                 if vaultPolicy.allowsMoveToVaultFromNormalUI {
@@ -1410,11 +1468,11 @@ struct FileManagerView: View {
                 } label: {
                     Image(systemName: "trash")
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.red)
+                        .foregroundStyle(totalCount == 0 ? Color.secondary : Color.red)
                         .frame(width: 34, height: 34)
-                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.red.opacity(0.12), in: Circle())
+                        .background(totalCount == 0 ? Color(.secondarySystemBackground) : Color.red.opacity(0.12), in: Circle())
                 }
-                .disabled(selectedVideoIDs.isEmpty)
+                .disabled(totalCount == 0)
             }
         }
         .padding(.horizontal, 14)
@@ -1428,28 +1486,37 @@ struct FileManagerView: View {
     // MARK: - 一括操作処理
 
     private func handleBatchMoveToFolder(targetFolder: String) {
-        let targets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
-        guard !targets.isEmpty else { return }
+        let videoTargets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
+        let fileTargets = zipManager.managedFiles.filter { selectedManagedFileIDs.contains($0.id) }
+        guard !videoTargets.isEmpty || !fileTargets.isEmpty else { return }
+
         var successCount = 0
-        for v in targets {
+        for v in videoTargets {
             if case .success = folderManager.moveVideo(v, toFolder: targetFolder) {
+                successCount += 1
+            }
+        }
+        for f in fileTargets {
+            if (try? zipManager.moveManagedFile(f, toFolder: targetFolder, folderManager: folderManager)) != nil {
                 successCount += 1
             }
         }
         withAnimation {
             isSelecting = false
             selectedVideoIDs.removeAll()
+            selectedManagedFileIDs.removeAll()
         }
         let destName = targetFolder.isEmpty ? NSLocalizedString("Downloads (Uncategorized)", comment: "") : "「\(targetFolder)」"
-        showToast(String(format: NSLocalizedString("Moved %lld videos to %@", comment: ""), successCount, destName))
+        showToast(String(format: NSLocalizedString("Moved %lld items to %@", comment: ""), successCount, destName))
     }
 
     private func handleBatchMoveToTrash(videos: [SavedVideo]) {
-        let targets = videos.filter { selectedVideoIDs.contains($0.id) }
-        guard !targets.isEmpty else { return }
+        let videoTargets = videos.filter { selectedVideoIDs.contains($0.id) }
+        let fileTargets = zipManager.managedFiles.filter { selectedManagedFileIDs.contains($0.id) }
+        guard !videoTargets.isEmpty || !fileTargets.isEmpty else { return }
         Task {
             var successCount = 0
-            for v in targets {
+            for v in videoTargets {
                 let folder = folderManager.folderName(for: v)
                 if case .success = await trashManager.moveToTrash(
                     video: v,
@@ -1460,12 +1527,59 @@ struct FileManagerView: View {
                     successCount += 1
                 }
             }
+            for f in fileTargets {
+                if case .success = await trashManager.moveToTrash(
+                    managedFile: f,
+                    zipManager: zipManager
+                ) {
+                    successCount += 1
+                }
+            }
             await MainActor.run {
                 withAnimation {
                     isSelecting = false
                     selectedVideoIDs.removeAll()
+                    selectedManagedFileIDs.removeAll()
                 }
-                showToast(String(format: NSLocalizedString("Moved %lld videos to Trash", comment: ""), successCount))
+                showToast(String(format: NSLocalizedString("Moved %lld items to Trash", comment: ""), successCount))
+            }
+        }
+    }
+
+    private func handleBatchCompress() {
+        let videoTargets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
+        let fileTargets = zipManager.managedFiles.filter { selectedManagedFileIDs.contains($0.id) }
+        guard !videoTargets.isEmpty || !fileTargets.isEmpty else { return }
+
+        Task {
+            do {
+                let targetFolder: String
+                switch filter {
+                case .folder(let name):
+                    targetFolder = name
+                default:
+                    targetFolder = ""
+                }
+
+                let created = try await zipManager.compressMultipleItems(
+                    videos: videoTargets,
+                    managedFiles: fileTargets,
+                    targetFolderName: targetFolder,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                await MainActor.run {
+                    showToast(String(format: NSLocalizedString("Created \"%@.zip\"", comment: ""), created.title))
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSelecting = false
+                        selectedVideoIDs.removeAll()
+                        selectedManagedFileIDs.removeAll()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -2216,6 +2330,9 @@ private struct AlohaVideoCardView: View {
 
 private struct AlohaManagedFileCardView: View {
     let item: ManagedFileItem
+    var isSelecting: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelect: (() -> Void)? = nil
     var isOperating: Bool = false
     var onOpenText: (() -> Void)? = nil
     var onExtract: (() -> Void)? = nil
@@ -2230,9 +2347,14 @@ private struct AlohaManagedFileCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
-                // ファイルタイル（ZIPの場合はタップで抽出可能、プレイヤーは絶対に起動しない）
+                // ファイルタイル（選択モード時はタップで選択切り替え、非選択時は抽出/エディター起動）
                 Group {
-                    if let onExtract = onExtract, item.isZip {
+                    if isSelecting {
+                        Button(action: { onToggleSelect?() }) {
+                            tileVisual
+                        }
+                        .buttonStyle(.plain)
+                    } else if let onExtract = onExtract, item.isZip {
                         Button(action: onExtract) {
                             tileVisual
                         }
@@ -2249,8 +2371,30 @@ private struct AlohaManagedFileCardView: View {
                     }
                 }
 
+                // 選択インジケーター（左上）
+                if isSelecting {
+                    HStack {
+                        ZStack {
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(.blue)
+                                    .background(Circle().fill(.white))
+                            } else {
+                                Circle()
+                                    .strokeBorder(Color.white, lineWidth: 2)
+                                    .background(Circle().fill(Color.black.opacity(0.35)))
+                                    .frame(width: 24, height: 24)
+                            }
+                        }
+                        .padding(8)
+                        Spacer()
+                    }
+                }
+
                 // 右上「…」メニュー（Phase F1 / F2-A 対応済みの機能を表示）
-                Menu {
+                if !isSelecting {
+                    Menu {
                     if item.isTextDocument, let onOpenText = onOpenText, item.fileExists {
                         Button(action: onOpenText) {
                             Label("Edit Text", systemImage: "square.and.pencil")
@@ -2309,6 +2453,7 @@ private struct AlohaManagedFileCardView: View {
                         .padding(8)
                 }
                 .buttonStyle(.plain)
+                }
             }
             .frame(height: 140)
 
