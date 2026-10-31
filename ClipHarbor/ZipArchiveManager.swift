@@ -927,6 +927,13 @@ final class ZipArchiveManager: ObservableObject {
         _ item: ManagedFileItem,
         to rawNewTitle: String
     ) throws -> ManagedFileItem {
+        // パストラバーサルおよび不正文字の検査（.. やパス区切りを含む不正指定を拒否）
+        if rawNewTitle.contains("/") || rawNewTitle.contains("\\") || rawNewTitle.contains("..") {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Invalid file name.", comment: "")
+            )
+        }
+
         let cleanNewBase = FileNaming.sanitizedBaseName(rawNewTitle)
         guard !cleanNewBase.isEmpty else {
             throw VideoFolderManager.FolderError.emptyName
