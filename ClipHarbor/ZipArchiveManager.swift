@@ -2370,6 +2370,10 @@ final class ZipArchiveManager: ObservableObject {
         userDefaults.set(data, forKey: Self.pendingOperationKey)
     }
 
+    func appendManagedFileForTesting(_ item: ManagedFileItem) {
+        managedFiles.append(item)
+    }
+
     func clearPendingOperation() {
         try? FileManager.default.removeItem(at: journalFileURL)
         userDefaults.removeObject(forKey: Self.pendingOperationKey)

@@ -4128,7 +4128,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             folderName: "",
             relativeSubpath: nil
         )
-        zipMgr.managedFiles.append(rootItem)
+        zipMgr.appendManagedFileForTesting(rootItem)
 
         // Documents直下のファイルをリネーム
         let renamed = try zipMgr.renameManagedFile(rootItem, to: "doc_root_renamed")
