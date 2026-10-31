@@ -1174,7 +1174,7 @@ final class ZipArchiveManager: ObservableObject {
                     var entryBytesWritten: Int64 = 0
 
                     do {
-                        _ = try archive.extract(
+                        let computedCRC = try archive.extract(
                             entry,
                             bufferSize: Self.streamBufferSize,
                             skipCRC32: false,
@@ -1225,6 +1225,10 @@ final class ZipArchiveManager: ObservableObject {
                             }
                         }
                         try writeHandle.close()
+                        // CRC32 チェックサムの厳格な一致検証
+                        guard computedCRC == entry.checksum else {
+                            throw ZipOperationError.corruptedArchive
+                        }
                     } catch let zipErr as ZipOperationError {
                         try? writeHandle.close()
                         throw zipErr
@@ -1456,7 +1460,7 @@ final class ZipArchiveManager: ObservableObject {
                 throw ZipOperationError.cancelled
             }
 
-            let destURL = FileNaming.uniqueDestination(
+            let destURL = Self.uniqueFileDestination(
                 in: parentDir,
                 baseName: archiveBaseName,
                 fileExtension: "zip"
@@ -1515,6 +1519,25 @@ final class ZipArchiveManager: ObservableObject {
         if let data = try? JSONEncoder().encode(managedFiles) {
             userDefaults.set(data, forKey: Self.managedFilesKey)
         }
+    }
+
+    /// 既存ファイルと衝突しない一意のファイルURLを生成する（`archive.zip`, `archive (1).zip`, ...）
+    nonisolated static func uniqueFileDestination(in parentDirectory: URL, baseName: String, fileExtension ext: String) -> URL {
+        let cleanBase = FileNaming.sanitizedBaseName(baseName).isEmpty ? "Archive" : FileNaming.sanitizedBaseName(baseName)
+        let fm = FileManager.default
+        var candidate = parentDirectory.appendingPathComponent(cleanBase).appendingPathExtension(ext)
+        if !fm.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        for index in 1...9999 {
+            let numbered = "\(cleanBase) (\(index))"
+            candidate = parentDirectory.appendingPathComponent(numbered).appendingPathExtension(ext)
+            if !fm.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        let fallback = "\(cleanBase)_\(UUID().uuidString.prefix(6))"
+        return parentDirectory.appendingPathComponent(fallback).appendingPathExtension(ext)
     }
 
     /// 既存ディレクトリと衝突しない一意のフォルダURLを生成する（`旅行動画`, `旅行動画 (1)`, ...）
