@@ -4363,4 +4363,395 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: testFolder.path), "DS_Store等の残存ファイルがある場合はフォルダを削除しないこと")
         XCTAssertTrue(fm.folders.contains("FolderWithDSStore"), "論理フォルダも維持されること")
     }
+
+    // MARK: - Phase F2-B 一般ファイルのゴミ箱統合テスト
+
+    @MainActor
+    func testZipPhaseF2B_TrashItem_BackwardCompatibility_DecodesLegacyVideoJSONWithoutPayloadKind() throws {
+        // payloadKind, fileExtension, relativeSubpath が存在しない旧バージョンの動画ゴミ箱JSON
+        let legacyJSON = """
+        [
+            {
+                "id": "11111111-2222-3333-4444-555555555555",
+                "originalVideoID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "originalTitle": "Legacy Video",
+                "originalRelativePath": "Documents/Downloads/legacy.mp4",
+                "originalFolderName": "Movies",
+                "format": "mp4",
+                "byteSize": 1048576,
+                "sourceHost": "example.com",
+                "sourcePageURL": "https://example.com/watch",
+                "deletedAt": 700000000,
+                "expiresAt": 700259200,
+                "fileName": "legacy.mp4",
+                "isFavorite": true
+            }
+        ]
+        """
+        let data = Data(legacyJSON.utf8)
+        let items = try JSONDecoder().decode([TrashItem].self, from: data)
+        XCTAssertEqual(items.count, 1)
+
+        let item = items[0]
+        XCTAssertEqual(item.id, UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        XCTAssertEqual(item.originalVideoID, UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        XCTAssertEqual(item.originalTitle, "Legacy Video")
+        XCTAssertEqual(item.payloadKind, .video, "旧JSONは自動的に.videoとしてデコードされること")
+        XCTAssertTrue(item.isVideo, "isVideoがtrueであること")
+        XCTAssertFalse(item.isGeneralFile, "isGeneralFileがfalseであること")
+        XCTAssertEqual(item.format, .mp4)
+        XCTAssertEqual(item.typeLabel, "MP4")
+        XCTAssertNil(item.fileExtension)
+        XCTAssertNil(item.relativeSubpath)
+    }
+
+    @MainActor
+    func testZipPhaseF2B_MoveGeneralFileToTrash_MaintainsUUIDAndFileIntegrity() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_MoveTrash_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2b.movetrash.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 1. テスト対象の一般ファイルを作成（note.txt）
+        let testFile = downloadsDir.appendingPathComponent("note.txt")
+        try Data("General file trash test content".utf8).write(to: testFile)
+
+        let origID = UUID()
+        let item = ManagedFileItem(
+            id: origID,
+            title: "note",
+            relativePath: "Documents/Downloads/note.txt",
+            fileExtension: "txt",
+            createdAt: Date(),
+            byteSize: 31,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(item)
+
+        // 2. ゴミ箱へ移動
+        let res = await trashMgr.moveToTrash(managedFile: item, zipManager: zipMgr)
+        guard case .success(let trashItem) = res else {
+            XCTFail("moveToTrash failed")
+            return
+        }
+
+        // 検証:
+        // 元の場所から物理移動され、ゴミ箱内に実ファイルが存在すること
+        XCTAssertFalse(FileManager.default.fileExists(atPath: testFile.path), "元ファイルが物理移動されていること")
+        let trashFileURL = trashMgr.itemFileURL(for: trashItem)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: trashFileURL.path), "ゴミ箱内に実ファイルが存在すること")
+
+        // UUID・種別・拡張子が維持されていること
+        XCTAssertEqual(trashItem.originalVideoID, origID, "元のUUIDが維持されていること")
+        XCTAssertEqual(trashItem.payloadKind, .generalFile, "payloadKindが.generalFileであること")
+        XCTAssertTrue(trashItem.isGeneralFile)
+        XCTAssertFalse(trashItem.isVideo)
+        XCTAssertEqual(trashItem.fileExtension, "txt")
+        XCTAssertEqual(trashItem.typeLabel, "TXT")
+
+        // zipManager のインデックスから除外されていること
+        XCTAssertFalse(zipMgr.managedFiles.contains(where: { $0.id == origID }))
+
+        // 一般ファイルに対してサムネイル生成が行われないこと（必須条件2）
+        let thumb = await trashMgr.loadThumbnail(for: trashItem)
+        XCTAssertNil(thumb, "一般ファイルは動画サムネイル生成に渡されずnilを返すこと")
+    }
+
+    @MainActor
+    func testZipPhaseF2B_RestoreGeneralFile_MaintainsUUID_RecreatesFolderAndAvoidsOverwrite() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_Restore_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2b.restore.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 状況設定：
+        // 管理フォルダ "ArchivedReports" 配下の "report.pdf" をゴミ箱へ移動
+        let folderName = "ArchivedReports"
+        fm.registerLogicalFolderIfNeeded(folderName)
+        let folderDir = downloadsDir.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folderDir, withIntermediateDirectories: true)
+
+        let pdfFile = folderDir.appendingPathComponent("report.pdf")
+        try Data("PDF report content".utf8).write(to: pdfFile)
+
+        let origID = UUID()
+        let managedItem = ManagedFileItem(
+            id: origID,
+            title: "report",
+            relativePath: "Documents/Downloads/\(folderName)/report.pdf",
+            fileExtension: "pdf",
+            createdAt: Date(),
+            byteSize: 18,
+            folderName: folderName,
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(managedItem)
+
+        // ゴミ箱へ移動
+        let moveRes = await trashMgr.moveToTrash(managedFile: managedItem, zipManager: zipMgr)
+        guard case .success(let trashItem) = moveRes else {
+            XCTFail("moveToTrash failed")
+            return
+        }
+
+        // 移動後、元のフォルダを物理的・論理的に削除（元フォルダ削除のシミュレーション）
+        try? FileManager.default.removeItem(at: folderDir)
+        fm.unregisterLogicalFolderIfNeeded(folderName)
+        XCTAssertFalse(fm.folders.contains(folderName))
+
+        // 復元先のフォルダに同名の "report.pdf" を新規作成（同名衝突・上書き禁止シミュレーション）
+        try FileManager.default.createDirectory(at: folderDir, withIntermediateDirectories: true)
+        let conflictFile = folderDir.appendingPathComponent("report.pdf")
+        try Data("Existing conflicting PDF".utf8).write(to: conflictFile)
+
+        // 復元を実行
+        let restoreRes = await trashMgr.restore(item: trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        guard case .success(let restored) = restoreRes else {
+            XCTFail("restore failed")
+            return
+        }
+
+        guard case .generalFile(let restoredFile) = restored else {
+            XCTFail("Expected generalFile result")
+            return
+        }
+
+        // 検証:
+        // 1. UUIDが100%維持されていること
+        XCTAssertEqual(restoredFile.id, origID, "UUIDが100%維持されていること")
+        // 2. 削除されていたフォルダが論理・物理両面で再作成されていること
+        XCTAssertTrue(fm.folders.contains(folderName), "元フォルダが論理登録に再生成されていること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folderDir.path))
+        // 3. 既存の同名ファイルが上書きされず保持されていること
+        XCTAssertEqual(try? String(contentsOf: conflictFile, encoding: .utf8), "Existing conflicting PDF", "既存ファイルが上書きされていないこと")
+        // 4. 復元ファイルが連番付きで安全に共存していること（上書き禁止）
+        XCTAssertTrue(restoredFile.title.contains("report"), "復元されたタイトルが維持されていること")
+        let restoredPhysURL = zipMgr.resolveFileURL(for: restoredFile)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: restoredPhysURL.path), "復元ファイルが物理的に存在すること")
+        XCTAssertNotEqual(restoredPhysURL.path, conflictFile.path, "競合ファイルと別パスで保存されていること")
+        // 5. ゴミ箱メタデータから除外されていること
+        XCTAssertFalse(trashMgr.items.contains(where: { $0.id == trashItem.id }))
+    }
+
+    @MainActor
+    func testZipPhaseF2B_TrashAutoPurge_GeneralFileExpiresCorrectly() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_Purge_\(UUID().uuidString)", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 1. 期限切れ一般ファイル（1日前に期限切れ）を作成
+        let expiredID = UUID()
+        let expiredDir = trashMgr.trashDirectoryURL.appendingPathComponent(expiredID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: expiredDir, withIntermediateDirectories: true)
+        let expiredFile = expiredDir.appendingPathComponent("old.txt")
+        try Data("old content".utf8).write(to: expiredFile)
+
+        let expiredItem = TrashItem(
+            id: expiredID,
+            originalVideoID: UUID(),
+            originalTitle: "old",
+            originalRelativePath: "Documents/Downloads/old.txt",
+            originalFolderName: "",
+            format: .mp4,
+            byteSize: 11,
+            sourceHost: nil,
+            sourcePageURL: nil,
+            deletedAt: Date().addingTimeInterval(-86400 * 4),
+            expiresAt: Date().addingTimeInterval(-86400 * 1), // 昨日期限切れ
+            fileName: "old.txt",
+            isFavorite: false,
+            payloadKind: .generalFile,
+            fileExtension: "txt",
+            relativeSubpath: nil
+        )
+
+        // 2. 有効期間内の一般ファイル（3日後に期限切れ）を作成
+        let validID = UUID()
+        let validDir = trashMgr.trashDirectoryURL.appendingPathComponent(validID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: validDir, withIntermediateDirectories: true)
+        let validFile = validDir.appendingPathComponent("valid.zip")
+        try Data("valid zip content".utf8).write(to: validFile)
+
+        let validItem = TrashItem(
+            id: validID,
+            originalVideoID: UUID(),
+            originalTitle: "valid",
+            originalRelativePath: "Documents/Downloads/valid.zip",
+            originalFolderName: "",
+            format: .mp4,
+            byteSize: 17,
+            sourceHost: nil,
+            sourcePageURL: nil,
+            deletedAt: Date(),
+            expiresAt: Date().addingTimeInterval(86400 * 3), // 3日後期限
+            fileName: "valid.zip",
+            isFavorite: false,
+            payloadKind: .generalFile,
+            fileExtension: "zip",
+            relativeSubpath: nil
+        )
+
+        // メタデータを直接書き込み
+        let metadataURL = trashMgr.metadataFileURL
+        let data = try JSONEncoder().encode([expiredItem, validItem])
+        try data.write(to: metadataURL, options: .atomic)
+
+        // マネージャーにリロードさせる
+        let reloadMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // パージ実行待機
+        for _ in 0..<30 {
+            if !reloadMgr.items.contains(where: { $0.id == expiredID }) {
+                break
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+
+        // 検証:
+        // 期限切れファイルは完全削除されていること
+        XCTAssertFalse(reloadMgr.items.contains(where: { $0.id == expiredID }), "期限切れアイテムが一覧から除外されていること")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expiredFile.path), "期限切れファイルがディスクから物理削除されていること")
+
+        // 有効期間内のアイテムは保持されていること
+        XCTAssertTrue(reloadMgr.items.contains(where: { $0.id == validID }), "有効なアイテムが保持されていること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: validFile.path), "有効なファイルがディスク上に保持されていること")
+    }
+
+    @MainActor
+    func testZipPhaseF2B_OrphanFileRecovery_DoesNotMistreatGeneralFileAsVideo() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_Orphan_\(UUID().uuidString)", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        // メタデータなしで Trash/ 直下に孤立ディレクトリとファイルを直接作成
+        let orphanUUID = UUID()
+        let orphanDir = trashDir.appendingPathComponent("Trash", isDirectory: true).appendingPathComponent(orphanUUID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: orphanDir, withIntermediateDirectories: true)
+
+        let orphanZipFile = orphanDir.appendingPathComponent("archive.zip")
+        try Data("orphan zip content".utf8).write(to: orphanZipFile)
+
+        // TrashManager 初期化（メタデータ不在からのスキャン復旧）
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 検証:
+        // 孤立したZIPファイルが救済され、誤って.videoではなく.generalFileとして登録されていること（必須条件4）
+        guard let recoveredItem = trashMgr.items.first(where: { $0.id == orphanUUID }) else {
+            XCTFail("Orphaned zip file was not recovered")
+            return
+        }
+
+        XCTAssertEqual(recoveredItem.payloadKind, .generalFile, "孤立ZIPは誤って動画と判定されず.generalFileとして救済されること")
+        XCTAssertTrue(recoveredItem.isGeneralFile)
+        XCTAssertFalse(recoveredItem.isVideo)
+        XCTAssertEqual(recoveredItem.fileExtension, "zip")
+        XCTAssertEqual(recoveredItem.typeLabel, "ZIP")
+        XCTAssertEqual(recoveredItem.fileName, "archive.zip")
+    }
+
+    @MainActor
+    func testZipPhaseF2B_ExistingVideoAndHLS_RegressionCheck() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2B_Regression_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2b.regression.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 1. 通常のMP4動画の移動と復元
+        let mp4File = downloadsDir.appendingPathComponent("sample_video.mp4")
+        try Data("dummy mp4 video bytes".utf8).write(to: mp4File)
+
+        let video = SavedVideo(
+            id: UUID(),
+            title: "sample_video",
+            relativePath: "Documents/Downloads/sample_video.mp4",
+            format: .mp4,
+            sourceHost: "clipharbor.test",
+            createdAt: Date(),
+            byteSize: 22,
+            sourcePageURL: "https://clipharbor.test/page"
+        )
+        dc.addSaved(video)
+
+        // ゴミ箱へ移動
+        let moveRes = await trashMgr.moveToTrash(video: video, folderName: "", downloads: dc, folderManager: fm)
+        guard case .success(let trashVideo) = moveRes else {
+            XCTFail("Video moveToTrash failed")
+            return
+        }
+
+        XCTAssertEqual(trashVideo.payloadKind, .video, "動画のpayloadKindは.videoであること")
+        XCTAssertTrue(trashVideo.isVideo)
+        XCTAssertFalse(trashVideo.isGeneralFile)
+        XCTAssertFalse(dc.saved.contains(where: { $0.id == video.id }), "通常一覧から除外されていること")
+
+        // 復元
+        let restoreRes = await trashMgr.restore(item: trashVideo, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        guard case .success(let restored) = restoreRes else {
+            XCTFail("Video restore failed")
+            return
+        }
+
+        guard case .video(let restoredVideo) = restored else {
+            XCTFail("Expected video result")
+            return
+        }
+
+        XCTAssertEqual(restoredVideo.id, video.id, "動画のUUIDが一致すること")
+        XCTAssertEqual(restoredVideo.format, .mp4)
+        XCTAssertTrue(dc.saved.contains(where: { $0.id == video.id }), "通常一覧へ復元されていること")
+    }
+
 }

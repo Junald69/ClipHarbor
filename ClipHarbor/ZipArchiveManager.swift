@@ -2485,6 +2485,19 @@ final class ZipArchiveManager: ObservableObject {
         managedFiles.append(item)
     }
 
+    /// ゴミ箱移動時にインデックスから一般ファイルを除外しメタデータを原子的保存
+    func removeManagedFileFromIndex(id: UUID) {
+        managedFiles.removeAll { $0.id == id }
+        persistManagedFiles()
+    }
+
+    /// ゴミ箱復元時に一般ファイルをインデックスへ再登録しメタデータを原子的保存（UUIDは維持）
+    func restoreManagedFileToIndex(_ item: ManagedFileItem) {
+        managedFiles.removeAll { $0.id == item.id }
+        managedFiles.insert(item, at: 0)
+        persistManagedFiles()
+    }
+
     func clearPendingOperation() {
         try? FileManager.default.removeItem(at: journalFileURL)
         userDefaults.removeObject(forKey: Self.pendingOperationKey)

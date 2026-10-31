@@ -11657,6 +11657,40 @@
           }
         }
       }
+    },
+    "Move File to Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move File to Trash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルをゴミ箱へ移動"
+          }
+        }
+      }
+    },
+    "Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をゴミ箱に移動してもよろしいですか？\n（設定された保持期間経過後に自動的に完全削除されます）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

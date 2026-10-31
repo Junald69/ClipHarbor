@@ -11,6 +11,7 @@ struct TrashView: View {
     @ObservedObject var trashManager = TrashManager.shared
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var folderManager: VideoFolderManager
+    var zipManager: ZipArchiveManager = ZipArchiveManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var deletingItem: TrashItem?
@@ -184,12 +185,17 @@ struct TrashView: View {
         guard !isOperating else { return }
         isOperating = true
         Task {
-            let result = await trashManager.restore(item: item, downloads: downloads, folderManager: folderManager)
+            let result = await trashManager.restore(item: item, downloads: downloads, folderManager: folderManager, zipManager: zipManager)
             await MainActor.run {
                 isOperating = false
                 switch result {
-                case .success(let video):
-                    showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), video.title))
+                case .success(let restored):
+                    let title: String
+                    switch restored {
+                    case .video(let v): title = v.title
+                    case .generalFile(let f): title = f.title
+                    }
+                    showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), title))
                 case .failure(let err):
                     errorMessage = String(format: NSLocalizedString("Failed to restore: %@", comment: ""), err.localizedDescription)
                 }
@@ -315,8 +321,9 @@ private struct AlohaTrashCardView: View {
 
                 // 形式・容量（1行固定）
                 HStack(spacing: 4) {
-                    Text(item.format.label)
+                    Text(item.typeLabel)
                         .font(.caption2.weight(.semibold))
+                        .foregroundStyle(item.isGeneralFile ? .purple : .secondary)
 
                     if let size = item.byteSize, size > 0 {
                         Text("· \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
@@ -363,12 +370,22 @@ private struct TrashClippedThumbnailTileView: View {
                         .frame(width: w, height: h)
                         .clipped()
                 } else {
-                    // サムネイル未取得または生成不可時のプレースホルダー
+                    // サムネイル未取得または一般ファイルのプレースホルダー
                     VStack(spacing: 6) {
-                        Image(systemName: item.format == .hls ? "film.stack" : "play.rectangle.fill")
+                        let iconName: String = {
+                            if item.isGeneralFile {
+                                let ext = item.fileExtension?.lowercased() ?? ""
+                                if ext == "zip" { return "doc.zipper" }
+                                if ext == "pdf" { return "doc.richtext" }
+                                if ext == "txt" || ext == "md" { return "doc.text.fill" }
+                                return "doc.fill"
+                            }
+                            return item.format == .hls ? "film.stack" : "play.rectangle.fill"
+                        }()
+                        Image(systemName: iconName)
                             .font(.system(size: 32))
-                            .foregroundStyle(.secondary)
-                        Text(item.format.label)
+                            .foregroundStyle(item.isGeneralFile ? .purple : .secondary)
+                        Text(item.typeLabel)
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(.secondary)
                     }
@@ -377,6 +394,7 @@ private struct TrashClippedThumbnailTileView: View {
             .task(id: item.id) {
                 guard !hasAttemptedLoad else { return }
                 hasAttemptedLoad = true
+                guard item.isVideo else { return }
                 let loaded = await TrashManager.shared.loadThumbnail(for: item)
                 await MainActor.run {
                     self.thumbnail = loaded

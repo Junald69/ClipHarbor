@@ -55,10 +55,11 @@ struct FileManagerView: View {
     @State private var renamingVideo: SavedVideo?
     @State private var renameVideoInput = ""
 
-    // 一般ファイル操作用ダイアログ (Phase F2-A)
+    // 一般ファイル操作用ダイアログ (Phase F2-A / F2-B)
     @State private var renamingManagedFile: ManagedFileItem?
     @State private var renameManagedFileInput = ""
     @State private var movingManagedFile: ManagedFileItem?
+    @State private var deletingManagedFile: ManagedFileItem?
 
     // 画像インポート
     @State private var showPhotosPicker = false
@@ -441,7 +442,8 @@ struct FileManagerView: View {
                 TrashView(
                     trashManager: trashManager,
                     downloads: downloads,
-                    folderManager: folderManager
+                    folderManager: folderManager,
+                    zipManager: zipManager
                 )
             }
             .sheet(isPresented: $showSettingsSheet) {
@@ -672,6 +674,9 @@ struct FileManagerView: View {
                         },
                         onMove: {
                             movingManagedFile = fileItem
+                        },
+                        onDelete: {
+                            deletingManagedFile = fileItem
                         }
                     )
                 }
@@ -959,6 +964,9 @@ struct FileManagerView: View {
                                     },
                                     onMove: {
                                         movingManagedFile = fileItem
+                                    },
+                                    onDelete: {
+                                        deletingManagedFile = fileItem
                                     }
                                 )
                             }
@@ -1163,6 +1171,9 @@ struct FileManagerView: View {
                                     },
                                     onMove: {
                                         movingManagedFile = fileItem
+                                    },
+                                    onDelete: {
+                                        deletingManagedFile = fileItem
                                     }
                                 )
                             }
@@ -1191,6 +1202,28 @@ struct FileManagerView: View {
         } message: {
             if let target = deletingVideo {
                 Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
+            }
+        }
+        .confirmationDialog(
+            NSLocalizedString("Move File to Trash", comment: ""),
+            isPresented: Binding(
+                get: { deletingManagedFile != nil },
+                set: { if !$0 { deletingManagedFile = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                if let target = deletingManagedFile {
+                    handleMoveToTrash(managedFile: target)
+                }
+                deletingManagedFile = nil
+            }
+            Button("Cancel", role: .cancel) {
+                deletingManagedFile = nil
+            }
+        } message: {
+            if let target = deletingManagedFile {
+                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)", comment: ""), target.title))
             }
         }
     }
@@ -1868,6 +1901,23 @@ struct FileManagerView: View {
         }
     }
 
+    private func handleMoveToTrash(managedFile: ManagedFileItem) {
+        Task {
+            let result = await trashManager.moveToTrash(
+                managedFile: managedFile,
+                zipManager: zipManager
+            )
+            await MainActor.run {
+                switch result {
+                case .success:
+                    showToast(String(format: NSLocalizedString("Moved \"%@\" to Trash", comment: ""), managedFile.title))
+                case .failure(let err):
+                    errorMessage = String(format: NSLocalizedString("Failed to move to Trash: %@", comment: ""), err.localizedDescription)
+                }
+            }
+        }
+    }
+
     private func showToast(_ msg: String) {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         withAnimation(.easeInOut(duration: 0.2)) {
@@ -2156,6 +2206,7 @@ private struct AlohaManagedFileCardView: View {
     var onCompress: (() -> Void)? = nil
     var onRename: (() -> Void)? = nil
     var onMove: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
     @ScaledMetric(relativeTo: .caption2) private var subtitleHeight: CGFloat = 16
@@ -2210,6 +2261,14 @@ private struct AlohaManagedFileCardView: View {
                         ShareLink(item: item.fileURL) {
                             Label("Share", systemImage: "square.and.arrow.up")
                         }
+                    }
+
+                    if let onDelete = onDelete, item.fileExists {
+                        Divider()
+                        Button(role: .destructive, action: onDelete) {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .disabled(isOperating)
                     }
                 } label: {
                     Image(systemName: "ellipsis")

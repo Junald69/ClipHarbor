@@ -1,14 +1,20 @@
 import Foundation
 import UIKit
 
+/// ゴミ箱内アイテムのペイロード種別（動画 vs 一般ファイル） (Phase F2-B)
+enum TrashPayloadKind: String, Codable {
+    case video          // 既存の動画・HLS
+    case generalFile    // ZIP・PDF・TXT・MD等の一般ファイル
+}
+
 /// ゴミ箱内のファイル管理アイテムモデル
 struct TrashItem: Identifiable, Codable, Equatable {
     let id: UUID                     // ゴミ箱管理用の一意ID
-    let originalVideoID: UUID        // 元のSavedVideo.id
+    let originalVideoID: UUID        // 元のSavedVideo.idまたはManagedFileItem.id
     let originalTitle: String        // 表示名
     let originalRelativePath: String // 元の相対パス
     let originalFolderName: String   // 元のフォルダ名（空文字は未分類）
-    let format: SavedVideo.Format    // MP4 / HLS 等
+    let format: SavedVideo.Format    // MP4 / HLS 等（一般ファイル時は互換性ダミー値 .mp4 を保持）
     let byteSize: Int64?             // ファイルサイズ
     let sourceHost: String?          // 配信元ホスト
     let sourcePageURL: String?       // 元WebページURL
@@ -16,6 +22,22 @@ struct TrashItem: Identifiable, Codable, Equatable {
     let expiresAt: Date?             // 完全削除予定日時（nilは自動削除なし）
     let fileName: String             // 実際のファイル名またはパッケージ名
     let isFavorite: Bool?            // 元のお気に入り状態
+
+    // --- Phase F2-B 拡張フィールド ---
+    let payloadKind: TrashPayloadKind // ペイロード種別（動画 / 一般ファイル）
+    let fileExtension: String?        // 一般ファイルの拡張子（例: "txt", "zip", "pdf"）
+    let relativeSubpath: String?      // ネスト階層情報
+
+    var isGeneralFile: Bool { payloadKind == .generalFile }
+    var isVideo: Bool { payloadKind == .video }
+
+    var typeLabel: String {
+        if isGeneralFile {
+            return (fileExtension?.isEmpty == false ? fileExtension! : "FILE").uppercased()
+        } else {
+            return format.label
+        }
+    }
 
     var isExpired: Bool {
         guard let expiresAt = expiresAt else { return false }
@@ -49,6 +71,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, originalVideoID, originalTitle, originalRelativePath, originalFolderName
         case format, byteSize, sourceHost, sourcePageURL, deletedAt, expiresAt, fileName, isFavorite
+        case payloadKind, fileExtension, relativeSubpath
     }
 
     init(
@@ -64,7 +87,10 @@ struct TrashItem: Identifiable, Codable, Equatable {
         deletedAt: Date,
         expiresAt: Date?,
         fileName: String,
-        isFavorite: Bool? = false
+        isFavorite: Bool? = false,
+        payloadKind: TrashPayloadKind = .video,
+        fileExtension: String? = nil,
+        relativeSubpath: String? = nil
     ) {
         self.id = id
         self.originalVideoID = originalVideoID
@@ -79,6 +105,9 @@ struct TrashItem: Identifiable, Codable, Equatable {
         self.expiresAt = expiresAt
         self.fileName = fileName
         self.isFavorite = isFavorite
+        self.payloadKind = payloadKind
+        self.fileExtension = fileExtension
+        self.relativeSubpath = relativeSubpath
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +124,9 @@ struct TrashItem: Identifiable, Codable, Equatable {
         deletedAt = try container.decode(Date.self, forKey: .deletedAt)
         fileName = try container.decode(String.self, forKey: .fileName)
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite)
+        payloadKind = try container.decodeIfPresent(TrashPayloadKind.self, forKey: .payloadKind) ?? .video
+        fileExtension = try container.decodeIfPresent(String.self, forKey: .fileExtension)
+        relativeSubpath = try container.decodeIfPresent(String.self, forKey: .relativeSubpath)
 
         if container.contains(.expiresAt) {
             expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
@@ -113,7 +145,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
 /// - 二重操作防止（処理中アイテムのロック管理）
 /// - ロールバック機能（ファイル移動やメタデータ書き込み失敗時に元の状態へ安全復元）
 /// - メタデータ破損時でもゴミ箱内ファイルを空と誤認して削除しない安全保護機構
-/// - MP4およびオフラインHLS（.movpkg一式）の確実な移動と復元後再生参照に対応
+/// - MP4およびオフラインHLS（.movpkg一式）、一般ファイル（ZIP・PDF・TXT等）の確実な移動と復元に対応
 final class TrashManager: ObservableObject {
     static let shared = TrashManager()
 
@@ -127,9 +159,12 @@ final class TrashManager: ObservableObject {
     private let ioQueue = DispatchQueue(label: "com.clipharbor.trashmanager.io", qos: .userInitiated)
     private let trashThumbnailCache = NSCache<NSString, UIImage>()
 
+    /// テスト用のカスタムゴミ箱ディレクトリ（指定時はこの配下に Trash/ が作られる）
+    var customTrashDirectoryURL: URL? = nil
+
     // MARK: - パス管理
 
-    private static var trashDirectoryURL: URL {
+    private static var defaultTrashDirectoryURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let trashDir = appSupport.appendingPathComponent("Trash", isDirectory: true)
         if !FileManager.default.fileExists(atPath: trashDir.path) {
@@ -138,12 +173,23 @@ final class TrashManager: ObservableObject {
         return trashDir
     }
 
-    private static var metadataFileURL: URL {
+    var trashDirectoryURL: URL {
+        if let custom = customTrashDirectoryURL {
+            let trashDir = custom.appendingPathComponent("Trash", isDirectory: true)
+            if !fileManager.fileExists(atPath: trashDir.path) {
+                try? fileManager.createDirectory(at: trashDir, withIntermediateDirectories: true)
+            }
+            return trashDir
+        }
+        return Self.defaultTrashDirectoryURL
+    }
+
+    var metadataFileURL: URL {
         trashDirectoryURL.appendingPathComponent("trash_metadata.json")
     }
 
     private func itemDirectoryURL(for itemID: UUID) -> URL {
-        Self.trashDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
+        trashDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
     }
 
     func itemFileURL(for item: TrashItem) -> URL {
@@ -156,7 +202,8 @@ final class TrashManager: ObservableObject {
 
     // MARK: - 初期化とライフサイクル
 
-    private init() {
+    init(customTrashDirectoryURL: URL? = nil) {
+        self.customTrashDirectoryURL = customTrashDirectoryURL
         trashThumbnailCache.countLimit = 100
         trashThumbnailCache.totalCostLimit = 40 * 1024 * 1024
 
@@ -179,7 +226,10 @@ final class TrashManager: ObservableObject {
     // MARK: - サムネイル取得・永続化
 
     /// ゴミ箱内アイテムのサムネイル取得（非公開領域に永続化、再起動後も安定表示）
+    /// - Note: 一般ファイル（isGeneralFile == true）に対しては動画サムネイル生成は一切行わない
     func loadThumbnail(for item: TrashItem) async -> UIImage? {
+        guard item.isVideo else { return nil }
+
         let cacheKey = item.id.uuidString as NSString
         if let cached = trashThumbnailCache.object(forKey: cacheKey) {
             return cached
@@ -224,7 +274,7 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - ゴミ箱へ移動（非同期・サムネイル永続化・ロールバック完備）
+    // MARK: - 動画のゴミ箱へ移動（非同期・サムネイル永続化・ロールバック完備）
 
     @discardableResult
     func moveToTrash(
@@ -310,7 +360,10 @@ final class TrashManager: ObservableObject {
                         deletedAt: now,
                         expiresAt: expiresAt,
                         fileName: fileName,
-                        isFavorite: video.isFavorite
+                        isFavorite: video.isFavorite,
+                        payloadKind: .video,
+                        fileExtension: nil,
+                        relativeSubpath: nil
                     )
 
                     // 4. メタデータ永続化（失敗時は直ちにファイル移動をロールバック）
@@ -345,7 +398,120 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - 復元（非同期・ロールバック完備・相対パス再構築）
+    // MARK: - 一般ファイルのゴミ箱移動 (Phase F2-B)
+
+    @discardableResult
+    func moveToTrash(
+        managedFile: ManagedFileItem,
+        zipManager: ZipArchiveManager
+    ) async -> Result<TrashItem, Error> {
+        let fileID = managedFile.id
+
+        // 二重タップ・競合防止チェック
+        let alreadyProcessing = await MainActor.run { () -> Bool in
+            if isProcessing(fileID) { return true }
+            setProcessing(fileID, active: true)
+            return false
+        }
+        if alreadyProcessing {
+            return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("This file is currently being processed.", comment: "")
+            ]))
+        }
+
+        defer {
+            Task { @MainActor in
+                self.setProcessing(fileID, active: false)
+            }
+        }
+
+        let sourceURL = zipManager.resolveFileURL(for: managedFile)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Target file was not found on device.", comment: "")
+            ]))
+        }
+
+        // Vault領域・一時復号領域の保護
+        if FileClassification.isInsideVaultOrTempArea(sourceURL) {
+            return .failure(NSError(domain: "TrashManager", code: 403, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Cannot operate on files inside the Private Vault.", comment: "")
+            ]))
+        }
+
+        let trashID = UUID()
+        let itemDir = itemDirectoryURL(for: trashID)
+        let fileName = sourceURL.lastPathComponent
+        let destURL = itemDir.appendingPathComponent(fileName)
+
+        let retentionPeriod = await MainActor.run { AppSettingsManager.shared.trashRetentionPeriod }
+
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
+                    ])))
+                    return
+                }
+
+                do {
+                    // 1. ゴミ箱内の一意ディレクトリ作成
+                    try self.fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true)
+
+                    // 2. 実ファイルをゴミ箱へ物理移動
+                    try self.fileManager.moveItem(at: sourceURL, to: destURL)
+
+                    let now = Date()
+                    let expiresAt = retentionPeriod.timeInterval.map { now.addingTimeInterval($0) }
+                    let trashItem = TrashItem(
+                        id: trashID,
+                        originalVideoID: managedFile.id,
+                        originalTitle: managedFile.title,
+                        originalRelativePath: managedFile.relativePath,
+                        originalFolderName: managedFile.folderName,
+                        format: .mp4, // 互換性ダミー値（payloadKind == .generalFile で判別）
+                        byteSize: managedFile.byteSize,
+                        sourceHost: nil,
+                        sourcePageURL: nil,
+                        deletedAt: now,
+                        expiresAt: expiresAt,
+                        fileName: fileName,
+                        isFavorite: false,
+                        payloadKind: .generalFile,
+                        fileExtension: managedFile.fileExtension,
+                        relativeSubpath: managedFile.relativeSubpath
+                    )
+
+                    // 3. メタデータ永続化（失敗時は直ちにファイル移動をロールバック）
+                    var updatedItems = self.items
+                    updatedItems.insert(trashItem, at: 0)
+                    do {
+                        try self.writeMetadataToDisk(updatedItems)
+                    } catch {
+                        try? self.fileManager.moveItem(at: destURL, to: sourceURL)
+                        try? self.fileManager.removeItem(at: itemDir)
+                        continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 501, userInfo: [
+                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to save metadata; safely cancelled move: %@", comment: ""), error.localizedDescription)
+                        ])))
+                        return
+                    }
+
+                    // 4. メタデータ保存成功後に ZipArchiveManager から除外
+                    DispatchQueue.main.async {
+                        self.items = updatedItems
+                        zipManager.removeManagedFileFromIndex(id: managedFile.id)
+                        continuation.resume(returning: .success(trashItem))
+                    }
+                } catch {
+                    try? self.fileManager.removeItem(at: itemDir)
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+    }
+
+    // MARK: - 動画の復元（非同期・ロールバック完備・相対パス再構築）
 
     @discardableResult
     func restore(
@@ -399,7 +565,6 @@ final class TrashManager: ObservableObject {
 
                     if item.format == .hls {
                         // HLS（.movpkg一式）の復元:
-                        // 元の相対パスの親ディレクトリを再構築して復元（不可能な場合はDownloads直下）
                         let originalFull = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
                             .appendingPathComponent(item.originalRelativePath)
                         let parentDir = originalFull.deletingLastPathComponent()
@@ -420,7 +585,6 @@ final class TrashManager: ObservableObject {
                         )
                     } else {
                         // MP4 / MOV 等の復元:
-                        // 元フォルダが存在すればその中へ、存在しなければDownloads直下へ復元
                         let targetDir: URL
                         if !cleanFolder.isEmpty {
                             let folderDir = downloadsDir.appendingPathComponent(cleanFolder, isDirectory: true)
@@ -439,7 +603,7 @@ final class TrashManager: ObservableObject {
                         )
                     }
 
-                    // 新しい相対パスを計算（過去の絶対パスは一切再利用しない）
+                    // 新しい相対パスを計算
                     guard let newRelativePath = SavedVideo.relativePath(for: destURL) else {
                         throw NSError(domain: "TrashManager", code: 500, userInfo: [
                             NSLocalizedDescriptionKey: NSLocalizedString("Failed to determine destination path for restore.", comment: "")
@@ -455,7 +619,6 @@ final class TrashManager: ObservableObject {
                     do {
                         try self.writeMetadataToDisk(updatedItems)
                     } catch {
-                        // ロールバック: 復元先からゴミ箱へ戻す
                         try? self.fileManager.moveItem(at: destURL, to: sourceURL)
                         continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 502, userInfo: [
                             NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to update metadata; safely cancelled restore: %@", comment: ""), error.localizedDescription)
@@ -496,6 +659,174 @@ final class TrashManager: ObservableObject {
         }
     }
 
+    // MARK: - 一般ファイルの復元 (Phase F2-B)
+
+    @discardableResult
+    func restoreGeneralFile(
+        item: TrashItem,
+        zipManager: ZipArchiveManager,
+        folderManager: VideoFolderManager
+    ) async -> Result<ManagedFileItem, Error> {
+        guard item.isGeneralFile else {
+            return .failure(NSError(domain: "TrashManager", code: 400, userInfo: [
+                NSLocalizedDescriptionKey: "Item is not a general file."
+            ]))
+        }
+
+        let itemID = item.id
+
+        // 二重タップ・競合防止チェック
+        let alreadyProcessing = await MainActor.run { () -> Bool in
+            if isProcessing(itemID) { return true }
+            setProcessing(itemID, active: true)
+            return false
+        }
+        if alreadyProcessing {
+            return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("This file is currently being processed.", comment: "")
+            ]))
+        }
+
+        defer {
+            Task { @MainActor in
+                self.setProcessing(itemID, active: false)
+            }
+        }
+
+        let sourceURL = itemFileURL(for: item)
+        guard fileManager.fileExists(atPath: sourceURL.path) else {
+            return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Actual file in Trash was not found.", comment: "")
+            ]))
+        }
+
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
+                    ])))
+                    return
+                }
+
+                do {
+                    let downloadsDir = zipManager.customDownloadsRootURL ?? {
+                        let docs = self.fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                        return docs.appendingPathComponent("Downloads", isDirectory: true)
+                    }()
+                    try self.fileManager.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+
+                    let cleanFolder = VideoFolderManager.sanitizedFolderName(item.originalFolderName)
+                    let targetDir: URL
+                    if !cleanFolder.isEmpty {
+                        let folderDir = downloadsDir.appendingPathComponent(cleanFolder, isDirectory: true)
+                        if !self.fileManager.fileExists(atPath: folderDir.path) {
+                            try self.fileManager.createDirectory(at: folderDir, withIntermediateDirectories: true)
+                        }
+                        DispatchQueue.main.async {
+                            folderManager.registerLogicalFolderIfNeeded(cleanFolder)
+                        }
+
+                        if let subpath = item.relativeSubpath, !subpath.isEmpty {
+                            let subDir = folderDir.appendingPathComponent(subpath, isDirectory: true)
+                            try self.fileManager.createDirectory(at: subDir, withIntermediateDirectories: true)
+                            targetDir = subDir
+                        } else {
+                            targetDir = folderDir
+                        }
+                    } else {
+                        targetDir = downloadsDir
+                    }
+
+                    let ext = item.fileExtension ?? sourceURL.pathExtension
+                    let baseName = item.originalTitle.isEmpty ? sourceURL.deletingPathExtension().lastPathComponent : item.originalTitle
+                    // 上書き禁止：同名存在時は (1) 等を付与して安全共存
+                    let destURL = FileNaming.uniqueDestination(
+                        in: targetDir,
+                        baseName: baseName,
+                        fileExtension: ext.isEmpty ? "bin" : ext
+                    )
+
+                    guard let newRelativePath = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: zipManager.customDownloadsRootURL) else {
+                        throw NSError(domain: "TrashManager", code: 500, userInfo: [
+                            NSLocalizedDescriptionKey: NSLocalizedString("Failed to determine destination path for restore.", comment: "")
+                        ])
+                    }
+
+                    // 1. 実ファイルを復元先へ移動
+                    try self.fileManager.moveItem(at: sourceURL, to: destURL)
+
+                    // 2. メタデータから削除して保存（失敗時はロールバック）
+                    var updatedItems = self.items
+                    updatedItems.removeAll { $0.id == item.id }
+                    do {
+                        try self.writeMetadataToDisk(updatedItems)
+                    } catch {
+                        try? self.fileManager.moveItem(at: destURL, to: sourceURL)
+                        continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 502, userInfo: [
+                            NSLocalizedDescriptionKey: String(format: NSLocalizedString("Failed to update metadata; safely cancelled restore: %@", comment: ""), error.localizedDescription)
+                        ])))
+                        return
+                    }
+
+                    // 3. ゴミ箱一時ディレクトリを片付け
+                    let itemDir = self.itemDirectoryURL(for: item.id)
+                    try? self.fileManager.removeItem(at: itemDir)
+                    self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
+
+                    // 4. メタデータ永続化成功後に ZipArchiveManager へ復元登録（UUIDは100%維持！）
+                    let restoredFile = ManagedFileItem(
+                        id: item.originalVideoID,
+                        title: destURL.deletingPathExtension().lastPathComponent,
+                        relativePath: newRelativePath,
+                        fileExtension: ext,
+                        createdAt: Date(),
+                        byteSize: item.byteSize,
+                        folderName: cleanFolder,
+                        relativeSubpath: item.relativeSubpath
+                    )
+
+                    DispatchQueue.main.async {
+                        self.items = updatedItems
+                        zipManager.restoreManagedFileToIndex(restoredFile)
+                        continuation.resume(returning: .success(restoredFile))
+                    }
+                } catch {
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+    }
+
+    // MARK: - 動画・一般ファイルの統合復元 (Phase F2-B)
+
+    enum RestoreResult {
+        case video(SavedVideo)
+        case generalFile(ManagedFileItem)
+    }
+
+    @discardableResult
+    func restore(
+        item: TrashItem,
+        downloads: DownloadCenter,
+        folderManager: VideoFolderManager,
+        zipManager: ZipArchiveManager
+    ) async -> Result<RestoreResult, Error> {
+        if item.isGeneralFile {
+            let res = await restoreGeneralFile(item: item, zipManager: zipManager, folderManager: folderManager)
+            switch res {
+            case .success(let file): return .success(.generalFile(file))
+            case .failure(let err): return .failure(err)
+            }
+        } else {
+            let res = await restore(item: item, downloads: downloads, folderManager: folderManager)
+            switch res {
+            case .success(let video): return .success(.video(video))
+            case .failure(let err): return .failure(err)
+            }
+        }
+    }
+
     // MARK: - 個別の完全削除（非同期・サムネイルも消去）
 
     @discardableResult
@@ -509,7 +840,7 @@ final class TrashManager: ObservableObject {
         }
         if alreadyProcessing {
             return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
-                NSLocalizedDescriptionKey: NSLocalizedString("This video is currently being processed.", comment: "")
+                NSLocalizedDescriptionKey: NSLocalizedString("This file is currently being processed.", comment: "")
             ]))
         }
 
@@ -645,15 +976,14 @@ final class TrashManager: ObservableObject {
 
     private func writeMetadataToDisk(_ list: [TrashItem]) throws {
         let data = try JSONEncoder().encode(list)
-        try data.write(to: Self.metadataFileURL, options: .atomic)
+        try data.write(to: metadataFileURL, options: .atomic)
     }
 
     /// メタデータを安全に読み込み。
     /// 破損時やデコード失敗時でも「ゴミ箱が空」として扱わず、残存ファイルを保護・復元する。
     private func loadMetadataSafely() {
-        let fileURL = Self.metadataFileURL
+        let fileURL = metadataFileURL
         guard fileManager.fileExists(atPath: fileURL.path) else {
-            // メタデータファイルが存在しない場合でも、Trashディレクトリ内に実ファイルがあればスキャンして復元
             items = scanAndRecoverOrphanedFiles()
             return
         }
@@ -664,19 +994,17 @@ final class TrashManager: ObservableObject {
             items = loaded
         } catch {
             print("[TrashManager] Metadata decoding failed: \(error). Preserving existing trash files.")
-            // 破損ファイルのバックアップを作成
             let backupURL = fileURL.deletingLastPathComponent()
                 .appendingPathComponent("trash_metadata_corrupted_\(Int(Date().timeIntervalSince1970)).json")
             try? fileManager.copyItem(at: fileURL, to: backupURL)
 
-            // 残存ファイルからメタデータを安全に再構築（ファイルを絶対に消去しない）
             items = scanAndRecoverOrphanedFiles()
         }
     }
 
     /// メタデータ損失時やファイル不整合時に、Trash/ ディレクトリ内の実ファイルから安全に復旧する
     private func scanAndRecoverOrphanedFiles() -> [TrashItem] {
-        let trashDir = Self.trashDirectoryURL
+        let trashDir = trashDirectoryURL
         guard let subdirs = try? fileManager.contentsOfDirectory(at: trashDir, includingPropertiesForKeys: [.creationDateKey]) else {
             return []
         }
@@ -691,7 +1019,15 @@ final class TrashManager: ObservableObject {
 
             let fileName = firstFile.lastPathComponent
             let isHLS = fileName.hasSuffix(".movpkg") || (try? firstFile.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-            let format: SavedVideo.Format = isHLS ? .hls : .mp4
+            let ext = firstFile.pathExtension.lowercased()
+
+            // 種別判定: 動画形式か一般ファイルか（種別不明の孤立ファイルを誤って動画と判定しない）
+            let videoExtensions = ["mp4", "m4v", "mov", "webm", "m3u8", "movpkg", "jpeg", "jpg", "png", "gif", "heic"]
+            let isVideoPayload = isHLS || videoExtensions.contains(ext)
+
+            let payloadKind: TrashPayloadKind = isVideoPayload ? .video : .generalFile
+            let format: SavedVideo.Format = isHLS ? .hls : (SavedVideo.Format(rawValue: ext) ?? .mp4)
+
             let attrs = try? fileManager.attributesOfItem(atPath: firstFile.path)
             let byteSize = attrs?[.size] as? Int64
             let deletedAt = (attrs?[.creationDate] as? Date) ?? Date()
@@ -709,7 +1045,11 @@ final class TrashManager: ObservableObject {
                 sourcePageURL: nil,
                 deletedAt: deletedAt,
                 expiresAt: expiresAt,
-                fileName: fileName
+                fileName: fileName,
+                isFavorite: false,
+                payloadKind: payloadKind,
+                fileExtension: isVideoPayload ? nil : ext,
+                relativeSubpath: nil
             )
             recovered.append(item)
         }
