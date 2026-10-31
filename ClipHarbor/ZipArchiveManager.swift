@@ -1574,7 +1574,7 @@ final class ZipArchiveManager: ObservableObject {
 
         if let openModDate = metadata.fileModificationDate, let currentMod = currentModDate {
             if abs(currentMod.timeIntervalSince(openModDate)) > 1.0 && currentSize != metadata.fileByteSize {
-                throw ZipOperationError.extractionFailed(
+                throw ZipOperationError.conflictingEntries(
                     NSLocalizedString("The file has been modified externally by another process. Save was cancelled to prevent overwriting conflicting changes.", comment: "")
                 )
             }
@@ -1610,11 +1610,11 @@ final class ZipArchiveManager: ObservableObject {
 
                 let targetStillExists = fm.fileExists(atPath: targetURL.path)
                 if targetStillExists {
-                    throw ZipOperationError.extractionFailed(
+                    throw ZipOperationError.ioError(
                         String(format: NSLocalizedString("Atomic replace failed, but original file is verified intact: %@", comment: ""), error.localizedDescription)
                     )
                 } else {
-                    throw ZipOperationError.extractionFailed(
+                    throw ZipOperationError.ioError(
                         String(format: NSLocalizedString("CRITICAL: Atomic replace failed and original file was affected: %@", comment: ""), error.localizedDescription)
                     )
                 }
