@@ -1814,4 +1814,168 @@ final class VaultFaultInjectionTests: XCTestCase {
         }
         XCTAssertEqual(selectedItemIDs.count, 0)
     }
+
+    // MARK: - Phase E: ステルスモード・旧設定互換・ジェスチャー境界・終了時ロック検証
+
+    func testStealthSettings_DefaultValuesAndInvalidFallback() throws {
+        let suiteName = "com.clipharbor.test.stealth.defaults.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName), defaults !== UserDefaults.standard else {
+            XCTFail("Failed to create isolated UserDefaults")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // 初期状態: ステルスOFF、カード非表示OFF、ジェスチャーは長押し
+        XCTAssertFalse(VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults))
+        XCTAssertFalse(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults))
+        XCTAssertEqual(VaultStealthSettingsStore.loadAccessGesture(from: defaults), .longPress)
+
+        // 5回タップの保存と復元
+        VaultStealthSettingsStore.saveAccessGesture(.fiveTaps, to: defaults)
+        XCTAssertEqual(VaultStealthSettingsStore.loadAccessGesture(from: defaults), .fiveTaps)
+
+        // 不正な文字列や空文字が書き込まれても、必ず .longPress へ安全にフォールバックし入口を失わない
+        defaults.set("invalid_gesture_value", forKey: VaultStealthSettingsStore.accessGestureKey)
+        XCTAssertEqual(VaultStealthSettingsStore.loadAccessGesture(from: defaults), .longPress)
+        XCTAssertEqual(StealthAccessGesture.resolve(rawValue: ""), .longPress)
+        XCTAssertEqual(StealthAccessGesture.resolve(rawValue: nil), .longPress)
+    }
+
+    func testStealthSettings_LegacyMigrationPreservesCardHideWithoutEnablingStealth() throws {
+        let suiteName = "com.clipharbor.test.stealth.migration.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName), defaults !== UserDefaults.standard else {
+            XCTFail("Failed to create isolated UserDefaults")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // 旧設定でカード非表示（hideVaultInFileList == true）にしていた既存ユーザー環境を再現
+        defaults.set(true, forKey: VaultStealthSettingsStore.hideVaultInFileListKey)
+
+        // 1. 新ステルスモードは自動でONにならず初期OFFであること
+        let stealthEnabled = VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults)
+        let hideCard = VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults)
+        XCTAssertFalse(stealthEnabled)
+        XCTAssertTrue(hideCard)
+
+        // 2. ステルスOFFでも旧カード非表示設定が維持され、メニューや設定入口は利用可能であること
+        let policyBeforeStealth = VaultVisibilityPolicy(
+            isStealthModeEnabled: stealthEnabled,
+            hideVaultCardInFileList: hideCard,
+            isVaultInitialized: true
+        )
+        XCTAssertFalse(policyBeforeStealth.showsVaultCard)
+        XCTAssertTrue(policyBeforeStealth.showsVaultMenuEntry)
+        XCTAssertTrue(policyBeforeStealth.allowsMoveToVaultFromNormalUI)
+        XCTAssertTrue(policyBeforeStealth.showsVaultSettingsEntry)
+
+        // 3. ステルスONにした場合、全入口・説明・アクセシビリティアクションが非表示になること
+        VaultStealthSettingsStore.saveStealthModeEnabled(true, to: defaults)
+        let policyDuringStealth = VaultVisibilityPolicy(
+            isStealthModeEnabled: VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults),
+            hideVaultCardInFileList: VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults),
+            isVaultInitialized: true
+        )
+        XCTAssertTrue(policyDuringStealth.isStealthActive)
+        XCTAssertFalse(policyDuringStealth.showsVaultCard)
+        XCTAssertFalse(policyDuringStealth.showsVaultMenuEntry)
+        XCTAssertFalse(policyDuringStealth.allowsMoveToVaultFromNormalUI)
+        XCTAssertFalse(policyDuringStealth.showsVaultSettingsEntry)
+        XCTAssertFalse(policyDuringStealth.showsVaultMentions)
+        XCTAssertFalse(policyDuringStealth.exposesNamedAccessibilityAction)
+
+        // 4. ステルスOFFへ戻した際も、ユーザーが変更していない旧カード非表示設定(true)が勝手に解除されないこと
+        VaultStealthSettingsStore.saveStealthModeEnabled(false, to: defaults)
+        let hideCardAfterStealthOff = VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults)
+        XCTAssertTrue(hideCardAfterStealthOff)
+        let policyAfterStealthOff = VaultVisibilityPolicy(
+            isStealthModeEnabled: VaultStealthSettingsStore.loadStealthModeEnabled(from: defaults),
+            hideVaultCardInFileList: hideCardAfterStealthOff,
+            isVaultInitialized: true
+        )
+        XCTAssertFalse(policyAfterStealthOff.showsVaultCard)
+        XCTAssertTrue(policyAfterStealthOff.showsVaultMenuEntry)
+
+        // 5. さらに古い legacyHideVaultKey ("VaultManager.isStealthModeEnabled") からの移行確認
+        let legacySuiteName = "com.clipharbor.test.stealth.legacykey.\(UUID().uuidString)"
+        if let legacyDefaults = UserDefaults(suiteName: legacySuiteName) {
+            defer { legacyDefaults.removePersistentDomain(forName: legacySuiteName) }
+            legacyDefaults.set(true, forKey: VaultStealthSettingsStore.legacyHideVaultKey)
+            XCTAssertTrue(VaultStealthSettingsStore.loadHideVaultInFileList(from: legacyDefaults))
+            XCTAssertFalse(VaultStealthSettingsStore.loadStealthModeEnabled(from: legacyDefaults))
+        }
+    }
+
+    func testStealthVisibilityPolicy_UninitializedVaultDoesNotActivateStealth() {
+        // 万が一 Vault 未初期化状態で isStealthModeEnabled が true でも実効ステルスにはならない
+        let policy = VaultVisibilityPolicy(
+            isStealthModeEnabled: true,
+            hideVaultCardInFileList: false,
+            isVaultInitialized: false
+        )
+        XCTAssertFalse(policy.isStealthActive)
+        XCTAssertTrue(policy.showsVaultCard)
+        XCTAssertTrue(policy.showsVaultMenuEntry)
+        XCTAssertTrue(policy.showsVaultSettingsEntry)
+    }
+
+    func testStealthTapDetector_BoundaryConditionsAndReset() {
+        var detector = StealthTapDetector(requiredTaps: 5, timeWindow: 3.0, minimumInterval: 0.05)
+
+        // 1. ちょうど3.0秒以内に5回タップ（t = 10.0, 10.7, 11.4, 12.1, 13.0）で発火し、直後にクリアされる
+        XCTAssertFalse(detector.registerTap(at: 10.0))
+        XCTAssertFalse(detector.registerTap(at: 10.7))
+        XCTAssertFalse(detector.registerTap(at: 11.4))
+        XCTAssertFalse(detector.registerTap(at: 12.1))
+        XCTAssertTrue(detector.registerTap(at: 13.0))
+        XCTAssertTrue(detector.timestamps.isEmpty, "発火直後にタップ履歴がクリアされること")
+
+        // 2. 発火直後の1回タップで再発火しないこと
+        XCTAssertFalse(detector.registerTap(at: 13.2))
+        detector.reset()
+        XCTAssertTrue(detector.timestamps.isEmpty, "画面離脱・モード変更時のresetで履歴がクリアされること")
+
+        // 3. 3.0秒を超過した古いタップはウィンドウから除外されること
+        XCTAssertFalse(detector.registerTap(at: 20.0))
+        XCTAssertFalse(detector.registerTap(at: 20.8))
+        XCTAssertFalse(detector.registerTap(at: 21.6))
+        XCTAssertFalse(detector.registerTap(at: 22.4))
+        // 5回目のタップが最初のタップ(20.0)から3.01秒後 -> 20.0が期限切れとなり4回扱いで未成立
+        XCTAssertFalse(detector.registerTap(at: 23.01))
+        XCTAssertEqual(detector.timestamps.count, 4)
+        // 20.8から3.0秒以内である 23.5 に次のタップが来ると5回成立
+        XCTAssertTrue(detector.registerTap(at: 23.5))
+        XCTAssertTrue(detector.timestamps.isEmpty)
+
+        // 4. 最小間隔(0.05秒)未満の同一タップ二重通知は無視されること
+        XCTAssertFalse(detector.registerTap(at: 30.0))
+        XCTAssertFalse(detector.registerTap(at: 30.01))
+        XCTAssertEqual(detector.timestamps.count, 1)
+    }
+
+    func testVaultPresentationLifecycle_LocksOnCloseAndPreservesDuringChildTransitions() throws {
+        let env = try createTestEnvironment()
+        defer { env.cleanup() }
+
+        XCTAssertTrue(env.vault.isUnlocked)
+        let initialToken = env.vault.sessionToken
+
+        // 1. プレイヤー遷移中やネストした設定・インポートシート表示中はロックしない
+        XCTAssertFalse(VaultPresentationLifecycle.shouldLockOnDisappear(isPresentingPlayer: true, isPresentingNestedSheet: false))
+        XCTAssertFalse(VaultPresentationLifecycle.shouldLockOnDisappear(isPresentingPlayer: false, isPresentingNestedSheet: true))
+        XCTAssertTrue(env.vault.isUnlocked)
+        XCTAssertEqual(env.vault.sessionToken, initialToken)
+
+        // 2. Vault画面を完全に閉じた場合（スワイプ閉鎖・閉じるボタン・システム終了）は確実にロックされる
+        XCTAssertTrue(VaultPresentationLifecycle.shouldLockOnDisappear(isPresentingPlayer: false, isPresentingNestedSheet: false))
+        VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: env.vault)
+        XCTAssertFalse(env.vault.isUnlocked, "Vault画面終了後は必ずロック状態になること")
+        XCTAssertNotEqual(env.vault.sessionToken, initialToken)
+
+        // 3. 既にロック済みの状態で再度呼ばれても安全で、不要にトークンを更新しないこと
+        let lockedToken = env.vault.sessionToken
+        VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: env.vault)
+        XCTAssertFalse(env.vault.isUnlocked)
+        XCTAssertEqual(env.vault.sessionToken, lockedToken)
+    }
 }

@@ -106,6 +106,15 @@ struct FileManagerView: View {
         !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
+    /// 通常画面における Vault 入口・表示の可視性（ステルスモード・旧カード非表示設定を統合）
+    private var vaultPolicy: VaultVisibilityPolicy {
+        VaultVisibilityPolicy(
+            isStealthModeEnabled: settingsManager.isStealthModeEnabled,
+            hideVaultCardInFileList: settingsManager.hideVaultInFileList,
+            isVaultInitialized: vaultManager.isInitialized
+        )
+    }
+
     private var rootScrollView: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -170,11 +179,19 @@ struct FileManagerView: View {
                     Color(.systemBackground)
                         .ignoresSafeArea()
                     VStack(spacing: 16) {
-                        Image(systemName: "lock.shield.fill")
-                            .font(.system(size: 56))
-                            .foregroundStyle(.indigo)
-                        Text("Private Vault Protected")
-                            .font(.headline)
+                        if vaultPolicy.showsVaultMentions {
+                            Image(systemName: "lock.shield.fill")
+                                .font(.system(size: 56))
+                                .foregroundStyle(.indigo)
+                            Text("Private Vault Protected")
+                                .font(.headline)
+                        } else {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 56))
+                                .foregroundStyle(.secondary)
+                            Text(verbatim: "ClipHarbor")
+                                .font(.headline)
+                        }
                     }
                 }
                 .transition(.opacity)
@@ -242,6 +259,8 @@ struct FileManagerView: View {
                 if isUnlocked && !pendingVaultVideos.isEmpty {
                     let toMove = pendingVaultVideos
                     pendingVaultVideos = []
+                    // ステルス中は通常画面からの Vault 移動を実行しない（UI 非表示に加えた実行経路ガード）
+                    guard vaultPolicy.allowsMoveToVaultFromNormalUI else { return }
                     Task {
                         let (succeeded, _) = await vaultManager.moveMultipleToVault(
                             videos: toMove,
@@ -264,15 +283,18 @@ struct FileManagerView: View {
             } else if navigationPath.isEmpty {
                 Text("Files")
                     .font(.headline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
                     .contentShape(Rectangle())
-                    .onLongPressGesture(minimumDuration: 2.0) {
-                        let generator = UIImpactFeedbackGenerator(style: .medium)
-                        generator.impactOccurred()
+                    .modifier(StealthTitleGestureModifier(gesture: settingsManager.stealthAccessGesture) {
                         showPrivateVaultSheet = true
-                    }
-                    .accessibilityAction(named: Text("Open Vault")) {
+                    })
+                    .modifier(ConditionalNamedAccessibilityAction(
+                        isEnabled: vaultPolicy.exposesNamedAccessibilityAction,
+                        name: Text("Open Vault")
+                    ) {
                         showPrivateVaultSheet = true
-                    }
+                    })
             }
         }
 
@@ -323,10 +345,12 @@ struct FileManagerView: View {
                         Label("Settings", systemImage: "gearshape")
                     }
 
-                    Button {
-                        showPrivateVaultSheet = true
-                    } label: {
-                        Label("Private Vault", systemImage: "lock.shield")
+                    if vaultPolicy.showsVaultMenuEntry {
+                        Button {
+                            showPrivateVaultSheet = true
+                        } label: {
+                            Label("Private Vault", systemImage: "lock.shield")
+                        }
                     }
 
                     Divider()
@@ -401,7 +425,10 @@ struct FileManagerView: View {
                     folderManager: folderManager
                 )
             }
-            .sheet(isPresented: $showPrivateVaultSheet) {
+            .sheet(isPresented: $showPrivateVaultSheet, onDismiss: {
+                pendingVaultVideos = []
+                VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: vaultManager)
+            }) {
                 PrivateVaultView(
                     downloads: downloads,
                     folderManager: folderManager
@@ -550,7 +577,7 @@ struct FileManagerView: View {
         return Group {
             LazyVGrid(columns: gridColumns, spacing: 18) {
                 // Private Vaultカード（非公開保管庫、隠しモード無効時のみ表示）
-                if !settingsManager.hideVaultInFileList {
+                if vaultPolicy.showsVaultCard {
                     privateVaultCard
                 }
 
@@ -812,9 +839,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: {
+                                    onMoveToVault: vaultPolicy.allowsMoveToVaultFromNormalUI ? {
                                         handleMoveToVault(video: video)
-                                    },
+                                    } : nil,
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -987,9 +1014,9 @@ struct FileManagerView: View {
                                         renamingVideo = video
                                     },
                                     onMove: { movingVideo = video },
-                                    onMoveToVault: {
+                                    onMoveToVault: vaultPolicy.allowsMoveToVaultFromNormalUI ? {
                                         handleMoveToVault(video: video)
-                                    },
+                                    } : nil,
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -1178,17 +1205,19 @@ struct FileManagerView: View {
                 }
                 .disabled(selectedVideoIDs.isEmpty)
 
-                // 一括Private Vault移動
-                Button {
-                    handleBatchMoveToVault()
-                } label: {
-                    Image(systemName: "lock.shield")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
-                        .frame(width: 34, height: 34)
-                        .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                // 一括Private Vault移動（ステルス中は非表示）
+                if vaultPolicy.allowsMoveToVaultFromNormalUI {
+                    Button {
+                        handleBatchMoveToVault()
+                    } label: {
+                        Image(systemName: "lock.shield")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(selectedVideoIDs.isEmpty ? Color.secondary : Color.indigo)
+                            .frame(width: 34, height: 34)
+                            .background(selectedVideoIDs.isEmpty ? Color(.secondarySystemBackground) : Color.indigo.opacity(0.12), in: Circle())
+                    }
+                    .disabled(selectedVideoIDs.isEmpty)
                 }
-                .disabled(selectedVideoIDs.isEmpty)
 
                 // 一括ゴミ箱移動
                 Button {
@@ -1257,6 +1286,8 @@ struct FileManagerView: View {
     }
 
     private func handleMoveToVault(video: SavedVideo) {
+        // ステルス中は通常画面からの Vault 移動を受け付けない（Vault 内部のインポートを使用）
+        guard vaultPolicy.allowsMoveToVaultFromNormalUI else { return }
         if video.isHLS {
             errorMessage = VaultError.hlsNotSupportedYet.localizedDescription
             return
@@ -1282,6 +1313,7 @@ struct FileManagerView: View {
     }
 
     private func handleBatchMoveToVault() {
+        guard vaultPolicy.allowsMoveToVaultFromNormalUI else { return }
         let targets = downloads.saved.filter { selectedVideoIDs.contains($0.id) }
         guard !targets.isEmpty else { return }
 

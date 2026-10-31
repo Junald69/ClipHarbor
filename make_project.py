@@ -37,6 +37,7 @@ files = [
     'AppSettingsManager.swift',
     'AppSettingsView.swift',
     'VaultSettingsView.swift',
+    'VaultStealth.swift',
     'VideoPlaybackCoordinator.swift',
     'PlaybackPlaylistContext.swift',
     'CustomVideoPlayerView.swift',

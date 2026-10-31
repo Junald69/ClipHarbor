@@ -50,18 +50,6 @@ struct FileManagerSettingsView: View {
                     }
                 }
 
-                // セクション 2: 表示設定 (Private Vault一覧表示設定)
-                Section {
-                    Toggle(isOn: $settingsManager.hideVaultInFileList) {
-                        Text(NSLocalizedString("Hide Private Vault from File List", comment: ""))
-                    }
-                } header: {
-                    Text(NSLocalizedString("Display Settings", comment: ""))
-                } footer: {
-                    Text(NSLocalizedString("Hides the Private Vault card from the file list. You can still access the Vault anytime from the top-right menu (…).", comment: ""))
-                        .font(.caption2)
-                }
-
                 // セクション 3: キャッシュ管理
                 Section {
                     Button {

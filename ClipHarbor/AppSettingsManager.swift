@@ -126,6 +126,21 @@ final class AppSettingsManager: ObservableObject {
         }
     }
 
+    /// Private Vault ステルスモード (true = 通常画面から全入口を非表示, デフォルト: false)
+    /// - 旧 hideVaultInFileList とは独立。ON/OFF いずれの切替でも旧カード非表示設定は変更しない
+    @Published var isStealthModeEnabled: Bool {
+        didSet {
+            VaultStealthSettingsStore.saveStealthModeEnabled(isStealthModeEnabled, to: UserDefaults.standard)
+        }
+    }
+
+    /// ステルス時のアクセスジェスチャー (デフォルト: Filesタイトル長押し)
+    @Published var stealthAccessGesture: StealthAccessGesture {
+        didSet {
+            VaultStealthSettingsStore.saveAccessGesture(stealthAccessGesture, to: UserDefaults.standard)
+        }
+    }
+
     /// 広告・トラッカーブロック (true = ブロック有効, デフォルト: true)
     @Published var blockAdsAndTrackers: Bool {
         didSet {
@@ -160,8 +175,7 @@ final class AppSettingsManager: ObservableObject {
     // MARK: - キー定義
     private let searchEngineKey = "clipHarbor.settings.searchEngine"
     private let trashRetentionKey = "clipHarbor.settings.trashRetentionPeriod"
-    private let hideVaultInFileListKey = "clipHarbor.settings.hideVaultInFileList"
-    private let legacyStealthModePrefKey = "VaultManager.isStealthModeEnabled"
+    private let hideVaultInFileListKey = VaultStealthSettingsStore.hideVaultInFileListKey
     private let blockAdsAndTrackersKey = "clipHarbor.settings.blockAdsAndTrackers"
     private let blockAnnoyingPopupsKey = "clipHarbor.settings.blockAnnoyingPopups"
     private let whitelistedHostsKey = "clipHarbor.settings.whitelistedHosts"
@@ -185,14 +199,12 @@ final class AppSettingsManager: ObservableObject {
         }
 
         // Private Vault表示設定読み出し（新キー優先、未保存時のみ旧隠しモード引き継ぎ、初期値: false=カード表示）
-        if let existingVal = UserDefaults.standard.object(forKey: hideVaultInFileListKey) as? Bool {
-            self.hideVaultInFileList = existingVal
-        } else if let legacyVal = UserDefaults.standard.object(forKey: legacyStealthModePrefKey) as? Bool {
-            self.hideVaultInFileList = legacyVal
-            UserDefaults.standard.set(legacyVal, forKey: hideVaultInFileListKey)
-        } else {
-            self.hideVaultInFileList = false
-        }
+        self.hideVaultInFileList = VaultStealthSettingsStore.loadHideVaultInFileList(from: UserDefaults.standard)
+
+        // ステルスモード読み出し（初期値: OFF。旧設定から自動で完全ステルスへは変換しない）
+        self.isStealthModeEnabled = VaultStealthSettingsStore.loadStealthModeEnabled(from: UserDefaults.standard)
+        // アクセスジェスチャー読み出し（不正値は長押しへフォールバック）
+        self.stealthAccessGesture = VaultStealthSettingsStore.loadAccessGesture(from: UserDefaults.standard)
 
         // 広告ブロック設定読み出し (デフォルト: true)
         if let val = UserDefaults.standard.object(forKey: blockAdsAndTrackersKey) as? Bool {

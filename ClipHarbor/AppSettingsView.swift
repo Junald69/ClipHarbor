@@ -37,6 +37,15 @@ struct AppSettingsView: View {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
     }
 
+    /// 通常設定画面における Vault 入口・説明の可視性（ステルス中は完全非表示）
+    private var vaultPolicy: VaultVisibilityPolicy {
+        VaultVisibilityPolicy(
+            isStealthModeEnabled: settingsManager.isStealthModeEnabled,
+            hideVaultCardInFileList: settingsManager.hideVaultInFileList,
+            isVaultInitialized: vaultManager.isInitialized
+        )
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -127,7 +136,8 @@ struct AppSettingsView: View {
                     }
                 }
 
-                // MARK: - 【プライバシー】
+                // MARK: - 【プライバシー】（ステルス中は入口・説明ともに非表示）
+                if vaultPolicy.showsVaultSettingsEntry {
                 Section {
                     Button {
                         if vaultManager.isUnlocked {
@@ -153,6 +163,7 @@ struct AppSettingsView: View {
                 } footer: {
                     Text(NSLocalizedString("Private Browsing and Private Vault are independent features. History and cookies from private tabs are automatically discarded when tabs are closed.", comment: ""))
                         .font(.caption2)
+                }
                 }
 
                 // MARK: - 【アプリ情報】
@@ -216,14 +227,19 @@ struct AppSettingsView: View {
             .sheet(isPresented: $showClearDataSheet) {
                 ClearBrowsingDataSheet()
             }
-            .sheet(isPresented: $showVaultAuth) {
+            .sheet(isPresented: $showVaultAuth, onDismiss: {
+                // Vault 画面終了時は解錠状態を残さない
+                VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: vaultManager)
+            }) {
                 // 未解錠時の認証画面
                 PrivateVaultView(
                     downloads: downloads,
                     folderManager: folderManager
                 )
             }
-            .sheet(isPresented: $showVaultSettings) {
+            .sheet(isPresented: $showVaultSettings, onDismiss: {
+                VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: vaultManager)
+            }) {
                 VaultSettingsView()
             }
             .overlay(alignment: .top) {
@@ -261,6 +277,8 @@ struct AppSettingsView: View {
 
 private struct ClearBrowsingDataSheet: View {
     @ObservedObject private var historyManager = HistoryManager.shared
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
+    @ObservedObject private var vaultManager = VaultManager.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var clearHistory = true
@@ -281,12 +299,21 @@ private struct ClearBrowsingDataSheet: View {
                 } header: {
                     Text(NSLocalizedString("Select Data to Clear", comment: ""))
                 } footer: {
+                    let mentionsVault = VaultVisibilityPolicy(
+                        isStealthModeEnabled: settingsManager.isStealthModeEnabled,
+                        hideVaultCardInFileList: settingsManager.hideVaultInFileList,
+                        isVaultInitialized: vaultManager.isInitialized
+                    ).showsVaultMentions
                     if clearCookies {
-                        Text(NSLocalizedString("※ Clearing cookies will log you out of active website sessions. Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: ""))
+                        Text(mentionsVault
+                             ? NSLocalizedString("※ Clearing cookies will log you out of active website sessions. Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: "")
+                             : NSLocalizedString("※ Clearing cookies will log you out of active website sessions. Saved videos and bookmarks are completely unaffected.", comment: ""))
                             .font(.caption2)
                             .foregroundStyle(.red)
                     } else {
-                        Text(NSLocalizedString("Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: ""))
+                        Text(mentionsVault
+                             ? NSLocalizedString("Saved videos, bookmarks, and Private Vault are completely unaffected.", comment: "")
+                             : NSLocalizedString("Saved videos and bookmarks are completely unaffected.", comment: ""))
                             .font(.caption2)
                     }
                 }
@@ -374,6 +401,17 @@ private struct ClearBrowsingDataSheet: View {
 // MARK: - ライセンス・セキュリティ方針ビュー
 
 private struct AppLicensesView: View {
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
+    @ObservedObject private var vaultManager = VaultManager.shared
+
+    private var showsVaultMentions: Bool {
+        VaultVisibilityPolicy(
+            isStealthModeEnabled: settingsManager.isStealthModeEnabled,
+            hideVaultCardInFileList: settingsManager.hideVaultInFileList,
+            isVaultInitialized: vaultManager.isInitialized
+        ).showsVaultMentions
+    }
+
     var body: some View {
         List {
             Section(NSLocalizedString("Frameworks & Libraries", comment: "")) {
@@ -406,14 +444,16 @@ private struct AppLicensesView: View {
                 }
                 .padding(.vertical, 4)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(NSLocalizedString("Private Vault Encryption", comment: ""))
-                        .font(.headline)
-                    Text(NSLocalizedString("licenses_vault_enc_desc", comment: ""))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if showsVaultMentions {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(NSLocalizedString("Private Vault Encryption", comment: ""))
+                            .font(.headline)
+                        Text(NSLocalizedString("licenses_vault_enc_desc", comment: ""))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             }
 
             Section(NSLocalizedString("Content Blocker & Data Sources", comment: "")) {

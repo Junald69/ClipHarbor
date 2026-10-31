@@ -11,6 +11,7 @@ import AVKit
 /// - App Switcherプライバシーシールド
 struct PrivateVaultView: View {
     @ObservedObject var vaultManager = VaultManager.shared
+    @ObservedObject private var settingsManager = AppSettingsManager.shared
     @ObservedObject var downloads: DownloadCenter
     @ObservedObject var folderManager: VideoFolderManager
     @Environment(\.dismiss) private var dismiss
@@ -300,10 +301,33 @@ struct PrivateVaultView: View {
                     resetVaultUIState()
                 }
             }
+            .interactiveDismissDisabled(vaultManager.isProcessing || isOperating)
             .onDisappear {
-                resetVaultUIState()
+                // Vault 画面が閉じられた場合（閉じるボタン以外のスワイプ・システム終了を含む）は確実にロック
+                // ※ プレイヤー表示中やネストした設定・インポート等のシート表示中はロックせず、既存操作を壊さない
+                let isPresentingNested = showVaultSettings
+                    || showImportSheet
+                    || showChangePasscode
+                    || movingItem != nil
+                    || showBatchMoveSheet
+                let shouldLock = VaultPresentationLifecycle.shouldLockOnDisappear(
+                    isPresentingPlayer: activePlayingItem != nil,
+                    isPresentingNestedSheet: isPresentingNested
+                )
+                if shouldLock {
+                    resetVaultUIState()
+                    VaultPresentationLifecycle.handleVaultScreenClosed(vaultManager: vaultManager)
+                }
             }
         }
+    }
+
+    /// 空状態の案内文（ステルス中は通常一覧の「…」メニュー経由の移動が無いため、内部インポートを案内）
+    private var emptyStateGuidance: String {
+        if settingsManager.isStealthModeEnabled {
+            return NSLocalizedString("Tap the + button at the top right to import videos from the normal file list. Imported videos are encrypted with AES-256 and securely stored here.", comment: "")
+        }
+        return NSLocalizedString("When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.", comment: "")
     }
 
     // MARK: - サブビュー（コンパイラ型推論負荷軽減）
@@ -356,11 +380,20 @@ struct PrivateVaultView: View {
                 Color(.systemBackground)
                     .ignoresSafeArea()
                 VStack(spacing: 16) {
-                    Image(systemName: "lock.shield.fill")
-                        .font(.system(size: 56))
-                        .foregroundStyle(.indigo)
-                    Text("Private Vault Protected")
-                        .font(.headline)
+                    if settingsManager.isStealthModeEnabled {
+                        // ステルス中は App Switcher で Vault の存在を推測させない汎用表示
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 56))
+                            .foregroundStyle(.secondary)
+                        Text(verbatim: "ClipHarbor")
+                            .font(.headline)
+                    } else {
+                        Image(systemName: "lock.shield.fill")
+                            .font(.system(size: 56))
+                            .foregroundStyle(.indigo)
+                        Text("Private Vault Protected")
+                            .font(.headline)
+                    }
                 }
             }
             .transition(.opacity)
@@ -553,7 +586,7 @@ struct PrivateVaultView: View {
                 .foregroundStyle(Color.indigo)
             Text(NSLocalizedString("Folder is Empty", comment: ""))
                 .font(.headline)
-            Text("When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.")
+            Text(emptyStateGuidance)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -615,7 +648,7 @@ struct PrivateVaultView: View {
                 .foregroundStyle(.indigo)
             Text("Private Vault is Empty")
                 .font(.headline)
-            Text("When you move videos to Vault from the \"…\" menu in the file list, they are encrypted with AES-256 and securely stored here.")
+            Text(emptyStateGuidance)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

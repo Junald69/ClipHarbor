@@ -10399,6 +10399,295 @@
           }
         }
       }
+    },
+    "※ Clearing cookies will log you out of active website sessions. Saved videos and bookmarks are completely unaffected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "※ Clearing cookies will log you out of active website sessions. Saved videos and bookmarks are completely unaffected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "※ Cookieを消去すると、ログイン中のWebサイトからログアウトされます。保存済み動画やブックマークには一切影響しません。"
+          }
+        }
+      }
+    },
+    "Saved videos and bookmarks are completely unaffected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved videos and bookmarks are completely unaffected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済み動画やブックマークには一切影響しません。"
+          }
+        }
+      }
+    },
+    "Tap the + button at the top right to import videos from the normal file list. Imported videos are encrypted with AES-256 and securely stored here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the + button at the top right to import videos from the normal file list. Imported videos are encrypted with AES-256 and securely stored here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右上の「＋」ボタンから通常一覧の動画を取り込めます。取り込んだ動画はAES-256で暗号化され、ここに安全に保管されます。"
+          }
+        }
+      }
+    },
+    "Stealth Mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stealth Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモード"
+          }
+        }
+      }
+    },
+    "Stealth Mode enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stealth Mode enabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードを有効にしました"
+          }
+        }
+      }
+    },
+    "Stealth Mode disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stealth Mode disabled"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードを無効にしました"
+          }
+        }
+      }
+    },
+    "Access Gesture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access Gesture"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスジェスチャー"
+          }
+        }
+      }
+    },
+    "When Stealth Mode is on, the Vault card, menus, Move to Vault actions, and related descriptions are hidden from normal screens. The only way in is the selected gesture on the \"Files\" title, followed by your passcode or Face ID. Stealth Mode can only be turned off here after unlocking.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When Stealth Mode is on, the Vault card, menus, Move to Vault actions, and related descriptions are hidden from normal screens. The only way in is the selected gesture on the \"Files\" title, followed by your passcode or Face ID. Stealth Mode can only be turned off here after unlocking."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードがONの間、通常画面からVaultカード・メニュー・Vault移動操作・関連説明をすべて隠します。唯一の入口は「Files（ファイル）」タイトルの指定ジェスチャーとなり、その後パスコードまたはFace ID認証が必要です。ステルスモードの解除は解錠後のこの画面からのみ行えます。"
+          }
+        }
+      }
+    },
+    "Turn off Stealth Mode to change the access gesture.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off Stealth Mode to change the access gesture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスジェスチャーを変更するには、一度ステルスモードをOFFにしてください。"
+          }
+        }
+      }
+    },
+    "While Stealth Mode is on, the card and all other entries are hidden regardless of this setting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While Stealth Mode is on, the card and all other entries are hidden regardless of this setting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードがONの間は、この設定に関わらずカードを含むすべての入口が非表示になります。"
+          }
+        }
+      }
+    },
+    "Gesture confirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesture confirmed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ジェスチャーを確認しました"
+          }
+        }
+      }
+    },
+    "Practice the gesture on the sample title above before enabling. With VoiceOver, double-tap and hold the title (long-press mode), or double-tap it 5 times within 3 seconds (5-tap mode).": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Practice the gesture on the sample title above before enabling. With VoiceOver, double-tap and hold the title (long-press mode), or double-tap it 5 times within 3 seconds (5-tap mode)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効化する前に、上のサンプルタイトルでジェスチャーを実行してください。VoiceOver利用時は、タイトルをダブルタップして長押し（長押しモード）、または3秒以内に5回ダブルタップ（5回タップモード）で開けます。"
+          }
+        }
+      }
+    },
+    "Enable Stealth Mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Stealth Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステルスモードを有効化"
+          }
+        }
+      }
+    },
+    "Long-press \"Files\" title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long-press \"Files\" title"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Files」タイトルを長押し（約2秒）"
+          }
+        }
+      }
+    },
+    "Tap \"Files\" title 5 times": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap \"Files\" title 5 times"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Files」タイトルを5回タップ（3秒以内）"
+          }
+        }
+      }
+    },
+    "Press and hold the \"Files\" title at the top of the file list for about 2 seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press and hold the \"Files\" title at the top of the file list for about 2 seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常ファイル一覧の上部にある「Files（ファイル）」タイトルを約2秒間長押ししてください。"
+          }
+        }
+      }
+    },
+    "Tap the \"Files\" title at the top of the file list 5 times within 3 seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap the \"Files\" title at the top of the file list 5 times within 3 seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常ファイル一覧の上部にある「Files（ファイル）」タイトルを3秒以内に連続5回タップしてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
