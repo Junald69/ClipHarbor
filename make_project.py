@@ -54,6 +54,7 @@ test_files = [
 ]
 
 resources = [
+    'Assets.xcassets',
     'Localizable.xcstrings',
     'InfoPlist.xcstrings',
     'blocker_rules.json',
@@ -90,7 +91,12 @@ out.append(f'\t\t{e("file Info.plist")} = {{isa = PBXFileReference; lastKnownFil
 for name in files:
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
 for name in resources:
-    file_type = "text.json.xcstrings" if name.endswith('.xcstrings') else "text.json"
+    if name.endswith('.xcassets'):
+        file_type = "folder.assetcatalog"
+    elif name.endswith('.xcstrings'):
+        file_type = "text.json.xcstrings"
+    else:
+        file_type = "text.json"
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = {file_type}; path = {name}; sourceTree = "<group>"; }};')
 for name in test_files:
     out.append(f'\t\t{e("test file "+name)} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {name}; sourceTree = "<group>"; }};')
@@ -259,6 +265,7 @@ for kind in ['Debug', 'Release']:
         'PRODUCT_BUNDLE_IDENTIFIER': 'com.example.ClipHarbor',
         'PRODUCT_NAME': '"$(TARGET_NAME)"',
         'SWIFT_EMIT_LOC_STRINGS': 'YES',
+        'ASSETCATALOG_COMPILER_APPICON_NAME': 'AppIcon',
         'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS': 'YES',
         'SUPPORTED_PLATFORMS': '"iphoneos iphonesimulator"'
     }
