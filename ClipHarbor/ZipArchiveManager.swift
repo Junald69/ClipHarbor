@@ -222,12 +222,63 @@ struct ManagedFilePendingOperation: Codable, Equatable {
     let kind: Kind
     let sourceRelativePath: String
     let destinationRelativePath: String
+    let intermediateRelativePath: String?
     let originalTitle: String
     let destinationTitle: String
     let originalFolderName: String
     let destinationFolderName: String
     let fileExtension: String
     let createdAt: Date
+
+    init(
+        operationID: UUID,
+        itemID: UUID,
+        kind: Kind,
+        sourceRelativePath: String,
+        destinationRelativePath: String,
+        intermediateRelativePath: String? = nil,
+        originalTitle: String,
+        destinationTitle: String,
+        originalFolderName: String,
+        destinationFolderName: String,
+        fileExtension: String,
+        createdAt: Date
+    ) {
+        self.operationID = operationID
+        self.itemID = itemID
+        self.kind = kind
+        self.sourceRelativePath = sourceRelativePath
+        self.destinationRelativePath = destinationRelativePath
+        self.intermediateRelativePath = intermediateRelativePath
+        self.originalTitle = originalTitle
+        self.destinationTitle = destinationTitle
+        self.originalFolderName = originalFolderName
+        self.destinationFolderName = destinationFolderName
+        self.fileExtension = fileExtension
+        self.createdAt = createdAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case operationID, itemID, kind, sourceRelativePath, destinationRelativePath
+        case intermediateRelativePath, originalTitle, destinationTitle
+        case originalFolderName, destinationFolderName, fileExtension, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        operationID = try container.decode(UUID.self, forKey: .operationID)
+        itemID = try container.decode(UUID.self, forKey: .itemID)
+        kind = try container.decode(Kind.self, forKey: .kind)
+        sourceRelativePath = try container.decode(String.self, forKey: .sourceRelativePath)
+        destinationRelativePath = try container.decode(String.self, forKey: .destinationRelativePath)
+        intermediateRelativePath = try container.decodeIfPresent(String.self, forKey: .intermediateRelativePath)
+        originalTitle = try container.decode(String.self, forKey: .originalTitle)
+        destinationTitle = try container.decode(String.self, forKey: .destinationTitle)
+        originalFolderName = try container.decode(String.self, forKey: .originalFolderName)
+        destinationFolderName = try container.decode(String.self, forKey: .destinationFolderName)
+        fileExtension = try container.decode(String.self, forKey: .fileExtension)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+    }
 }
 
 // MARK: - セキュリティ制限・エラー・進捗モデル
@@ -1038,6 +1089,14 @@ final class ZipArchiveManager: ObservableObject {
             )
         }
 
+        var intermediateRelative: String? = nil
+        var caseTempURL: URL? = nil
+        if isCaseOrNormOnly {
+            let temp = parentDir.appendingPathComponent(".rename_case_tmp_\(UUID().uuidString)")
+            caseTempURL = temp
+            intermediateRelative = FileClassification.normalizedContainerRelativePath(for: temp, customRootURL: customDownloadsRootURL)
+        }
+
         // 移動前に障害復旧ジャーナルを記録
         let op = ManagedFilePendingOperation(
             operationID: UUID(),
@@ -1045,6 +1104,7 @@ final class ZipArchiveManager: ObservableObject {
             kind: .rename,
             sourceRelativePath: item.normalizedRelativePath,
             destinationRelativePath: destRelative,
+            intermediateRelativePath: intermediateRelative,
             originalTitle: item.title,
             destinationTitle: cleanNewBase,
             originalFolderName: item.folderName,
@@ -1056,8 +1116,7 @@ final class ZipArchiveManager: ObservableObject {
 
         // 物理リネーム実行（APFSの大文字小文字のみの変更時は2段階中間リネームを行う）
         var moveError: Error? = nil
-        if isCaseOrNormOnly {
-            let tempURL = parentDir.appendingPathComponent(".rename_case_tmp_\(UUID().uuidString)")
+        if isCaseOrNormOnly, let tempURL = caseTempURL {
             do {
                 try fm.moveItem(at: sourceURL, to: tempURL)
                 do {
@@ -1079,16 +1138,22 @@ final class ZipArchiveManager: ObservableObject {
 
         let srcExistsAfter = fm.fileExists(atPath: sourceURL.path)
         let dstExistsAfter = fm.fileExists(atPath: destURL.path)
+        let tempExistsAfter = caseTempURL.map { fm.fileExists(atPath: $0.path) } ?? false
 
         if let err = moveError {
             if !isCaseOrNormOnly && !srcExistsAfter && dstExistsAfter {
                 // moveItemが例外を返したが、実ファイルはdestに移動成立していたケース
-            } else if srcExistsAfter && dstExistsAfter {
+            } else if [srcExistsAfter, dstExistsAfter, tempExistsAfter].filter({ $0 }).count > 1 {
                 throw VideoFolderManager.FolderError.fileOperationFailed(
                     NSLocalizedString("File move conflict occurred.", comment: "")
                 )
-            } else {
+            } else if srcExistsAfter && !dstExistsAfter && !tempExistsAfter {
                 clearPendingOperation()
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to rename file: %@", comment: ""), err.localizedDescription)
+                )
+            } else {
+                // 中間ファイルに残っている、または両方不在等の原因未確定状態：ジャーナルを保持
                 throw VideoFolderManager.FolderError.fileOperationFailed(
                     String(format: NSLocalizedString("Failed to rename file: %@", comment: ""), err.localizedDescription)
                 )
@@ -1097,7 +1162,9 @@ final class ZipArchiveManager: ObservableObject {
 
         // 物理移動の成立確認
         guard dstExistsAfter else {
-            clearPendingOperation()
+            if srcExistsAfter && !tempExistsAfter {
+                clearPendingOperation()
+            }
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Failed to rename file.", comment: "")
             )
@@ -1247,6 +1314,7 @@ final class ZipArchiveManager: ObservableObject {
             kind: .move,
             sourceRelativePath: item.normalizedRelativePath,
             destinationRelativePath: destRelative,
+            intermediateRelativePath: nil,
             originalTitle: item.title,
             destinationTitle: destURL.deletingPathExtension().lastPathComponent,
             originalFolderName: item.folderName,
@@ -1276,7 +1344,7 @@ final class ZipArchiveManager: ObservableObject {
                 throw VideoFolderManager.FolderError.fileOperationFailed(
                     NSLocalizedString("File move conflict occurred.", comment: "")
                 )
-            } else {
+            } else if srcExistsAfter && !dstExistsAfter {
                 clearPendingOperation()
                 if didCreateFolder {
                     Self.safelyCleanupNewlyCreatedFolderIfNeeded(
@@ -1290,6 +1358,11 @@ final class ZipArchiveManager: ObservableObject {
                 throw VideoFolderManager.FolderError.fileOperationFailed(
                     String(format: NSLocalizedString("Failed to move file: %@", comment: ""), err.localizedDescription)
                 )
+            } else {
+                // 両方不在などの異常ケース：ジャーナルを保持
+                throw VideoFolderManager.FolderError.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to move file: %@", comment: ""), err.localizedDescription)
+                )
             }
         }
 
@@ -1300,6 +1373,11 @@ final class ZipArchiveManager: ObservableObject {
                 )
             }
             try? fm.moveItem(at: destURL, to: sourceURL)
+            let srcRechecked = fm.fileExists(atPath: sourceURL.path)
+            let dstRechecked = fm.fileExists(atPath: destURL.path)
+            if srcRechecked && !dstRechecked {
+                clearPendingOperation()
+            }
             if didCreateFolder {
                 Self.safelyCleanupNewlyCreatedFolderIfNeeded(
                     targetDir,
@@ -1309,7 +1387,6 @@ final class ZipArchiveManager: ObservableObject {
                     fileManager: fm
                 )
             }
-            clearPendingOperation()
             throw VideoFolderManager.FolderError.fileOperationFailed(
                 NSLocalizedString("Failed to move file.", comment: "")
             )
@@ -2388,6 +2465,17 @@ final class ZipArchiveManager: ObservableObject {
     }
 
     func recordPendingOperation(_ op: ManagedFilePendingOperation) throws {
+        if let _ = loadPendingOperation() {
+            throw VideoFolderManager.FolderError.fileOperationFailed(
+                NSLocalizedString("Another file operation is pending recovery.", comment: "")
+            )
+        }
+        let data = try JSONEncoder().encode(op)
+        try data.write(to: journalFileURL, options: .atomic)
+        userDefaults.set(data, forKey: Self.pendingOperationKey)
+    }
+
+    func recordPendingOperationForTesting(_ op: ManagedFilePendingOperation) throws {
         let data = try JSONEncoder().encode(op)
         try data.write(to: journalFileURL, options: .atomic)
         userDefaults.set(data, forKey: Self.pendingOperationKey)
@@ -2439,11 +2527,20 @@ final class ZipArchiveManager: ObservableObject {
         let fm = FileManager.default
         let srcURL = resolveRelativePathToURL(op.sourceRelativePath)
         let dstURL = resolveRelativePathToURL(op.destinationRelativePath)
+        let intermediateURL = op.intermediateRelativePath.map { resolveRelativePathToURL($0) }
 
         let srcExists = fm.fileExists(atPath: srcURL.path)
         let dstExists = fm.fileExists(atPath: dstURL.path)
+        let intermediateExists = intermediateURL.map { fm.fileExists(atPath: $0.path) } ?? false
 
-        if dstExists && !srcExists {
+        // 複数地点に実ファイルが存在する競合ケース：勝手に削除せずすべて保持し、ジャーナルを維持
+        let existingLocationsCount = [srcExists, dstExists, intermediateExists].filter { $0 }.count
+        if existingLocationsCount > 1 {
+            unresolvedRecoveryNotice = NSLocalizedString("Conflict detected: File exists at both source and destination.", comment: "")
+            return
+        }
+
+        if dstExists {
             // 物理移動は成功したがメタデータ保存前または直後にプロセス終了したケース
             if let idx = managedFiles.firstIndex(where: { $0.id == op.itemID }) {
                 managedFiles[idx].title = op.destinationTitle
@@ -2474,17 +2571,46 @@ final class ZipArchiveManager: ObservableObject {
                 // 永続化失敗時はジャーナルを消去せず保持する
                 unresolvedRecoveryNotice = String(format: NSLocalizedString("Failed to recover file metadata: %@", comment: ""), error.localizedDescription)
             }
-        } else if srcExists && !dstExists {
+        } else if intermediateExists, let interURL = intermediateURL {
+            // 中間ファイルに残されたケース（APFS大文字小文字リネーム途中のクラッシュ等）：
+            // UUIDを維持したまま、本来の目的地 destURL へ物理移動を完遂して復旧する
+            do {
+                try fm.moveItem(at: interURL, to: dstURL)
+                if let idx = managedFiles.firstIndex(where: { $0.id == op.itemID }) {
+                    managedFiles[idx].title = op.destinationTitle
+                    managedFiles[idx].relativePath = op.destinationRelativePath
+                    managedFiles[idx].folderName = op.destinationFolderName
+                    managedFiles[idx].relativeSubpath = FileClassification.extractFolderAndSubpath(fromRelativePath: op.destinationRelativePath).subfolderPrefix
+                } else {
+                    let attrs = (try? fm.attributesOfItem(atPath: dstURL.path)) ?? [:]
+                    let size = (attrs[.size] as? Int64) ?? 0
+                    let restored = ManagedFileItem(
+                        id: op.itemID,
+                        title: op.destinationTitle,
+                        relativePath: op.destinationRelativePath,
+                        fileExtension: op.fileExtension,
+                        createdAt: op.createdAt,
+                        byteSize: size,
+                        folderName: op.destinationFolderName,
+                        relativeSubpath: FileClassification.extractFolderAndSubpath(fromRelativePath: op.destinationRelativePath).subfolderPrefix
+                    )
+                    managedFiles.insert(restored, at: 0)
+                }
+                try persistManagedFilesThrowing()
+                clearPendingOperation()
+                unresolvedRecoveryNotice = nil
+            } catch {
+                // 移動または保存失敗時は実ファイルを失わないようジャーナルを保持
+                unresolvedRecoveryNotice = String(format: NSLocalizedString("Failed to recover intermediate file: %@", comment: ""), error.localizedDescription)
+            }
+        } else if srcExists {
             // 物理移動前、または正常にロールバック完了済み
             clearPendingOperation()
             unresolvedRecoveryNotice = nil
-        } else if srcExists && dstExists {
-            // 両方に実ファイルが存在する競合ケース：勝手に削除せず両方保持し、ジャーナルを維持
-            unresolvedRecoveryNotice = NSLocalizedString("Conflict detected: File exists at both source and destination.", comment: "")
         } else {
-            // 両方不在
-            clearPendingOperation()
-            unresolvedRecoveryNotice = nil
+            // 移動元・中間・移動先の全地点に実ファイルが存在しない異常ケース：
+            // 原因が確定するまでジャーナルを勝手に削除せず保持する
+            unresolvedRecoveryNotice = NSLocalizedString("Unresolved file operation: Files not found at source or destination.", comment: "")
         }
     }
 
@@ -2503,11 +2629,9 @@ final class ZipArchiveManager: ObservableObject {
 
         // 2. ディレクトリの読み取りエラーは明示的な失敗として扱い、削除を中止する（try?による空判定は厳禁）
         do {
-            let items = try fm.contentsOfDirectory(atPath: targetDir.path).filter {
-                $0 != ".DS_Store" && $0 != "__MACOSX"
-            }
-            // 3. 1つでもファイルが存在する場合は削除しない
-            guard items.isEmpty else { return }
+            let rawItems = try fm.contentsOfDirectory(atPath: targetDir.path)
+            // 3. .DS_Store や __MACOSX を含め、実際に完全に空である場合のみ削除する（ファイルを除外して空と判定するのは禁止）
+            guard rawItems.isEmpty else { return }
 
             // 4. 空であることが確認できた場合のみ物理削除
             try fm.removeItem(at: targetDir)

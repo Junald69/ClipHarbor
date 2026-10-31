@@ -4162,4 +4162,205 @@ final class VaultFaultInjectionTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Phase F2-A 最終復旧・安全性追加テスト
+
+    @MainActor
+    func testZipPhaseF2A_Rename_CaseOnlyIntermediateCrash_RecoversUUIDAndFile() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2A_CaseCrash_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2a.casecrash.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 状況設定：
+        // sample.txt -> SAMPLE.txt へのリネーム中、中間ファイル .rename_case_tmp_<UUID> に移動した直後にクラッシュ
+        let origUUID = UUID()
+        let intermediateFileName = ".rename_case_tmp_\(UUID().uuidString)"
+        let intermediateFile = downloadsDir.appendingPathComponent(intermediateFileName)
+        try Data("case sensitive recovery content".utf8).write(to: intermediateFile)
+
+        let intermediateRel = "Documents/Downloads/\(intermediateFileName)"
+        let pendingOp = ManagedFilePendingOperation(
+            operationID: UUID(),
+            itemID: origUUID,
+            kind: .rename,
+            sourceRelativePath: "Documents/Downloads/sample.txt",
+            destinationRelativePath: "Documents/Downloads/SAMPLE.txt",
+            intermediateRelativePath: intermediateRel,
+            originalTitle: "sample",
+            destinationTitle: "SAMPLE",
+            originalFolderName: "",
+            destinationFolderName: "",
+            fileExtension: "txt",
+            createdAt: Date()
+        )
+        try zipMgr.recordPendingOperationForTesting(pendingOp)
+
+        // 復旧処理を実行
+        zipMgr.recoverPendingOperationsIfNeeded()
+
+        // 中間ファイルから SAMPLE.txt への移動が完遂され、UUIDが維持され、ジャーナルがクリアされていること
+        let destFile = downloadsDir.appendingPathComponent("SAMPLE.txt")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destFile.path), "目的地に実ファイルが存在すること")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: intermediateFile.path), "中間ファイルは解消されていること")
+        XCTAssertNil(zipMgr.loadPendingOperation(), "復旧完了後にジャーナルがクリアされること")
+        XCTAssertNil(zipMgr.unresolvedRecoveryNotice)
+        XCTAssertEqual(zipMgr.managedFiles.first?.id, origUUID, "UUIDが完全に維持されていること")
+        XCTAssertEqual(zipMgr.managedFiles.first?.title, "SAMPLE")
+    }
+
+    @MainActor
+    func testZipPhaseF2A_PendingOperation_RejectsNewOperationAndPreventsOverwrite() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2A_RejectNew_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2a.rejectnew.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 既存の未解決ジャーナルを記録
+        let existingOpID = UUID()
+        let existingOp = ManagedFilePendingOperation(
+            operationID: existingOpID,
+            itemID: UUID(),
+            kind: .rename,
+            sourceRelativePath: "Documents/Downloads/pending1.txt",
+            destinationRelativePath: "Documents/Downloads/pending1_renamed.txt",
+            intermediateRelativePath: nil,
+            originalTitle: "pending1",
+            destinationTitle: "pending1_renamed",
+            originalFolderName: "",
+            destinationFolderName: "",
+            fileExtension: "txt",
+            createdAt: Date()
+        )
+        try zipMgr.recordPendingOperationForTesting(existingOp)
+
+        // 操作対象の通常ファイルを作成
+        let activeFile = downloadsDir.appendingPathComponent("active.txt")
+        try Data("active content".utf8).write(to: activeFile)
+        let activeItem = ManagedFileItem(
+            id: UUID(),
+            title: "active",
+            relativePath: "Documents/Downloads/active.txt",
+            fileExtension: "txt",
+            createdAt: Date(),
+            byteSize: 14,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(activeItem)
+
+        // 未解決ジャーナルが存在する状態での新規リネームが拒否されること
+        XCTAssertThrowsError(try zipMgr.renameManagedFile(activeItem, to: "active_renamed")) { error in
+            XCTAssertTrue(error.localizedDescription.contains("pending recovery") || error.localizedDescription.contains("復旧待ち"))
+        }
+
+        // 既存ジャーナルが上書きされず維持されていること
+        let currentJournal = zipMgr.loadPendingOperation()
+        XCTAssertEqual(currentJournal?.operationID, existingOpID, "既存のジャーナルが上書きされず維持されること")
+    }
+
+    @MainActor
+    func testZipPhaseF2A_PendingRecovery_BothMissing_MaintainsJournal() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2A_Missing_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf2a.missing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 状況設定：元・中間・宛先のどこにも実ファイルが存在しない
+        let missingOp = ManagedFilePendingOperation(
+            operationID: UUID(),
+            itemID: UUID(),
+            kind: .rename,
+            sourceRelativePath: "Documents/Downloads/ghost_src.txt",
+            destinationRelativePath: "Documents/Downloads/ghost_dst.txt",
+            intermediateRelativePath: nil,
+            originalTitle: "ghost_src",
+            destinationTitle: "ghost_dst",
+            originalFolderName: "",
+            destinationFolderName: "",
+            fileExtension: "txt",
+            createdAt: Date()
+        )
+        try zipMgr.recordPendingOperationForTesting(missingOp)
+
+        zipMgr.recoverPendingOperationsIfNeeded()
+
+        // 原因が確定するまでジャーナルを消去せず保持し、未解決通知が設定されること
+        XCTAssertNotNil(zipMgr.loadPendingOperation(), "全地点不在でも原因確定までジャーナルを維持すること")
+        XCTAssertNotNil(zipMgr.unresolvedRecoveryNotice, "未解決状態が通知されること")
+    }
+
+    @MainActor
+    func testZipPhaseF2A_Move_FolderCleanup_DoesNotDeleteFolderWithDSStore() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2A_DSStore_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let testFolder = downloadsDir.appendingPathComponent("FolderWithDSStore", isDirectory: true)
+        try FileManager.default.createDirectory(at: testFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        fm.registerLogicalFolderIfNeeded("FolderWithDSStore")
+
+        // フォルダ内に .DS_Store を配置
+        let dsStoreFile = testFolder.appendingPathComponent(".DS_Store")
+        try Data("dummy ds_store".utf8).write(to: dsStoreFile)
+
+        let destFile = testFolder.appendingPathComponent("non_existent.txt")
+
+        // クリーンアップを呼び出し
+        ZipArchiveManager.safelyCleanupNewlyCreatedFolderIfNeeded(
+            testFolder,
+            destinationFileURL: destFile,
+            folderName: "FolderWithDSStore",
+            folderManager: fm,
+            fileManager: FileManager.default
+        )
+
+        // .DS_Store があるためフォルダは削除されず保持されること
+        XCTAssertTrue(FileManager.default.fileExists(atPath: testFolder.path), "DS_Store等の残存ファイルがある場合はフォルダを削除しないこと")
+        XCTAssertTrue(fm.folders.contains("FolderWithDSStore"), "論理フォルダも維持されること")
+    }
 }

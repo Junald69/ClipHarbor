@@ -11606,6 +11606,57 @@
           }
         }
       }
+    },
+    "Another file operation is pending recovery.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another file operation is pending recovery."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復旧待ちのファイル操作が存在するため実行できません。"
+          }
+        }
+      }
+    },
+    "Unresolved file operation: Files not found at source or destination.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unresolved file operation: Files not found at source or destination."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未解決のファイル操作：移動元および移動先にファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "Failed to recover intermediate file: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to recover intermediate file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中間ファイルからの復旧に失敗しました: %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
