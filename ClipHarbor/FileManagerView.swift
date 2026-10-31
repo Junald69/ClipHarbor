@@ -55,6 +55,11 @@ struct FileManagerView: View {
     @State private var renamingVideo: SavedVideo?
     @State private var renameVideoInput = ""
 
+    // 一般ファイル操作用ダイアログ (Phase F2-A)
+    @State private var renamingManagedFile: ManagedFileItem?
+    @State private var renameManagedFileInput = ""
+    @State private var movingManagedFile: ManagedFileItem?
+
     // 画像インポート
     @State private var showPhotosPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
@@ -412,6 +417,20 @@ struct FileManagerView: View {
                     }
                 )
             }
+            .sheet(item: $movingManagedFile) { item in
+                MoveManagedFileToFolderSheet(
+                    item: item,
+                    currentFolder: item.folderName ?? "",
+                    folders: folderManager.folders,
+                    onSelectFolder: { targetFolder in
+                        do {
+                            _ = try zipManager.moveManagedFile(item, toFolder: targetFolder, folderManager: folderManager)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                )
+            }
             .sheet(isPresented: $showTrashSheet) {
                 TrashView(
                     trashManager: trashManager,
@@ -536,6 +555,26 @@ struct FileManagerView: View {
                     renamingVideo = nil
                 }
             }
+            .alert(
+                NSLocalizedString("Change File Name", comment: ""),
+                isPresented: Binding(
+                    get: { renamingManagedFile != nil },
+                    set: { if !$0 { renamingManagedFile = nil } }
+                )
+            ) {
+                TextField("New File Name", text: $renameManagedFileInput)
+                Button("Cancel", role: .cancel) { renamingManagedFile = nil }
+                Button("Change") {
+                    if let target = renamingManagedFile {
+                        do {
+                            _ = try zipManager.renameManagedFile(target, to: renameManagedFileInput)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                    renamingManagedFile = nil
+                }
+            }
             .confirmationDialog(
                 NSLocalizedString("Move Video to Trash", comment: ""),
                 isPresented: Binding(
@@ -620,7 +659,14 @@ struct FileManagerView: View {
                         } : nil,
                         onCompress: !fileItem.isZip ? {
                             handleCompressManagedFile(fileItem)
-                        } : nil
+                        } : nil,
+                        onRename: {
+                            renameManagedFileInput = fileItem.title
+                            renamingManagedFile = fileItem
+                        },
+                        onMove: {
+                            movingManagedFile = fileItem
+                        }
                     )
                 }
             }
@@ -900,7 +946,14 @@ struct FileManagerView: View {
                                     } : nil,
                                     onCompress: !fileItem.isZip ? {
                                         handleCompressManagedFile(fileItem)
-                                    } : nil
+                                    } : nil,
+                                    onRename: {
+                                        renameManagedFileInput = fileItem.title
+                                        renamingManagedFile = fileItem
+                                    },
+                                    onMove: {
+                                        movingManagedFile = fileItem
+                                    }
                                 )
                             }
                         }
@@ -1097,7 +1150,14 @@ struct FileManagerView: View {
                                     } : nil,
                                     onCompress: !fileItem.isZip ? {
                                         handleCompressManagedFile(fileItem)
-                                    } : nil
+                                    } : nil,
+                                    onRename: {
+                                        renameManagedFileInput = fileItem.title
+                                        renamingManagedFile = fileItem
+                                    },
+                                    onMove: {
+                                        movingManagedFile = fileItem
+                                    }
                                 )
                             }
                         }
@@ -2088,6 +2148,8 @@ private struct AlohaManagedFileCardView: View {
     var isOperating: Bool = false
     var onExtract: (() -> Void)? = nil
     var onCompress: (() -> Void)? = nil
+    var onRename: (() -> Void)? = nil
+    var onMove: (() -> Void)? = nil
 
     @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
     @ScaledMetric(relativeTo: .caption2) private var subtitleHeight: CGFloat = 16
@@ -2108,7 +2170,7 @@ private struct AlohaManagedFileCardView: View {
                     }
                 }
 
-                // 右上「…」メニュー（Phase F1 対応済みの機能のみを表示）
+                // 右上「…」メニュー（Phase F1 / F2-A 対応済みの機能を表示）
                 Menu {
                     if item.isZip, let onExtract = onExtract {
                         Button(action: onExtract) {
@@ -2120,6 +2182,20 @@ private struct AlohaManagedFileCardView: View {
                     if !item.isZip, let onCompress = onCompress, item.fileExists {
                         Button(action: onCompress) {
                             Label("Compress (Create ZIP)", systemImage: "doc.zipper")
+                        }
+                        .disabled(isOperating)
+                    }
+
+                    if let onRename = onRename, item.fileExists {
+                        Button(action: onRename) {
+                            Label("Change File Name", systemImage: "pencil")
+                        }
+                        .disabled(isOperating)
+                    }
+
+                    if let onMove = onMove, item.fileExists {
+                        Button(action: onMove) {
+                            Label("Move to Folder", systemImage: "folder")
                         }
                         .disabled(isOperating)
                     }
@@ -2479,6 +2555,76 @@ private struct FMP4ExportJobRow: View {
 
 struct MoveToFolderSheet: View {
     let video: SavedVideo
+    let currentFolder: String
+    let folders: [String]
+    let onSelectFolder: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var newFolderName = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Select Destination Folder") {
+                    Button {
+                        dismiss()
+                        onSelectFolder("")
+                    } label: {
+                        HStack {
+                            Label("Downloads (Uncategorized)", systemImage: "folder")
+                            Spacer()
+                            if currentFolder.isEmpty {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+
+                    ForEach(folders, id: \.self) { folder in
+                        Button {
+                            dismiss()
+                            onSelectFolder(folder)
+                        } label: {
+                            HStack {
+                                Label(folder, systemImage: "folder.fill")
+                                Spacer()
+                                if currentFolder == folder {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section("Create New Folder and Move") {
+                    HStack {
+                        TextField("New Folder Name", text: $newFolderName)
+                        Button("Create and Move") {
+                            let target = newFolderName
+                            dismiss()
+                            onSelectFolder(target)
+                        }
+                        .disabled(VideoFolderManager.sanitizedFolderName(newFolderName).isEmpty)
+                    }
+                }
+            }
+            .navigationTitle(Text("Move to Folder"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+// MARK: - 一般ファイルフォルダ移動シート (Phase F2-A)
+
+private struct MoveManagedFileToFolderSheet: View {
+    let item: ManagedFileItem
     let currentFolder: String
     let folders: [String]
     let onSelectFolder: (String) -> Void

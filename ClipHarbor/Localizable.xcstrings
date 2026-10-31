@@ -11351,6 +11351,210 @@
           }
         }
       }
+    },
+    "Change File Name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change File Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名の変更"
+          }
+        }
+      }
+    },
+    "New File Name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいファイル名"
+          }
+        }
+      }
+    },
+    "Cannot operate on files inside the Private Vault.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot operate on files inside the Private Vault."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベート保管庫内のファイルは操作できません。"
+          }
+        }
+      }
+    },
+    "A file with the same name already exists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A file with the same name already exists."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じ名前のファイルが既に存在します。"
+          }
+        }
+      }
+    },
+    "Failed to persist file metadata.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to persist file metadata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル情報の保存に失敗しました。"
+          }
+        }
+      }
+    },
+    "Destination directory does not exist.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination directory does not exist."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動先フォルダが存在しません。"
+          }
+        }
+      }
+    },
+    "A file with the same name already exists at destination.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A file with the same name already exists at destination."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動先に同じ名前のファイルが既に存在します。"
+          }
+        }
+      }
+    },
+    "Failed to access destination folder.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to access destination folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動先フォルダにアクセスできません。"
+          }
+        }
+      }
+    },
+    "Failed to rename file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名の変更に失敗しました。"
+          }
+        }
+      }
+    },
+    "Failed to rename file due to duplicate files.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to rename file due to duplicate files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同名ファイルが存在するため名前を変更できません。"
+          }
+        }
+      }
+    },
+    "File move conflict occurred.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File move conflict occurred."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの移動中に競合が発生しました。"
+          }
+        }
+      }
+    },
+    "Item not found in index.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item not found in index."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理インデックスに対象ファイルが見つかりません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
