@@ -97,6 +97,15 @@ enum FileClassification: Equatable {
                 let sub = String(canonical.path.dropFirst(prefix.count))
                 return normalizedRelativePath("Documents/Downloads/" + sub)
             }
+            let parentURL = customRoot.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+            let parentPath = parentURL.path
+            let parentPrefix = parentPath.hasSuffix("/") ? parentPath : parentPath + "/"
+            if canonical.path.hasPrefix(parentPrefix) {
+                let sub = String(canonical.path.dropFirst(parentPrefix.count))
+                if !sub.contains("/") {
+                    return normalizedRelativePath("Documents/" + sub)
+                }
+            }
         }
         guard let rel = SavedVideo.relativePath(for: canonical) else { return nil }
         return normalizedRelativePath(rel)
@@ -972,8 +981,10 @@ final class ZipArchiveManager: ObservableObject {
 
         let isInDownloads = canonicalDest.hasPrefix(dlPrefix) || canonicalDest == canonicalDownloads
         var isInDocumentsRoot = false
-        if !isInDownloads && customDownloadsRootURL == nil {
-            let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.resolvingSymlinksInPath().path
+        if !isInDownloads {
+            let docsURL = customDownloadsRootURL?.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+                ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.resolvingSymlinksInPath()
+            let docs = docsURL.path
             let docsPrefix = docs.hasSuffix("/") ? docs : docs + "/"
             if canonicalDest.hasPrefix(docsPrefix) {
                 let sub = String(canonicalDest.dropFirst(docsPrefix.count))
