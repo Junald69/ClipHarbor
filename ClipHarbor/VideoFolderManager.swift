@@ -220,43 +220,372 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
-    /// フォルダを削除する（中の動画・一般ファイルは削除せず、Downloads（未分類）へ戻す）
-    func deleteFolder(name rawName: String) {
+    /// テスト環境（カスタムDownloadsルート）等で物理ディレクトリ作成を伴わずにトップレベル論理フォルダ名を登録する
+    func registerLogicalFolderIfNeeded(_ rawName: String) {
         let clean = Self.sanitizedFolderName(rawName)
         guard !clean.isEmpty else { return }
+        if !folders.contains(where: { $0.caseInsensitiveCompare(clean) == .orderedSame }) {
+            folders.append(clean)
+            folders.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+            persistState()
+        }
+    }
 
-        // フォルダ内の動画を未分類（Documents/Downloads 直下）へ戻す（HLSは論理フォルダ解除のみ）
-        let affectedVideos = downloads.saved.filter { folderName(for: $0) == clean }
-        for video in affectedVideos {
-            _ = moveVideo(video, toFolder: "")
+    /// フォルダ削除時の退避計画レコード（事前計画・移動確認・逆順ロールバック用）
+    private struct FolderEvacuationRecord {
+        enum ItemKind {
+            case savedVideo(UUID)
+            case managedFile(UUID)
+            case unregisteredFile
+        }
+        let kind: ItemKind
+        let sourceURL: URL
+        let destinationURL: URL
+        let destinationRelativePath: String
+        let destinationTitle: String
+    }
+
+    /// フォルダを削除する（中の動画・一般ファイル・未登録ファイルは削除せず、Downloads（未分類）へ安全に退避する）
+    /// - 退避対象ファイルと移動元・移動先パスを事前に記録し、全件の移動結果を検証する。
+    /// - 1件でも移動に失敗した場合は、実行済みの移動を逆順でロールバックし、フォルダ管理情報を削除せず保持する。
+    /// - ロールバック自体が一部失敗した場合も、移動済みファイルのメタデータを未分類へ更新して整合性を保ちつつ、残存ファイルのためにフォルダ管理情報を維持する。
+    @discardableResult
+    func deleteFolder(
+        name rawName: String,
+        customRootURL: URL? = nil,
+        zipManager: ZipArchiveManager? = nil,
+        fileMover: ((URL, URL) throws -> Void)? = nil,
+        rollbackMover: ((URL, URL) throws -> Void)? = nil
+    ) -> Result<Void, FolderError> {
+        let clean = Self.sanitizedFolderName(rawName)
+        guard !clean.isEmpty else { return .failure(.emptyName) }
+
+        let root: URL
+        do {
+            if let customRoot = customRootURL {
+                try FileManager.default.createDirectory(at: customRoot, withIntermediateDirectories: true)
+                root = customRoot
+            } else {
+                root = try Self.ensureDownloadsDirectory()
+            }
+        } catch {
+            return .failure(.fileOperationFailed(NSLocalizedString("Failed to access Downloads directory.", comment: "")))
         }
 
-        // フォルダ内のZIP・一般ファイルも未分類（Documents/Downloads 直下）へ退避
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                ZipArchiveManager.shared.evacuateManagedFilesForDeletedFolder(clean)
+        let folderURL = root.appendingPathComponent(clean, isDirectory: true)
+        guard FileNaming.isDirectChild(folderURL, of: root) else {
+            return .failure(.fileOperationFailed(NSLocalizedString("Invalid folder name.", comment: "")))
+        }
+
+        let fm = FileManager.default
+        let performMove: (URL, URL) throws -> Void = fileMover ?? { src, dst in
+            try fm.moveItem(at: src, to: dst)
+        }
+        let performRollbackMove: (URL, URL) throws -> Void = rollbackMover ?? { src, dst in
+            try fm.moveItem(at: src, to: dst)
+        }
+
+        // 1. 事前計画フェーズ：退避対象ファイル（SavedVideo / ManagedFileItem / 未登録物理ファイル）と一意の移動先URLを記録
+        var reservedDestPathsLower: Set<String> = []
+        var plannedSourceCanonicalPaths: Set<String> = []
+        var plannedRecords: [FolderEvacuationRecord] = []
+        var hlsVideoIDsToUnmap: [UUID] = []
+
+        func allocateUniqueDestination(baseName: String, ext: String) -> URL {
+            let safeBase = FileNaming.sanitizedBaseName(baseName).isEmpty ? "File" : FileNaming.sanitizedBaseName(baseName)
+            let cleanExt = ext.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+
+            func makeCandidate(_ name: String) -> URL {
+                if cleanExt.isEmpty {
+                    return root.appendingPathComponent(name, isDirectory: false)
+                } else {
+                    return root.appendingPathComponent(name, isDirectory: false).appendingPathExtension(cleanExt)
+                }
+            }
+
+            let first = makeCandidate(safeBase)
+            let firstKey = first.standardizedFileURL.path.lowercased()
+            if !fm.fileExists(atPath: first.path) && !reservedDestPathsLower.contains(firstKey) {
+                reservedDestPathsLower.insert(firstKey)
+                return first
+            }
+
+            for index in 1...9999 {
+                let candidate = makeCandidate("\(safeBase) (\(index))")
+                let key = candidate.standardizedFileURL.path.lowercased()
+                if !fm.fileExists(atPath: candidate.path) && !reservedDestPathsLower.contains(key) {
+                    reservedDestPathsLower.insert(key)
+                    return candidate
+                }
+            }
+
+            let fallback = makeCandidate("\(safeBase)_\(UUID().uuidString.prefix(6))")
+            reservedDestPathsLower.insert(fallback.standardizedFileURL.path.lowercased())
+            return fallback
+        }
+
+        func resolveSourceVideoURL(_ video: SavedVideo) -> URL {
+            if let customRoot = customRootURL {
+                let norm = FileClassification.normalizedRelativePath(video.relativePath)
+                let prefix = "Documents/Downloads/"
+                if norm.hasPrefix(prefix) {
+                    let subRel = String(norm.dropFirst(prefix.count))
+                    return customRoot.appendingPathComponent(subRel)
+                }
+            }
+            return video.fileURL
+        }
+
+        // 1-A. 登録済み SavedVideo の計画
+        let affectedVideos = downloads.saved.filter { folderName(for: $0) == clean }
+        for video in affectedVideos {
+            if video.isHLS {
+                hlsVideoIDsToUnmap.append(video.id)
+                continue
+            }
+            let srcURL = resolveSourceVideoURL(video)
+            guard fm.fileExists(atPath: srcURL.path) else {
+                return .failure(.fileOperationFailed(NSLocalizedString("Source file not found.", comment: "")))
+            }
+            let ext = srcURL.pathExtension.isEmpty ? video.format.rawValue : srcURL.pathExtension
+            let destURL = allocateUniqueDestination(baseName: video.title, ext: ext)
+            guard let destRel = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customRootURL) else {
+                return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
+            }
+            let canonSrc = srcURL.standardizedFileURL.resolvingSymlinksInPath().path
+            plannedSourceCanonicalPaths.insert(canonSrc)
+            plannedRecords.append(FolderEvacuationRecord(
+                kind: .savedVideo(video.id),
+                sourceURL: srcURL,
+                destinationURL: destURL,
+                destinationRelativePath: destRel,
+                destinationTitle: destURL.deletingPathExtension().lastPathComponent
+            ))
+        }
+
+        // 1-B. 登録済み ManagedFileItem の計画
+        let resolvedZipMgr: ZipArchiveManager? = zipManager ?? (Thread.isMainThread ? MainActor.assumeIsolated { ZipArchiveManager.shared } : nil)
+        if let zMgr = resolvedZipMgr {
+            let affectedManaged: [ManagedFileItem] = MainActor.assumeIsolated {
+                zMgr.managedFiles.filter { $0.folderName == clean }
+            }
+            for item in affectedManaged {
+                let srcURL: URL = MainActor.assumeIsolated { zMgr.resolveFileURL(for: item) }
+                guard fm.fileExists(atPath: srcURL.path) else {
+                    return .failure(.fileOperationFailed(NSLocalizedString("Source file not found.", comment: "")))
+                }
+                let canonSrc = srcURL.standardizedFileURL.resolvingSymlinksInPath().path
+                guard !plannedSourceCanonicalPaths.contains(canonSrc) else { continue }
+
+                let destURL = allocateUniqueDestination(baseName: item.title, ext: item.fileExtension)
+                guard let destRel = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customRootURL) else {
+                    return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
+                }
+                plannedSourceCanonicalPaths.insert(canonSrc)
+                plannedRecords.append(FolderEvacuationRecord(
+                    kind: .managedFile(item.id),
+                    sourceURL: srcURL,
+                    destinationURL: destURL,
+                    destinationRelativePath: destRel,
+                    destinationTitle: destURL.deletingPathExtension().lastPathComponent
+                ))
             }
         }
 
-        // 空になったサブディレクトリ（ネスト階層含む）を下位から削除し、空のフォルダを削除
-        if let root = try? Self.ensureDownloadsDirectory() {
-            let sub = root.appendingPathComponent(clean, isDirectory: true)
-            if FileNaming.isDirectChild(sub, of: root), FileManager.default.fileExists(atPath: sub.path) {
-                Self.removeEmptySubdirectoriesRecursively(inside: sub)
-                let remaining = (try? FileManager.default.contentsOfDirectory(atPath: sub.path))?.filter {
-                    $0 != ".DS_Store" && $0 != "__MACOSX"
-                } ?? []
-                if remaining.isEmpty {
-                    try? FileManager.default.removeItem(at: sub)
+        // 1-C. フォルダ内の未登録物理ファイル（およびシンボリックリンク有無）の事前走査
+        if fm.fileExists(atPath: folderURL.path) {
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+            if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: keys, options: []) {
+                for case let itemURL as URL in enumerator {
+                    let vals = try? itemURL.resourceValues(forKeys: Set(keys))
+                    let nameLower = itemURL.lastPathComponent.lowercased()
+                    if nameLower == ".ds_store" || nameLower == "__macosx" {
+                        if vals?.isDirectory == true {
+                            enumerator.skipDescendants()
+                        }
+                        continue
+                    }
+                    // シンボリックリンクが含まれている場合は勝手に削除せず中止
+                    if vals?.isSymbolicLink == true {
+                        return .failure(.fileOperationFailed(
+                            NSLocalizedString("Cannot delete folder because it contains an unsupported symbolic link.", comment: "")
+                        ))
+                    }
+                    if vals?.isRegularFile == true {
+                        let canonSrc = itemURL.standardizedFileURL.resolvingSymlinksInPath().path
+                        if !plannedSourceCanonicalPaths.contains(canonSrc) {
+                            let base = itemURL.deletingPathExtension().lastPathComponent
+                            let ext = itemURL.pathExtension
+                            let destURL = allocateUniqueDestination(baseName: base.isEmpty ? "File" : base, ext: ext)
+                            guard let destRel = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customRootURL) else {
+                                return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
+                            }
+                            plannedSourceCanonicalPaths.insert(canonSrc)
+                            plannedRecords.append(FolderEvacuationRecord(
+                                kind: .unregisteredFile,
+                                sourceURL: itemURL,
+                                destinationURL: destURL,
+                                destinationRelativePath: destRel,
+                                destinationTitle: destURL.deletingPathExtension().lastPathComponent
+                            ))
+                        }
+                    }
                 }
             }
         }
 
+        // 2. 移動実行と結果確認フェーズ
+        var completedRecords: [FolderEvacuationRecord] = []
+        var moveFailed = false
+
+        for record in plannedRecords {
+            do {
+                try performMove(record.sourceURL, record.destinationURL)
+                // 移動後に移動先ファイルの存在と移動元ファイルの不在を厳格確認
+                guard fm.fileExists(atPath: record.destinationURL.path),
+                      !fm.fileExists(atPath: record.sourceURL.path) else {
+                    moveFailed = true
+                    break
+                }
+                completedRecords.append(record)
+            } catch {
+                moveFailed = true
+                break
+            }
+        }
+
+        // 3. 失敗時の逆順ロールバックフェーズ
+        if moveFailed {
+            var rollbackFailedRecords: [FolderEvacuationRecord] = []
+
+            for doneRecord in completedRecords.reversed() {
+                let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
+                try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                do {
+                    try performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
+                    if !fm.fileExists(atPath: doneRecord.sourceURL.path) {
+                        rollbackFailedRecords.append(doneRecord)
+                    }
+                } catch {
+                    rollbackFailedRecords.append(doneRecord)
+                }
+            }
+
+            // ロールバック自体が失敗し、Downloads直下に残ったファイルがある場合は、見失わないよう未分類としてメタデータを更新する
+            if !rollbackFailedRecords.isEmpty {
+                for unrolled in rollbackFailedRecords {
+                    switch unrolled.kind {
+                    case .savedVideo(let videoID):
+                        downloads.updateSavedVideo(
+                            id: videoID,
+                            title: unrolled.destinationTitle,
+                            relativePath: unrolled.destinationRelativePath
+                        )
+                        folderMap[videoID.uuidString] = nil
+                    case .managedFile(let itemID):
+                        if let zMgr = resolvedZipMgr {
+                            MainActor.assumeIsolated {
+                                zMgr.applyEvacuatedManagedFileUpdate(
+                                    id: itemID,
+                                    newTitle: unrolled.destinationTitle,
+                                    newRelativePath: unrolled.destinationRelativePath
+                                )
+                            }
+                        }
+                    case .unregisteredFile:
+                        break
+                    }
+                }
+                persistState()
+                if let zMgr = resolvedZipMgr {
+                    MainActor.assumeIsolated {
+                        zMgr.syncWithFileSystem(downloads: downloads, folderManager: self)
+                    }
+                }
+
+                let movedCount = rollbackFailedRecords.count
+                let remainingCount = max(1, plannedRecords.count - movedCount)
+                let partialMsg = String(
+                    format: NSLocalizedString("Failed to delete folder \"%@\". %lld files moved to Uncategorized, and %lld files remain in the folder. The folder was kept to protect your data.", comment: ""),
+                    clean, movedCount, remainingCount
+                )
+                return .failure(.fileOperationFailed(partialMsg))
+            }
+
+            // 完全ロールバック成功時：既存のフォルダ情報・ファイル配置は100%元の状態を保持
+            let rolledBackMsg = String(
+                format: NSLocalizedString("Failed to move some files out of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.", comment: ""),
+                clean
+            )
+            return .failure(.fileOperationFailed(rolledBackMsg))
+        }
+
+        // 4. 全件移動成功後の残存ファイル確認・メタデータ確定・空ディレクトリ削除フェーズ
+        if fm.fileExists(atPath: folderURL.path) {
+            Self.removeEmptySubdirectoriesRecursively(inside: folderURL)
+            let remainingItems = (try? fm.contentsOfDirectory(atPath: folderURL.path)) ?? []
+            for meta in remainingItems where meta == ".DS_Store" || meta == "__MACOSX" {
+                try? fm.removeItem(at: folderURL.appendingPathComponent(meta))
+            }
+            let unexpectedRemaining = ((try? fm.contentsOfDirectory(atPath: folderURL.path)) ?? []).filter {
+                $0 != ".DS_Store" && $0 != "__MACOSX"
+            }
+            if !unexpectedRemaining.isEmpty {
+                // 万一未退避の項目が残っている場合は、勝手にフォルダを削除せずロールバックを試みる
+                for doneRecord in completedRecords.reversed() {
+                    let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
+                    try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                    try? performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
+                }
+                return .failure(.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to delete folder \"%@\" because some files still remain inside.", comment: ""), clean)
+                ))
+            }
+            try? fm.removeItem(at: folderURL)
+        }
+
+        // 5. 全ファイルの移動と空フォルダ削除が確認できたため、インデックスとフォルダ管理情報を確定更新
+        var hadUnregisteredFiles = false
+        for record in completedRecords {
+            switch record.kind {
+            case .savedVideo(let videoID):
+                downloads.updateSavedVideo(
+                    id: videoID,
+                    title: record.destinationTitle,
+                    relativePath: record.destinationRelativePath
+                )
+                folderMap[videoID.uuidString] = nil
+            case .managedFile(let itemID):
+                if let zMgr = resolvedZipMgr {
+                    MainActor.assumeIsolated {
+                        zMgr.applyEvacuatedManagedFileUpdate(
+                            id: itemID,
+                            newTitle: record.destinationTitle,
+                            newRelativePath: record.destinationRelativePath
+                        )
+                    }
+                }
+            case .unregisteredFile:
+                hadUnregisteredFiles = true
+            }
+        }
+
+        for hlsID in hlsVideoIDsToUnmap {
+            folderMap[hlsID.uuidString] = nil
+        }
         for (videoID, mappedFolder) in folderMap where mappedFolder == clean {
             folderMap[videoID] = nil
         }
         folders.removeAll { $0 == clean }
         persistState()
+
+        if hadUnregisteredFiles, let zMgr = resolvedZipMgr {
+            MainActor.assumeIsolated {
+                zMgr.syncWithFileSystem(downloads: downloads, folderManager: self)
+            }
+        }
+
+        return .success(())
     }
 
     // MARK: - 動画のフォルダ移動・名前変更・削除

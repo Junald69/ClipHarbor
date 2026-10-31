@@ -795,6 +795,16 @@ final class ZipArchiveManager: ObservableObject {
         }
     }
 
+    /// フォルダ削除確定時（またはロールバック失敗による部分移動時）に、退避が完了した特定の `ManagedFileItem` のメタデータを未分類（Downloads直下）へ更新する
+    func applyEvacuatedManagedFileUpdate(id: UUID, newTitle: String, newRelativePath: String) {
+        guard let idx = managedFiles.firstIndex(where: { $0.id == id }) else { return }
+        managedFiles[idx].title = newTitle
+        managedFiles[idx].relativePath = FileClassification.normalizedRelativePath(newRelativePath)
+        managedFiles[idx].folderName = ""
+        managedFiles[idx].relativeSubpath = nil
+        persistManagedFiles()
+    }
+
     /// フォルダ削除時に、当該フォルダ配下（サブフォルダ内含む）の全 `ManagedFileItem` を未分類（Downloads直下）へ同名衝突回避付きで退避する
     func evacuateManagedFilesForDeletedFolder(_ folderName: String) {
         let clean = VideoFolderManager.sanitizedFolderName(folderName)
@@ -948,6 +958,22 @@ final class ZipArchiveManager: ObservableObject {
         let stagingRoot = stagingRootDirectoryURL
         let downloadsRoot = downloadsRootURL
         let baseFolderName = FileNaming.sanitizedBaseName(item.title).isEmpty ? "Extracted" : FileNaming.sanitizedBaseName(item.title)
+
+        // ZIPファイルが存在する親ディレクトリ（同階層への展開先親ディレクトリ）を特定し、Downloads管理領域内であることを厳格検証
+        let targetParentDir = sourceZipURL.deletingLastPathComponent()
+        let canonicalDownloadsRoot = downloadsRoot.standardizedFileURL.resolvingSymlinksInPath().path
+        let canonicalDownloadsPrefix = canonicalDownloadsRoot.hasSuffix("/") ? canonicalDownloadsRoot : canonicalDownloadsRoot + "/"
+        let canonicalTargetParent = targetParentDir.standardizedFileURL.resolvingSymlinksInPath().path
+
+        guard (canonicalTargetParent == canonicalDownloadsRoot || canonicalTargetParent.hasPrefix(canonicalDownloadsPrefix)),
+              !FileClassification.isInsideVaultOrTempArea(targetParentDir) else {
+            throw ZipOperationError.maliciousPathDetected(sourceZipURL.lastPathComponent)
+        }
+
+        // トップレベル（Downloads直下）にあるZIPかどうかを判定
+        let isTopLevelParent = (canonicalTargetParent == canonicalDownloadsRoot)
+            && item.folderName.isEmpty
+            && (item.relativeSubpath == nil || item.relativeSubpath?.isEmpty == true)
 
         // バックグラウンドタスクで展開・全検証を実行（メインスレッドを占有しない）
         let extractedFolderName: String = try await Task.detached(priority: .userInitiated) { [weak self] in
@@ -1258,8 +1284,14 @@ final class ZipArchiveManager: ObservableObject {
                 throw ZipOperationError.cancelled
             }
 
-            // 6. 全エントリの展開＋CRC検証が完了したため、最終配置先フォルダ名を決定してアトミックに移動
-            let finalFolderURL = Self.uniqueDirectoryDestination(in: downloadsRoot, baseName: baseFolderName)
+            // 6. 全エントリの展開＋CRC検証が完了したため、ZIPと同じ階層内の最終配置先フォルダ名を決定し、境界検証のうえアトミックに移動
+            let finalFolderURL = Self.uniqueDirectoryDestination(in: targetParentDir, baseName: baseFolderName)
+            let canonicalFinalFolder = finalFolderURL.standardizedFileURL.resolvingSymlinksInPath().path
+            guard canonicalFinalFolder.hasPrefix(canonicalDownloadsPrefix),
+                  canonicalFinalFolder.count > canonicalDownloadsPrefix.count,
+                  !FileClassification.isInsideVaultOrTempArea(finalFolderURL) else {
+                throw ZipOperationError.maliciousPathDetected(baseFolderName)
+            }
             let finalFolderName = finalFolderURL.lastPathComponent
 
             try fm.moveItem(at: stagingExtractRoot, to: finalFolderURL)
@@ -1267,11 +1299,309 @@ final class ZipArchiveManager: ObservableObject {
         }.value
 
         // 7. 展開されたフォルダおよび内部の全ファイル（動画・画像・一般ファイル）をインデックスへ同期
-        _ = folderManager.createFolder(name: extractedFolderName)
-        folderManager.syncWithFileSystemAndSavedVideos()
+        // ZIPがトップレベルにある場合のみ新しいトップレベル管理フォルダを登録し、既存フォルダ内展開では不要なトップレベルフォルダを作らない
+        if isTopLevelParent {
+            if customDownloadsRootURL == nil {
+                _ = folderManager.createFolder(name: extractedFolderName)
+            } else {
+                folderManager.registerLogicalFolderIfNeeded(extractedFolderName)
+            }
+        }
+        if customDownloadsRootURL == nil {
+            folderManager.syncWithFileSystemAndSavedVideos()
+        }
         syncWithFileSystem(downloads: downloads, folderManager: folderManager)
 
         return extractedFolderName
+    }
+
+    // MARK: - フォルダ単位のZIP圧縮（Phase F1）
+
+    /// 指定された管理フォルダ配下の全ファイル（ネスト階層を含む）を `.zip` に圧縮する（元のフォルダ・元ファイルは保持）
+    /// - Note: HLS（`.movpkg`）が論理所属または物理ファイルとして1件でも含まれる場合は圧縮を中止してエラーを投げる。
+    @discardableResult
+    func compressFolder(
+        named rawFolderName: String,
+        downloads: DownloadCenter,
+        folderManager: VideoFolderManager
+    ) async throws -> ManagedFileItem {
+        guard activeOperation == nil else {
+            throw ZipOperationError.operationInProgress
+        }
+
+        let cleanFolder = VideoFolderManager.sanitizedFolderName(rawFolderName)
+        guard !cleanFolder.isEmpty else {
+            throw ZipOperationError.fileNotFound
+        }
+
+        let root = downloadsRootURL
+        let folderURL = root.appendingPathComponent(cleanFolder, isDirectory: true)
+        guard FileNaming.isDirectChild(folderURL, of: root),
+              !FileClassification.isInsideVaultOrTempArea(folderURL) else {
+            throw ZipOperationError.maliciousPathDetected(cleanFolder)
+        }
+
+        // 1. 論理フォルダ所属のHLS動画チェック（一部のみ圧縮して成功扱いにすることを厳格防止）
+        let hasLogicalHLS = downloads.saved.contains { video in
+            folderManager.folderName(for: video) == cleanFolder &&
+            (video.isHLS || video.format == .hls || video.fileURL.pathExtension.lowercased() == "movpkg")
+        }
+        if hasLogicalHLS {
+            throw ZipOperationError.unsupportedSourceForCompression(
+                NSLocalizedString("This folder contains HLS videos that cannot be compressed into a ZIP archive.", comment: "")
+            )
+        }
+
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: folderURL.path) else {
+            throw ZipOperationError.fileNotFound
+        }
+        if (try? folderURL.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true {
+            throw ZipOperationError.symlinkNotAllowed(cleanFolder)
+        }
+
+        // 2. 圧縮開始前に対象フォルダ内の全項目を再帰走査・検証（HLS .movpkg、シンボリックリンク、Vault領域の排除）
+        let canonicalFolderRoot = folderURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let canonicalFolderPrefix = canonicalFolderRoot.hasSuffix("/") ? canonicalFolderRoot : canonicalFolderRoot + "/"
+
+        struct FolderEntrySource: Sendable {
+            let sourceURL: URL
+            let relativeEntryPath: String
+            let fileSize: Int64
+        }
+
+        var entriesToCompress: [FolderEntrySource] = []
+        var totalSourceBytes: Int64 = 0
+
+        let resourceKeys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+        if let enumerator = fm.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: resourceKeys,
+            options: []
+        ) {
+            for case let itemURL as URL in enumerator {
+                let rawValues = try? itemURL.resourceValues(forKeys: Set(resourceKeys))
+
+                // シンボリックリンクは辿らず即座に拒否
+                if rawValues?.isSymbolicLink == true {
+                    throw ZipOperationError.symlinkNotAllowed(itemURL.lastPathComponent)
+                }
+
+                // Private Vault / 一時再生領域の混入を拒否
+                if FileClassification.isInsideVaultOrTempArea(itemURL) {
+                    throw ZipOperationError.unsupportedSourceForCompression(
+                        NSLocalizedString("Private Vault files cannot be compressed into normal ZIP archives.", comment: "")
+                    )
+                }
+
+                // 物理的な HLS (.movpkg) パッケージがフォルダ内に存在する場合も明確なエラーで中止
+                let lowerName = itemURL.lastPathComponent.lowercased()
+                let lowerPath = itemURL.path.lowercased()
+                if itemURL.pathExtension.lowercased() == "movpkg" || lowerPath.contains(".movpkg/") {
+                    throw ZipOperationError.unsupportedSourceForCompression(
+                        NSLocalizedString("This folder contains HLS videos that cannot be compressed into a ZIP archive.", comment: "")
+                    )
+                }
+
+                // システムメタデータディレクトリ (__MACOSX) や隠しディレクトリはスキップ
+                if lowerName == "__macosx" || lowerName == ".ds_store" || lowerName.hasPrefix(".") {
+                    if rawValues?.isDirectory == true {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                let canonicalItem = itemURL.standardizedFileURL.resolvingSymlinksInPath().path
+                guard canonicalItem.hasPrefix(canonicalFolderPrefix),
+                      canonicalItem.count > canonicalFolderPrefix.count else {
+                    throw ZipOperationError.maliciousPathDetected(itemURL.lastPathComponent)
+                }
+
+                let relPath = String(canonicalItem.dropFirst(canonicalFolderPrefix.count))
+                    .replacingOccurrences(of: "\\", with: "/")
+                let components = relPath.split(separator: "/").map(String.init)
+                guard !components.isEmpty,
+                      !components.contains(".."),
+                      !components.contains("."),
+                      !components.contains(where: { $0.hasPrefix(".") || $0.lowercased() == "__macosx" }) else {
+                    continue
+                }
+
+                if rawValues?.isRegularFile == true {
+                    let ext = itemURL.pathExtension.lowercased()
+                    // ダウンロード途中の一時ファイルは除外
+                    if ["tmp", "part", "crdownload", "download"].contains(ext) {
+                        continue
+                    }
+                    let fSize = Int64(rawValues?.fileSize ?? 0)
+                    let joinedRel = components.joined(separator: "/")
+                    entriesToCompress.append(FolderEntrySource(
+                        sourceURL: itemURL,
+                        relativeEntryPath: joinedRel,
+                        fileSize: fSize
+                    ))
+                    totalSourceBytes += fSize
+                }
+            }
+        }
+
+        entriesToCompress.sort {
+            $0.relativeEntryPath.localizedStandardCompare($1.relativeEntryPath) == .orderedAscending
+        }
+
+        guard !entriesToCompress.isEmpty else {
+            throw ZipOperationError.unsupportedSourceForCompression(
+                NSLocalizedString("This folder is empty and cannot be compressed.", comment: "")
+            )
+        }
+
+        if let freeSpace = Self.availableDiskSpace(at: root),
+           freeSpace < totalSourceBytes + 32 * 1024 * 1024 {
+            throw ZipOperationError.insufficientDiskSpace
+        }
+
+        let opID = UUID()
+        let token = ZipCancellationToken()
+        activeCancellationToken = token
+        Self.registerActiveOperation(opID)
+
+        activeOperation = ZipOperationStatus(
+            id: opID,
+            kind: .compressing,
+            targetTitle: cleanFolder,
+            fractionCompleted: 0.0,
+            currentEntryName: cleanFolder
+        )
+
+        defer {
+            Self.unregisterActiveOperation(opID)
+            activeCancellationToken = nil
+            activeOperation = nil
+        }
+
+        let stagingRoot = stagingRootDirectoryURL
+        let capturedEntries = entriesToCompress
+        let capturedTotalBytes = max(1, totalSourceBytes)
+
+        let finalZipURL: URL = try await Task.detached(priority: .userInitiated) { [weak self] in
+            let fileManager = FileManager.default
+            let opStagingDir = stagingRoot.appendingPathComponent(opID.uuidString, isDirectory: true)
+            let stagingZipURL = opStagingDir.appendingPathComponent("output.zip")
+
+            defer {
+                try? fileManager.removeItem(at: opStagingDir)
+            }
+
+            try fileManager.createDirectory(at: opStagingDir, withIntermediateDirectories: true)
+
+            let archive: Archive
+            do {
+                archive = try Archive(url: stagingZipURL, accessMode: .create)
+            } catch {
+                throw ZipOperationError.ioError(NSLocalizedString("Failed to initialize ZIP archive.", comment: ""))
+            }
+
+            var cumulativeBytesRead: Int64 = 0
+            var lastUIUpdate = Date.distantPast
+
+            for (idx, entrySource) in capturedEntries.enumerated() {
+                if Task.isCancelled || token.isCancelled {
+                    throw ZipOperationError.cancelled
+                }
+
+                guard fileManager.fileExists(atPath: entrySource.sourceURL.path) else {
+                    throw ZipOperationError.fileNotFound
+                }
+
+                let modDate = ((try? fileManager.attributesOfItem(atPath: entrySource.sourceURL.path))?[.modificationDate] as? Date) ?? Date()
+                let readHandle: FileHandle
+                do {
+                    readHandle = try FileHandle(forReadingFrom: entrySource.sourceURL)
+                } catch {
+                    throw ZipOperationError.fileNotFound
+                }
+                defer { try? readHandle.close() }
+
+                do {
+                    try archive.addEntry(
+                        with: entrySource.relativeEntryPath,
+                        type: .file,
+                        uncompressedSize: entrySource.fileSize,
+                        modificationDate: modDate,
+                        permissions: 0o644,
+                        compressionMethod: .deflate,
+                        bufferSize: Self.streamBufferSize,
+                        progress: nil
+                    ) { position, size in
+                        if Task.isCancelled || token.isCancelled {
+                            throw Archive.ArchiveError.cancelledOperation
+                        }
+                        try readHandle.seek(toOffset: UInt64(position))
+                        let data = (try readHandle.read(upToCount: size)) ?? Data()
+                        cumulativeBytesRead += Int64(data.count)
+
+                        let now = Date()
+                        if now.timeIntervalSince(lastUIUpdate) >= 0.08 {
+                            lastUIUpdate = now
+                            let byteFrac = Double(cumulativeBytesRead) / Double(capturedTotalBytes)
+                            let countFrac = Double(idx + 1) / Double(capturedEntries.count)
+                            let frac = min(0.95, max(byteFrac, countFrac * 0.2))
+                            let currentName = entrySource.sourceURL.lastPathComponent
+                            Task { @MainActor [weak self] in
+                                guard let self = self, self.activeOperation?.id == opID else { return }
+                                self.activeOperation?.fractionCompleted = frac
+                                self.activeOperation?.currentEntryName = currentName
+                            }
+                        }
+                        return data
+                    }
+                } catch Archive.ArchiveError.cancelledOperation {
+                    throw ZipOperationError.cancelled
+                } catch let zipErr as ZipOperationError {
+                    throw zipErr
+                } catch {
+                    throw ZipOperationError.ioError(error.localizedDescription)
+                }
+            }
+
+            if Task.isCancelled || token.isCancelled {
+                throw ZipOperationError.cancelled
+            }
+
+            let destURL = Self.uniqueFileDestination(
+                in: root,
+                baseName: cleanFolder,
+                fileExtension: "zip"
+            )
+            guard FileNaming.isDirectChild(destURL, of: root) else {
+                throw ZipOperationError.maliciousPathDetected(cleanFolder)
+            }
+
+            try fileManager.moveItem(at: stagingZipURL, to: destURL)
+            return destURL
+        }.value
+
+        let attrs = (try? fm.attributesOfItem(atPath: finalZipURL.path)) ?? [:]
+        let zipByteSize = (attrs[.size] as? Int64) ?? 0
+        guard let normRel = FileClassification.normalizedContainerRelativePath(for: finalZipURL, customRootURL: customDownloadsRootURL) else {
+            throw ZipOperationError.ioError(NSLocalizedString("Failed to register created ZIP file.", comment: ""))
+        }
+
+        let createdItem = ManagedFileItem(
+            id: UUID(),
+            title: finalZipURL.deletingPathExtension().lastPathComponent,
+            relativePath: normRel,
+            fileExtension: "zip",
+            createdAt: Date(),
+            byteSize: zipByteSize,
+            folderName: "",
+            relativeSubpath: nil
+        )
+
+        managedFiles.removeAll { $0.normalizedRelativePath == normRel }
+        managedFiles.insert(createdItem, at: 0)
+        persistManagedFiles()
+        return createdItem
     }
 
     // MARK: - 単体ファイルのZIP圧縮（Phase F1）

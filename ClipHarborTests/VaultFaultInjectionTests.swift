@@ -2544,4 +2544,325 @@ final class VaultFaultInjectionTests: XCTestCase {
             }
         }
     }
+
+    @MainActor
+    func testZipPhaseF1_FolderCompression_RoundTripPreservesHierarchy_AndRejectsHLSAndSymlinks() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_FolderComp_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.foldercomp.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 多階層フォルダ「旅行」を構築
+        let folderName = "旅行"
+        fm.registerLogicalFolderIfNeeded(folderName)
+        let folderURL = downloadsDir.appendingPathComponent(folderName, isDirectory: true)
+        let subMorning = folderURL.appendingPathComponent("Day1/Morning", isDirectory: true)
+        let subDocs = folderURL.appendingPathComponent("Day2/Docs", isDirectory: true)
+        try FileManager.default.createDirectory(at: subMorning, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: subDocs, withIntermediateDirectories: true)
+
+        let beachPayload = Data((0..<8192).map { UInt8(($0 * 31 + 7) & 0xFF) })
+        let guidePayload = Data("Travel Guide PDF Content 2026".utf8)
+        let memoPayload = Data("Root memo text".utf8)
+
+        let beachURL = subMorning.appendingPathComponent("beach.mp4")
+        let guideURL = subDocs.appendingPathComponent("guide.pdf")
+        let memoURL = folderURL.appendingPathComponent("memo.txt")
+        try beachPayload.write(to: beachURL)
+        try guidePayload.write(to: guideURL)
+        try memoPayload.write(to: memoURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+
+        // 1. 論理HLS動画が所属している場合はフォルダ圧縮を拒否し、部分ZIPを作らないこと
+        let logicalHLS = SavedVideo(
+            id: UUID(),
+            title: "LiveHLS",
+            relativePath: "Library/Application Support/hls_pkg.movpkg",
+            format: .hls,
+            sourceHost: nil,
+            createdAt: Date(),
+            byteSize: 2048
+        )
+        dc.addSaved(logicalHLS)
+        fm.setFolderName(folderName, for: logicalHLS)
+
+        do {
+            _ = try await zipMgr.compressFolder(named: folderName, downloads: dc, folderManager: fm)
+            XCTFail("Folder containing logical HLS video must be rejected from ZIP compression")
+        } catch let err as ZipOperationError {
+            guard case .unsupportedSourceForCompression(let msg) = err else {
+                XCTFail("Expected unsupportedSourceForCompression, got \(err)")
+                return
+            }
+            XCTAssertFalse(msg.isEmpty)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("旅行.zip").path))
+
+        // 論理HLSを除去
+        dc.removeSavedVideoWithoutDeletingFile(id: logicalHLS.id)
+
+        // 2. 物理的な .movpkg が混在している場合も拒否すること
+        let movpkgDir = folderURL.appendingPathComponent("stream.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: movpkgDir, withIntermediateDirectories: true)
+        try Data("frag".utf8).write(to: movpkgDir.appendingPathComponent("frag.ts"))
+
+        do {
+            _ = try await zipMgr.compressFolder(named: folderName, downloads: dc, folderManager: fm)
+            XCTFail("Folder containing physical .movpkg must be rejected from ZIP compression")
+        } catch let err as ZipOperationError {
+            guard case .unsupportedSourceForCompression = err else {
+                XCTFail("Expected unsupportedSourceForCompression, got \(err)")
+                return
+            }
+        }
+        try FileManager.default.removeItem(at: movpkgDir)
+
+        // 3. 正常な多階層フォルダのZIP圧縮（1回目 -> 旅行.zip、2回目 -> 旅行 (1).zip）
+        let zip1 = try await zipMgr.compressFolder(named: folderName, downloads: dc, folderManager: fm)
+        XCTAssertEqual(zip1.title, "旅行")
+        XCTAssertEqual(zip1.folderName, "")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("旅行.zip").path))
+        // 元フォルダ・元ファイルが一切変更・削除されていないこと
+        XCTAssertTrue(FileManager.default.fileExists(atPath: beachURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: guideURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: memoURL.path))
+
+        let zip2 = try await zipMgr.compressFolder(named: folderName, downloads: dc, folderManager: fm)
+        XCTAssertEqual(zip2.title, "旅行 (1)")
+
+        // 4. 作成したフォルダZIPを再展開（既存「旅行」と衝突回避して「旅行 (1)」フォルダへ展開）し、階層とバイト列が100%一致すること
+        let extractedName = try await zipMgr.extractZip(item: zip1, downloads: dc, folderManager: fm)
+        XCTAssertEqual(extractedName, "旅行 (1)")
+
+        let extractedRoot = downloadsDir.appendingPathComponent("旅行 (1)", isDirectory: true)
+        let roundTripBeach = try Data(contentsOf: extractedRoot.appendingPathComponent("Day1/Morning/beach.mp4"))
+        let roundTripGuide = try Data(contentsOf: extractedRoot.appendingPathComponent("Day2/Docs/guide.pdf"))
+        let roundTripMemo = try Data(contentsOf: extractedRoot.appendingPathComponent("memo.txt"))
+        XCTAssertEqual(roundTripBeach, beachPayload)
+        XCTAssertEqual(roundTripGuide, guidePayload)
+        XCTAssertEqual(roundTripMemo, memoPayload)
+    }
+
+    @MainActor
+    func testZipPhaseF1_ExtractInSameFolder_NoSpuriousTopLevelFolders_AndHandlesDuplicateNames() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_SameFolder_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.samefolder.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 既存フォルダ「旅行」の中に「archive.zip」を配置
+        let parentFolder = "旅行"
+        fm.registerLogicalFolderIfNeeded(parentFolder)
+        let parentFolderURL = downloadsDir.appendingPathComponent(parentFolder, isDirectory: true)
+        try FileManager.default.createDirectory(at: parentFolderURL, withIntermediateDirectories: true)
+
+        let inFolderZipURL = parentFolderURL.appendingPathComponent("archive.zip")
+        let clipData = Data(repeating: 0x7A, count: 1024)
+        let noteData = Data("Nested note inside folder zip".utf8)
+        try ZipArchiveTestHelper.createArchive(at: inFolderZipURL, entries: [
+            .file("clip.mp4", data: clipData),
+            .directory("Sub/"),
+            .file("Sub/notes.txt", data: noteData)
+        ])
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let zipItem = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "archive" && $0.folderName == parentFolder }))
+
+        let topFoldersBefore = fm.folders
+        XCTAssertTrue(topFoldersBefore.contains(parentFolder))
+        XCTAssertFalse(topFoldersBefore.contains("archive"))
+
+        // 1回目の展開 -> Downloads/旅行/archive/ に展開されること
+        let extracted1 = try await zipMgr.extractZip(item: zipItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(extracted1, "archive")
+
+        let expectedExtractedDir1 = parentFolderURL.appendingPathComponent("archive", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedExtractedDir1.appendingPathComponent("clip.mp4").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedExtractedDir1.appendingPathComponent("Sub/notes.txt").path))
+        // トップレベル（Downloads/archive）には作られていないこと
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("archive").path))
+        // トップレベル管理フォルダ一覧に「archive」が不要に追加されていないこと
+        XCTAssertFalse(fm.folders.contains("archive"))
+
+        // 親フォルダ「旅行」の所属ファイルとしてサブパス付きで認識されていること
+        let extractedClip = try XCTUnwrap(dc.saved.first(where: { $0.title == "clip" }))
+        XCTAssertEqual(fm.folderName(for: extractedClip), parentFolder)
+        XCTAssertEqual(extractedClip.displaySubfolderPrefix, "archive")
+
+        let extractedNote = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "notes" }))
+        XCTAssertEqual(extractedNote.folderName, parentFolder)
+        XCTAssertEqual(extractedNote.displaySubfolderPrefix, "archive/Sub")
+
+        // 2回目の展開 -> 同階層内で重複回避され Downloads/旅行/archive (1)/ に展開されること
+        let extracted2 = try await zipMgr.extractZip(item: zipItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(extracted2, "archive (1)")
+        let expectedExtractedDir2 = parentFolderURL.appendingPathComponent("archive (1)", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedExtractedDir2.appendingPathComponent("clip.mp4").path))
+        XCTAssertFalse(fm.folders.contains("archive (1)"))
+    }
+
+    @MainActor
+    func testZipPhaseF1_DeleteFolder_FaultInjectionRollback_PartialRollback_AndUnregisteredFileProtection() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_DelRollback_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.delrollback.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let targetFolder = "WorkFolder"
+        fm.registerLogicalFolderIfNeeded(targetFolder)
+        let folderURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true)
+        let subA = folderURL.appendingPathComponent("SubA", isDirectory: true)
+        let subB = folderURL.appendingPathComponent("SubB", isDirectory: true)
+        try FileManager.default.createDirectory(at: subA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: subB, withIntermediateDirectories: true)
+
+        let vid1URL = subA.appendingPathComponent("vid1.mp4")
+        let vid2URL = subB.appendingPathComponent("vid2.mp4")
+        let docURL = folderURL.appendingPathComponent("spec.pdf")
+        try Data(repeating: 0x11, count: 512).write(to: vid1URL)
+        try Data(repeating: 0x22, count: 512).write(to: vid2URL)
+        try Data("Spec PDF".utf8).write(to: docURL)
+
+        // スキャンして vid1, vid2, spec.pdf を登録
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        XCTAssertEqual(dc.saved.filter { fm.folderName(for: $0) == targetFolder }.count, 2)
+        XCTAssertEqual(zipMgr.managedFiles.filter { $0.folderName == targetFolder }.count, 1)
+
+        // さらにスキャン未実行の「未登録ファイル」をフォルダ内に直接配置
+        let unregisteredURL = folderURL.appendingPathComponent("untracked_note.txt")
+        try Data("Important untracked user note".utf8).write(to: unregisteredURL)
+
+        // --- ケースA: 2件目のファイル移動でエラー注入 -> 1件目が逆順ロールバックされ、フォルダも全ファイルも元の場所に保持されること ---
+        var moveAttemptCountA = 0
+        let failOnSecondMover: (URL, URL) throws -> Void = { src, dst in
+            moveAttemptCountA += 1
+            if moveAttemptCountA == 2 {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
+            }
+            try FileManager.default.moveItem(at: src, to: dst)
+        }
+
+        let resA = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: failOnSecondMover
+        )
+        switch resA {
+        case .success:
+            XCTFail("deleteFolder must fail when a file move fails")
+        case .failure:
+            break
+        }
+
+        // ロールバックにより全4ファイルが元のフォルダ内に存在し、フォルダも消えていないこと
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vid1URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vid2URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: docURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unregisteredURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("vid1.mp4").path))
+
+        // --- ケースB: 2件目の移動失敗 ＋ 1件目のロールバックも失敗 -> 部分移動状態を正確に通知し、フォルダ管理情報を削除しないこと ---
+        var moveAttemptCountB = 0
+        let failOnSecondMoverB: (URL, URL) throws -> Void = { src, dst in
+            moveAttemptCountB += 1
+            if moveAttemptCountB == 2 {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
+            }
+            try FileManager.default.moveItem(at: src, to: dst)
+        }
+        let failingRollbackMover: (URL, URL) throws -> Void = { _, _ in
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError, userInfo: nil)
+        }
+
+        let resB = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: failOnSecondMoverB,
+            rollbackMover: failingRollbackMover
+        )
+        switch resB {
+        case .success:
+            XCTFail("deleteFolder must return failure on partial rollback failure")
+        case .failure(let err):
+            XCTAssertFalse((err.errorDescription ?? "").isEmpty)
+        }
+
+        // フォルダ管理情報は維持されていること
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        // 移動済みの1件目（Downloads直下）と残存3件（WorkFolder内）のいずれも消失せず、再スキャンでも見失わないこと
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let totalTrackedAfterPartial = dc.saved.count + zipMgr.managedFiles.count
+        XCTAssertEqual(totalTrackedAfterPartial, 4, "部分失敗後も未登録ファイルを含めた全4件が見失われないこと")
+
+        // --- ケースC: 正常にフォルダ削除を再実行（さらにスキャン未実行の未登録ファイルも追加） -> 残存ファイルもすべて未分類へ安全に退避され、空になったフォルダが削除されること ---
+        let unregistered2URL = folderURL.appendingPathComponent("untracked_raw.txt")
+        try Data("Second untracked file".utf8).write(to: unregistered2URL)
+
+        let resC = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr
+        )
+        switch resC {
+        case .success:
+            break
+        case .failure(let err):
+            XCTFail("Normal deleteFolder should succeed, got \(err)")
+        }
+
+        XCTAssertFalse(fm.folders.contains(targetFolder))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folderURL.path))
+        // 未登録だったファイルも削除されず Downloads 直下に退避・保持されていること
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("untracked_note.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("untracked_raw.txt").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("vid1.mp4").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("vid2.mp4").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("spec.pdf").path))
+    }
 }

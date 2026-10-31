@@ -503,8 +503,12 @@ struct FileManagerView: View {
                 Button("Cancel", role: .cancel) { deletingFolder = nil }
                 Button(NSLocalizedString("Delete Folder", comment: ""), role: .destructive) {
                     if let target = deletingFolder {
-                        navigationPath.removeAll { $0 == .folder(target) }
-                        folderManager.deleteFolder(name: target)
+                        switch folderManager.deleteFolder(name: target) {
+                        case .success:
+                            navigationPath.removeAll { $0 == .folder(target) }
+                        case .failure(let err):
+                            errorMessage = err.localizedDescription
+                        }
                     }
                     deletingFolder = nil
                 }
@@ -779,6 +783,13 @@ struct FileManagerView: View {
                         } label: {
                             Label(NSLocalizedString("Rename Folder", comment: ""), systemImage: "pencil")
                         }
+
+                        Button {
+                            handleCompressFolder(named: title)
+                        } label: {
+                            Label(NSLocalizedString("Compress (Create ZIP)", comment: ""), systemImage: "doc.zipper")
+                        }
+                        .disabled(zipManager.activeOperation != nil)
 
                         Divider()
 
@@ -1740,6 +1751,23 @@ struct FileManagerView: View {
             do {
                 let created = try await zipManager.compressSingleManagedFile(
                     item,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                showToast(String(format: NSLocalizedString("Created \"%@.zip\"", comment: ""), created.title))
+            } catch ZipOperationError.cancelled {
+                showToast(NSLocalizedString("ZIP operation was cancelled.", comment: ""))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func handleCompressFolder(named folderName: String) {
+        Task {
+            do {
+                let created = try await zipManager.compressFolder(
+                    named: folderName,
                     downloads: downloads,
                     folderManager: folderManager
                 )

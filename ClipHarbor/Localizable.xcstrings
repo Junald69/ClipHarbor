@@ -11147,6 +11147,125 @@
           }
         }
       }
+    },
+    "This folder contains HLS videos that cannot be compressed into a ZIP archive.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder contains HLS videos that cannot be compressed into a ZIP archive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダにはZIP圧縮に対応していないHLS動画が含まれています"
+          }
+        }
+      }
+    },
+    "This folder is empty and cannot be compressed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder is empty and cannot be compressed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダは空のためZIP圧縮できません。"
+          }
+        }
+      }
+    },
+    "Failed to access Downloads directory.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to access Downloads directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloadsディレクトリへのアクセスに失敗しました。"
+          }
+        }
+      }
+    },
+    "Cannot delete folder because it contains an unsupported symbolic link.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot delete folder because it contains an unsupported symbolic link."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応していないシンボリックリンクが含まれているため、フォルダを削除できません。"
+          }
+        }
+      }
+    },
+    "Failed to move some files out of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to move some files out of folder \"%@\". All changes were rolled back and the folder was kept to protect your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」内のファイル退避に失敗したため、変更をすべて元に戻しフォルダを保持しました。"
+          }
+        }
+      }
+    },
+    "Failed to delete folder \"%@\". %lld files moved to Uncategorized, and %lld files remain in the folder. The folder was kept to protect your data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete folder \"%@\". %lld files moved to Uncategorized, and %lld files remain in the folder. The folder was kept to protect your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」の削除に失敗しました。%lld件が未分類へ移動され、%lld件がフォルダ内に残っています。データ保護のためフォルダを保持しました。"
+          }
+        }
+      }
+    },
+    "Failed to delete folder \"%@\" because some files still remain inside.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete folder \"%@\" because some files still remain inside."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」内に未退避のファイルが残っているため、削除を中止しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
