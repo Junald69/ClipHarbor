@@ -3687,7 +3687,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             fileExtension: "txt",
             createdAt: Date()
         )
-        let journalKey = "ManagedFiles_PendingOperation_Journal"
+        let journalKey = ZipArchiveManager.pendingOperationKey
         let enc = try JSONEncoder().encode(pendingOp)
         defaults.set(enc, forKey: journalKey)
 
@@ -3793,7 +3793,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         let dstFile = destFolderDir.appendingPathComponent("src.txt")
         try Data("dest content".utf8).write(to: dstFile)
 
-        let journalKey = "ManagedFiles_PendingOperation_Journal"
+        let journalKey = ZipArchiveManager.pendingOperationKey
         let pendingOp = ManagedFilePendingOperation(
             operationID: UUID(),
             itemID: UUID(),
