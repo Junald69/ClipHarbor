@@ -4829,7 +4829,9 @@ final class VaultFaultInjectionTests: XCTestCase {
         }
 
         // メタデータファイルの位置に同名ディレクトリを作成し、メタデータ保存（writeMetadataToDisk）が必ず失敗するようにする
-        let metadataDir = trashDir.appendingPathComponent("trash_metadata.json", isDirectory: true)
+        let actualTrashDir = trashDir.appendingPathComponent("Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: actualTrashDir, withIntermediateDirectories: true)
+        let metadataDir = actualTrashDir.appendingPathComponent("trash_metadata.json", isDirectory: true)
         try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
 
         // moveToTrash を実行
