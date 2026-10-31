@@ -3129,4 +3129,182 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertNotNil(zipMgr.managedFiles.first(where: { $0.id == origDocID }))
         XCTAssertNotNil(zipMgr.managedFiles.first(where: { $0.title == "late_arrival" && $0.folderName == targetFolder }))
     }
+
+    @MainActor
+    func testZipPhaseF1_DeleteFolder_BothExistConflict_AndNeitherExistsMissing_PreservesFilesAndNotifiesError() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Conflict_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.conflict.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let targetFolder = "ConflictFolder"
+        fm.registerLogicalFolderIfNeeded(targetFolder)
+        let folderURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+
+        let sourcePayload = Data("Original source file bytes".utf8)
+        let destConflictPayload = Data("Distinct destination file bytes".utf8)
+        let vidURL = folderURL.appendingPathComponent("clip.mp4")
+        let docURL = folderURL.appendingPathComponent("readme.txt")
+        try sourcePayload.write(to: vidURL)
+        try Data("Readme content".utf8).write(to: docURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let origVidID = try XCTUnwrap(dc.saved.first(where: { $0.title == "clip" })?.id)
+
+        // 1. 移動元と移動先の両方に実ファイルが存在する競合ケース：
+        // 移動元のサイズが0より大きくても移動先ファイルを削除せず両方保持し、競合エラーを返すこと
+        let conflictMover: (URL, URL) throws -> Void = { src, dst in
+            if src.lastPathComponent == "clip.mp4" {
+                try destConflictPayload.write(to: dst)
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: nil)
+            }
+            try FileManager.default.moveItem(at: src, to: dst)
+        }
+
+        let conflictRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: conflictMover
+        )
+        switch conflictRes {
+        case .success:
+            XCTFail("deleteFolder must fail when both source and destination files exist")
+        case .failure(let err):
+            XCTAssertFalse((err.errorDescription ?? "").isEmpty)
+        }
+
+        let destClipURL = downloadsDir.appendingPathComponent("clip.mp4")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path), "移動元のファイルが保持されていること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destClipURL.path), "移動先のファイルも勝手に削除されず保持されていること")
+        XCTAssertEqual(try Data(contentsOf: vidURL), sourcePayload)
+        XCTAssertEqual(try Data(contentsOf: destClipURL), destConflictPayload)
+        XCTAssertTrue(fm.folders.contains(targetFolder), "競合発生時はフォルダ管理情報を削除しないこと")
+        XCTAssertEqual(dc.saved.first(where: { $0.id == origVidID })?.id, origVidID)
+
+        // 競合で生成された移動先ファイルを片付けて次のテストへ
+        try? FileManager.default.removeItem(at: destClipURL)
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+
+        // 2. 移動元にも移動先にもファイルが存在しない異常ケース：
+        // 1件目は正常移動、2件目で移動元が消失し移動先にも存在しない状態を注入 -> 1件目をロールバックし、フォルダを保持してエラー通知すること
+        var callIndex = 0
+        var removedPathForTest: URL?
+        var removedDataBackup: Data?
+
+        let missingBothMover: (URL, URL) throws -> Void = { src, dst in
+            callIndex += 1
+            if callIndex == 1 {
+                try FileManager.default.moveItem(at: src, to: dst)
+            } else {
+                removedPathForTest = src
+                removedDataBackup = try? Data(contentsOf: src)
+                try? FileManager.default.removeItem(at: src)
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError, userInfo: nil)
+            }
+        }
+
+        let missingRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: missingBothMover
+        )
+        switch missingRes {
+        case .success:
+            XCTFail("deleteFolder must fail when neither source nor destination exists")
+        case .failure(let err):
+            XCTAssertFalse((err.errorDescription ?? "").isEmpty)
+        }
+
+        // フォルダは削除されず、1件目のファイルも元のフォルダ内へロールバックされていること
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folderURL.path))
+        if let path = removedPathForTest, let backup = removedDataBackup {
+            try? backup.write(to: path)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: docURL.path))
+    }
+
+    @MainActor
+    func testZipPhaseF1_DeleteFolder_RestoresEmptySubfoldersOnSubsequentFailure() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_EmptySub_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.emptysub.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // Work/EmptySubfolder/ と Work/DeepEmpty/InnerEmpty/ と Work/video.mp4 を作成
+        let targetFolder = "Work"
+        fm.registerLogicalFolderIfNeeded(targetFolder)
+        let workURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true)
+        let emptySubURL = workURL.appendingPathComponent("EmptySubfolder", isDirectory: true)
+        let deepInnerEmptyURL = workURL.appendingPathComponent("DeepEmpty/InnerEmpty", isDirectory: true)
+        let videoURL = workURL.appendingPathComponent("video.mp4")
+
+        try FileManager.default.createDirectory(at: emptySubURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: deepInnerEmptyURL, withIntermediateDirectories: true)
+        try Data(repeating: 0x5A, count: 512).write(to: videoURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+
+        // ファイル退避＋空サブフォルダ削除の後に、物理フォルダ削除エラーを注入
+        let res = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            folderRemover: { _ in
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError, userInfo: nil)
+            }
+        )
+        switch res {
+        case .success:
+            XCTFail("deleteFolder must fail when folderRemover fails")
+        case .failure(let err):
+            XCTAssertFalse((err.errorDescription ?? "").isEmpty)
+        }
+
+        // Work/video.mp4 と Work/EmptySubfolder/（およびネストされた空サブフォルダ）が両方とも元どおり残っていること
+        var isDirEmptySub: ObjCBool = false
+        var isDirDeepSub: ObjCBool = false
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: videoURL.path), "Work/video.mp4 が元どおり復元されていること")
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: emptySubURL.path, isDirectory: &isDirEmptySub) && isDirEmptySub.boolValue,
+            "Work/EmptySubfolder/ が削除されたままにならず元の階層へ復元されていること"
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: deepInnerEmptyURL.path, isDirectory: &isDirDeepSub) && isDirDeepSub.boolValue,
+            "多階層の空サブフォルダも元の階層へ復元されていること"
+        )
+    }
 }

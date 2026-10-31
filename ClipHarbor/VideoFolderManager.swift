@@ -400,7 +400,8 @@ final class VideoFolderManager: ObservableObject {
             }
         }
 
-        // 1-C. フォルダ内の未登録物理ファイル（およびディレクトリ読み取り可否・シンボリックリンク有無）の事前走査
+        // 1-C. フォルダ内の未登録物理ファイル・既存サブディレクトリ構造（空サブフォルダ含む）・シンボリックリンク有無の事前走査
+        var preExistingSubdirectoryURLs: [URL] = []
         if fm.fileExists(atPath: folderURL.path) {
             // ディレクトリ読み取り失敗を「空」と誤認しないよう明示的に検証
             do {
@@ -451,7 +452,7 @@ final class VideoFolderManager: ObservableObject {
                     ))
                 }
                 if vals.isDirectory == true {
-                    // サブディレクトリ自体も読み取り可能であることを確認
+                    // サブディレクトリ自体も読み取り可能であることを確認し、ロールバック時の階層復元用に記録（空サブフォルダも含む）
                     do {
                         _ = try performReadDirectory(itemURL)
                     } catch {
@@ -459,6 +460,7 @@ final class VideoFolderManager: ObservableObject {
                             String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
                         ))
                     }
+                    preExistingSubdirectoryURLs.append(itemURL)
                 }
                 if vals.isRegularFile == true {
                     let canonSrc = itemURL.standardizedFileURL.resolvingSymlinksInPath().path
@@ -488,12 +490,18 @@ final class VideoFolderManager: ObservableObject {
             }
         }
 
-        // 統一された逆順ロールバック＆実ファイル所在地確認＆メタデータ整合ルーチン
+        // 統一された逆順ロールバック＆サブフォルダ階層復元＆実ファイル所在地確認＆メタデータ整合ルーチン
         func rollbackAndReconcile(
             recordsToRollback: [FolderEvacuationRecord],
             defaultCompleteRollbackMessage: String
         ) -> Result<Void, FolderError> {
-            // A. 逆順でロールバックを試行
+            // A-1. 既存のすべてのサブディレクトリ（空サブフォルダ含む）を復元
+            for subDirURL in preExistingSubdirectoryURLs {
+                try? fm.createDirectory(at: subDirURL, withIntermediateDirectories: true)
+            }
+
+            // A-2. 逆順でファイル移動のロールバックを試行
+            // 注意: 移動元と移動先の両方にファイルが存在する場合は、勝手にどちらかを削除せず両方保持する
             for doneRecord in recordsToRollback.reversed() {
                 let srcExists = fm.fileExists(atPath: doneRecord.sourceURL.path)
                 let dstExists = fm.fileExists(atPath: doneRecord.destinationURL.path)
@@ -501,17 +509,13 @@ final class VideoFolderManager: ObservableObject {
                     let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
                     try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
                     try? performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
-                } else if dstExists && srcExists {
-                    // 移動元に元ファイルが残っており移動先に不完全な重複物がある場合のみ移動先重複物を除去
-                    let srcSize = ((try? fm.attributesOfItem(atPath: doneRecord.sourceURL.path))?[.size] as? Int64) ?? 0
-                    if srcSize > 0 {
-                        try? fm.removeItem(at: doneRecord.destinationURL)
-                    }
                 }
             }
 
-            // B. 全計画レコードの実ファイルの実際の所在地を確認（ロールバック成否を実ファイル基準で確定）
+            // B. 全計画レコードの実ファイルの実際の所在地を確認（ロールバック成否・競合・消失を実ファイル基準で確定）
             var actuallyMovedToUncategorized: [FolderEvacuationRecord] = []
+            var bothExistConflictRecords: [FolderEvacuationRecord] = []
+            var missingBothRecords: [FolderEvacuationRecord] = []
             var remainingInFolderCount = 0
 
             for record in plannedRecords {
@@ -519,12 +523,19 @@ final class VideoFolderManager: ObservableObject {
                 let atDest = fm.fileExists(atPath: record.destinationURL.path)
                 if !atSource && atDest {
                     actuallyMovedToUncategorized.append(record)
+                } else if atSource && atDest {
+                    // 移動元と移動先の両方に存在（競合状態：両方とも削除せず保持）
+                    bothExistConflictRecords.append(record)
+                    remainingInFolderCount += 1
+                } else if !atSource && !atDest {
+                    // 移動元にも移動先にも存在しない異常状態
+                    missingBothRecords.append(record)
                 } else {
                     remainingInFolderCount += 1
                 }
             }
 
-            // C. ロールバックが一部失敗し Downloads 直下に残ったファイルがある場合は、IDを維持したまま未分類へメタデータを整合
+            // C. ロールバックが一部失敗し Downloads 直下にのみ移動したファイルがある場合は、IDを維持したまま未分類へメタデータを整合
             var hadMovedUnregistered = false
             if !actuallyMovedToUncategorized.isEmpty {
                 for moved in actuallyMovedToUncategorized {
@@ -551,12 +562,35 @@ final class VideoFolderManager: ObservableObject {
                     }
                 }
                 persistState()
-                if hadMovedUnregistered, let zMgr = resolvedZipMgr {
-                    MainActor.assumeIsolated {
-                        zMgr.syncWithFileSystem(downloads: downloads, folderManager: self)
-                    }
-                }
+            }
 
+            // 競合ファイル（移動先に複製されたファイル）や移動済み未登録ファイルを見失わないようファイルシステム同期を実行
+            if (hadMovedUnregistered || !bothExistConflictRecords.isEmpty), let zMgr = resolvedZipMgr {
+                MainActor.assumeIsolated {
+                    zMgr.syncWithFileSystem(downloads: downloads, folderManager: self)
+                }
+            }
+
+            // D-1. 移動元・移動先の両方にファイルが存在する競合状態の通知（両方保持）
+            if !bothExistConflictRecords.isEmpty {
+                let conflictMsg = String(
+                    format: NSLocalizedString("Failed to delete folder \"%@\" due to a file conflict (files exist in both original and destination locations). Both files and the folder were kept to protect your data.", comment: ""),
+                    clean
+                )
+                return .failure(.fileOperationFailed(conflictMsg))
+            }
+
+            // D-2. 移動元・移動先の両方でファイルが確認できない異常状態の通知（フォルダ保持）
+            if !missingBothRecords.isEmpty {
+                let missingMsg = String(
+                    format: NSLocalizedString("Failed to delete folder \"%@\" because an expected file could not be verified at either source or destination. The folder was kept to protect your data.", comment: ""),
+                    clean
+                )
+                return .failure(.fileOperationFailed(missingMsg))
+            }
+
+            // D-3. 部分移動状態の通知
+            if !actuallyMovedToUncategorized.isEmpty {
                 let movedCount = actuallyMovedToUncategorized.count
                 let remCount = max(1, remainingInFolderCount)
                 let partialMsg = String(
@@ -566,7 +600,7 @@ final class VideoFolderManager: ObservableObject {
                 return .failure(.fileOperationFailed(partialMsg))
             }
 
-            // D. 全ファイルが元のフォルダ内に復元・保持されている場合：既存のフォルダ管理情報とIDを100%保持
+            // D-4. 全ファイルおよび空サブフォルダが元のフォルダ内に完全復元・保持されている場合
             return .failure(.fileOperationFailed(defaultCompleteRollbackMessage))
         }
 
@@ -579,7 +613,7 @@ final class VideoFolderManager: ObservableObject {
                 try performMove(record.sourceURL, record.destinationURL)
                 let dstExists = fm.fileExists(atPath: record.destinationURL.path)
                 let srcExists = fm.fileExists(atPath: record.sourceURL.path)
-                if dstExists {
+                if dstExists || !srcExists {
                     touchedRecords.append(record)
                 }
                 guard dstExists && !srcExists else {
@@ -587,9 +621,10 @@ final class VideoFolderManager: ObservableObject {
                     break
                 }
             } catch {
-                // エラー発生時も、ファイル移動が実際には成立している（または移動先に生成されている）か確認
+                // エラー発生時も、ファイル移動が実際には成立している（または移動元・移動先の状態が変化した）か確認
                 let dstExists = fm.fileExists(atPath: record.destinationURL.path)
-                if dstExists {
+                let srcExists = fm.fileExists(atPath: record.sourceURL.path)
+                if dstExists || !srcExists {
                     touchedRecords.append(record)
                 }
                 moveFailed = true

@@ -11317,6 +11317,40 @@
           }
         }
       }
+    },
+    "Failed to delete folder \"%@\" due to a file conflict (files exist in both original and destination locations). Both files and the folder were kept to protect your data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete folder \"%@\" due to a file conflict (files exist in both original and destination locations). Both files and the folder were kept to protect your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」の削除中にファイルの競合（移動元と移動先の両方にファイルが存在）が発生したため、両方のファイルとフォルダを保持して中止しました。"
+          }
+        }
+      }
+    },
+    "Failed to delete folder \"%@\" because an expected file could not be verified at either source or destination. The folder was kept to protect your data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to delete folder \"%@\" because an expected file could not be verified at either source or destination. The folder was kept to protect your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」の削除中に対象ファイルの存在を確認できなくなったため、データ保護のためフォルダを保持して中止しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
