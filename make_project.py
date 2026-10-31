@@ -47,6 +47,7 @@ files = [
     'VideoTrimmerView.swift',
     'ModernVideoPlayerView.swift',
     'ContentBlockerManager.swift',
+    'ZipArchiveManager.swift',
 ]
 
 test_files = [
@@ -72,6 +73,7 @@ for name in resources:
     out.append(f'\t\t{e("build "+name)} = {{isa = PBXBuildFile; fileRef = {e("file "+name)}; }};')
 for name in test_files:
     out.append(f'\t\t{e("test build "+name)} = {{isa = PBXBuildFile; fileRef = {e("test file "+name)}; }};')
+out.append(f'\t\t{e("build pkg ZIPFoundation")} = {{isa = PBXBuildFile; productRef = {e("pkg product ZIPFoundation")}; }};')
 out.append('/* End PBXBuildFile section */\n')
 
 out.append('/* Begin PBXContainerItemProxy section */')
@@ -143,14 +145,25 @@ out.extend([
 ])
 
 out.extend([
+    '/* Begin PBXFrameworksBuildPhase section */',
+    f'\t\t{e("frameworks phase")} = {{',
+    '\t\t\tisa = PBXFrameworksBuildPhase;',
+    '\t\t\tbuildActionMask = 2147483647;',
+    '\t\t\tfiles = (',
+    f'\t\t\t\t{e("build pkg ZIPFoundation")},',
+    '\t\t\t);',
+    '\t\t\trunOnlyForDeploymentPostprocessing = 0;',
+    '\t\t};',
+    '/* End PBXFrameworksBuildPhase section */\n',
     '/* Begin PBXNativeTarget section */',
     f'\t\t{e("target")} = {{',
     '\t\t\tisa = PBXNativeTarget;',
     f'\t\t\tbuildConfigurationList = {e("target configs")};',
-    f'\t\t\tbuildPhases = ({e("sources phase")}, {e("resources phase")}, );',
+    f'\t\t\tbuildPhases = ({e("sources phase")}, {e("frameworks phase")}, {e("resources phase")}, );',
     '\t\t\tbuildRules = ();',
     '\t\t\tdependencies = ();',
     '\t\t\tname = ClipHarbor;',
+    f'\t\t\tpackageProductDependencies = ({e("pkg product ZIPFoundation")}, );',
     f'\t\t\tproductReference = {e("product app")};',
     '\t\t\tproductName = ClipHarbor;',
     '\t\t\tproductType = "com.apple.product-type.application";',
@@ -181,6 +194,7 @@ out.extend([
     '\t\t\thasScannedForEncodings = 0;',
     '\t\t\tknownRegions = (en, ja, Base, );',
     f'\t\t\tmainGroup = {e("main group")};',
+    f'\t\t\tpackageReferences = ({e("pkg ref ZIPFoundation")}, );',
     f'\t\t\tproductRefGroup = {e("product group")};',
     '\t\t\tprojectDirPath = "";',
     '\t\t\tprojectRoot = "";',
@@ -304,7 +318,24 @@ out.extend([
     f'\t\t{e("test target configs")} = {{', '\t\t\tisa = XCConfigurationList;',
     f'\t\t\tbuildConfigurations = ({e("test target Debug")}, {e("test target Release")}, );',
     '\t\t\tdefaultConfigurationIsVisible = 0;', '\t\t\tdefaultConfigurationName = Release;', '\t\t};',
-    '/* End XCConfigurationList section */', '\t};',
+    '/* End XCConfigurationList section */\n',
+    '/* Begin XCRemoteSwiftPackageReference section */',
+    f'\t\t{e("pkg ref ZIPFoundation")} = {{',
+    '\t\t\tisa = XCRemoteSwiftPackageReference;',
+    '\t\t\trepositoryURL = "https://github.com/weichsel/ZIPFoundation.git";',
+    '\t\t\trequirement = {',
+    '\t\t\t\tkind = exactVersion;',
+    '\t\t\t\tversion = 0.9.20;',
+    '\t\t\t};',
+    '\t\t};',
+    '/* End XCRemoteSwiftPackageReference section */\n',
+    '/* Begin XCSwiftPackageProductDependency section */',
+    f'\t\t{e("pkg product ZIPFoundation")} = {{',
+    '\t\t\tisa = XCSwiftPackageProductDependency;',
+    f'\t\t\tpackage = {e("pkg ref ZIPFoundation")};',
+    '\t\t\tproductName = ZIPFoundation;',
+    '\t\t};',
+    '/* End XCSwiftPackageProductDependency section */', '\t};',
     f'\trootObject = {e("project")};', '}'
 ])
 

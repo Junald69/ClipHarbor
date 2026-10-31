@@ -1,6 +1,7 @@
 import SwiftUI
 import AVKit
 import PhotosUI
+import UniformTypeIdentifiers
 
 /// Aloha Browser風のモダンなファイル・動画管理画面
 /// - 2カラムのカードグリッドUI（左右上端厳格整列・タイトル2行固定高）
@@ -18,6 +19,7 @@ struct FileManagerView: View {
     @ObservedObject private var trashManager = TrashManager.shared
     @ObservedObject private var vaultManager = VaultManager.shared
     @ObservedObject private var settingsManager = AppSettingsManager.shared
+    @ObservedObject private var zipManager = ZipArchiveManager.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
@@ -250,7 +252,7 @@ struct FileManagerView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.image],
+                allowedContentTypes: [.image, .zip],
                 allowsMultipleSelection: true
             ) { result in
                 handleFileImport(result: result)
@@ -569,8 +571,9 @@ struct FileManagerView: View {
 
     private var rootFoldersAndVideosGrid: some View {
         let uncategorizedVideos = folderManager.videos(in: .uncategorized)
+        let uncategorizedFiles = sortManagedFiles(zipManager.managedFiles(in: .uncategorized))
         let hasFolders = !folderManager.folders.isEmpty
-        let hasUncategorized = !uncategorizedVideos.isEmpty
+        let hasUncategorized = !uncategorizedVideos.isEmpty || !uncategorizedFiles.isEmpty
 
         return Group {
             LazyVGrid(columns: gridColumns, spacing: 18) {
@@ -579,11 +582,11 @@ struct FileManagerView: View {
                     privateVaultCard
                 }
 
-                // 未分類フォルダカード（未分類動画がある、またはフォルダが作成されている場合に表示）
+                // 未分類フォルダカード（未分類動画・ファイルがある、またはフォルダが作成されている場合に表示）
                 if hasUncategorized || hasFolders {
                     folderCard(
                         title: NSLocalizedString("Uncategorized Videos", comment: ""),
-                        itemCount: uncategorizedVideos.count,
+                        itemCount: uncategorizedVideos.count + uncategorizedFiles.count,
                         videos: uncategorizedVideos,
                         filter: .uncategorized,
                         isCustomFolder: false
@@ -593,12 +596,27 @@ struct FileManagerView: View {
                 // ユーザー作成フォルダ群
                 ForEach(folderManager.folders, id: \.self) { folderName in
                     let videosInFolder = folderManager.videos(in: .folder(folderName))
+                    let filesInFolder = zipManager.managedFiles(in: .folder(folderName))
                     folderCard(
                         title: folderName,
-                        itemCount: videosInFolder.count,
+                        itemCount: videosInFolder.count + filesInFolder.count,
                         videos: videosInFolder,
                         filter: .folder(folderName),
                         isCustomFolder: true
+                    )
+                }
+
+                // ルート直下（Documents/Downloads）のZIP・一般ファイルカード表示
+                ForEach(uncategorizedFiles) { fileItem in
+                    AlohaManagedFileCardView(
+                        item: fileItem,
+                        isOperating: zipManager.activeOperation != nil,
+                        onExtract: fileItem.isZip ? {
+                            handleExtractZip(fileItem)
+                        } : nil,
+                        onCompress: !fileItem.isZip ? {
+                            handleCompressManagedFile(fileItem)
+                        } : nil
                     )
                 }
             }
@@ -812,10 +830,18 @@ struct FileManagerView: View {
             ? videos
             : videos.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
 
+        let managedFiles = sortManagedFiles(zipManager.managedFiles(in: filter))
+        let filteredManagedFiles = searchText.trimmingCharacters(in: .whitespaces).isEmpty
+            ? managedFiles
+            : managedFiles.filter {
+                $0.title.localizedCaseInsensitiveContains(searchText)
+                    || ($0.displaySubfolderPrefix?.localizedCaseInsensitiveContains(searchText) ?? false)
+            }
+
         return ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(spacing: 16) {
-                    if filteredVideos.isEmpty {
+                    if filteredVideos.isEmpty && filteredManagedFiles.isEmpty {
                         emptyFolderPlaceholder(isSearch: !searchText.isEmpty)
                     } else {
                         LazyVGrid(columns: gridColumns, spacing: 18) {
@@ -840,6 +866,9 @@ struct FileManagerView: View {
                                     onMoveToVault: vaultPolicy.allowsMoveToVaultFromNormalUI ? {
                                         handleMoveToVault(video: video)
                                     } : nil,
+                                    onCompress: !video.isHLS ? {
+                                        handleCompressVideo(video)
+                                    } : nil,
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -848,6 +877,19 @@ struct FileManagerView: View {
                                         dismiss()
                                     },
                                     onCopySourcePageURL: copySourcePageURL
+                                )
+                            }
+
+                            ForEach(filteredManagedFiles) { fileItem in
+                                AlohaManagedFileCardView(
+                                    item: fileItem,
+                                    isOperating: zipManager.activeOperation != nil,
+                                    onExtract: fileItem.isZip ? {
+                                        handleExtractZip(fileItem)
+                                    } : nil,
+                                    onCompress: !fileItem.isZip ? {
+                                        handleCompressManagedFile(fileItem)
+                                    } : nil
                                 )
                             }
                         }
@@ -960,12 +1002,17 @@ struct FileManagerView: View {
         let matchedVideos = sortVideos(allVideos.filter {
             $0.title.localizedCaseInsensitiveContains(searchText)
         })
+        let allManaged = zipManager.managedFiles(in: .all)
+        let matchedManaged = sortManagedFiles(allManaged.filter {
+            $0.title.localizedCaseInsensitiveContains(searchText)
+                || ($0.displaySubfolderPrefix?.localizedCaseInsensitiveContains(searchText) ?? false)
+        })
         let matchedFolders = folderManager.folders.filter {
             $0.localizedCaseInsensitiveContains(searchText)
         }
 
         return VStack(alignment: .leading, spacing: 16) {
-            if matchedFolders.isEmpty && matchedVideos.isEmpty {
+            if matchedFolders.isEmpty && matchedVideos.isEmpty && matchedManaged.isEmpty {
                 emptyFolderPlaceholder(isSearch: true)
             } else {
                 if !matchedFolders.isEmpty {
@@ -976,9 +1023,10 @@ struct FileManagerView: View {
                         LazyVGrid(columns: gridColumns, spacing: 14) {
                             ForEach(matchedFolders, id: \.self) { folderName in
                                 let vids = folderManager.videos(in: .folder(folderName))
+                                let files = zipManager.managedFiles(in: .folder(folderName))
                                 folderCard(
                                     title: folderName,
-                                    itemCount: vids.count,
+                                    itemCount: vids.count + files.count,
                                     videos: vids,
                                     filter: .folder(folderName),
                                     isCustomFolder: true
@@ -988,9 +1036,9 @@ struct FileManagerView: View {
                     }
                 }
 
-                if !matchedVideos.isEmpty {
+                if !matchedVideos.isEmpty || !matchedManaged.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(String(format: NSLocalizedString("Matching Videos (%lld)", comment: ""), matchedVideos.count))
+                        Text(String(format: NSLocalizedString("Matching Videos (%lld)", comment: ""), matchedVideos.count + matchedManaged.count))
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                         LazyVGrid(columns: gridColumns, spacing: 14) {
@@ -1015,6 +1063,9 @@ struct FileManagerView: View {
                                     onMoveToVault: vaultPolicy.allowsMoveToVaultFromNormalUI ? {
                                         handleMoveToVault(video: video)
                                     } : nil,
+                                    onCompress: !video.isHLS ? {
+                                        handleCompressVideo(video)
+                                    } : nil,
                                     onDelete: {
                                         deletingVideo = video
                                     },
@@ -1023,6 +1074,19 @@ struct FileManagerView: View {
                                         dismiss()
                                     },
                                     onCopySourcePageURL: copySourcePageURL
+                                )
+                            }
+
+                            ForEach(matchedManaged) { fileItem in
+                                AlohaManagedFileCardView(
+                                    item: fileItem,
+                                    isOperating: zipManager.activeOperation != nil,
+                                    onExtract: fileItem.isZip ? {
+                                        handleExtractZip(fileItem)
+                                    } : nil,
+                                    onCompress: !fileItem.isZip ? {
+                                        handleCompressManagedFile(fileItem)
+                                    } : nil
                                 )
                             }
                         }
@@ -1370,15 +1434,43 @@ struct FileManagerView: View {
     private func handleFileImport(result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
+            let currentFilter = navigationPath.last ?? .all
+            let targetFolderName: String
+            if case .folder(let name) = currentFilter {
+                targetFolderName = name
+            } else {
+                targetFolderName = ""
+            }
+
             Task {
                 for url in urls {
-                    guard url.startAccessingSecurityScopedResource() else { continue }
-                    let data = try? Data(contentsOf: url)
-                    let name = url.deletingPathExtension().lastPathComponent
-                    url.stopAccessingSecurityScopedResource()
+                    let hasScope = url.startAccessingSecurityScopedResource()
+                    defer {
+                        if hasScope {
+                            url.stopAccessingSecurityScopedResource()
+                        }
+                    }
 
-                    if let d = data {
-                        await importImageData(d, preferredName: name)
+                    if url.pathExtension.lowercased() == "zip" {
+                        await MainActor.run {
+                            do {
+                                let imported = try zipManager.importExternalFile(
+                                    from: url,
+                                    targetFolderName: targetFolderName,
+                                    downloads: downloads,
+                                    folderManager: folderManager
+                                )
+                                showToast(String(format: NSLocalizedString("Imported \"%@\"", comment: ""), "\(imported.title).zip"))
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    } else {
+                        let data = try? Data(contentsOf: url)
+                        let name = url.deletingPathExtension().lastPathComponent
+                        if let d = data {
+                            await importImageData(d, preferredName: name)
+                        }
                     }
                 }
             }
@@ -1473,12 +1565,13 @@ struct FileManagerView: View {
     // MARK: - 進行中ダウンロード・MP4変換バナー
 
     private var hasActiveJobs: Bool {
-        !downloads.jobs.isEmpty || !exports.exportJobs.isEmpty
+        !downloads.jobs.isEmpty || !exports.exportJobs.isEmpty || zipManager.activeOperation != nil
     }
 
     private var activeJobsBanner: some View {
-        let activeCount = downloads.jobs.filter { $0.state.isActive }.count + exports.exportJobs.filter { $0.state.isActive }.count
-        let totalCount = downloads.jobs.count + exports.exportJobs.count
+        let zipCount = zipManager.activeOperation != nil ? 1 : 0
+        let activeCount = downloads.jobs.filter { $0.state.isActive }.count + exports.exportJobs.filter { $0.state.isActive }.count + zipCount
+        let totalCount = downloads.jobs.count + exports.exportJobs.count + zipCount
 
         return VStack(alignment: .leading, spacing: 10) {
             Button {
@@ -1487,7 +1580,7 @@ struct FileManagerView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
+                    Image(systemName: zipManager.activeOperation != nil ? "doc.zipper" : "arrow.down.circle.fill")
                         .foregroundStyle(.blue)
                         .font(.headline)
                     Text(String(format: NSLocalizedString("Download & Conversion Tasks (%@)", comment: ""), activeCount > 0 ? String(format: NSLocalizedString("%lld running / %lld total", comment: ""), activeCount, totalCount) : String(format: NSLocalizedString("%lld total", comment: ""), totalCount)))
@@ -1503,6 +1596,29 @@ struct FileManagerView: View {
 
             if isJobsBannerExpanded {
                 VStack(spacing: 12) {
+                    if let zipOp = zipManager.activeOperation {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Label(
+                                    zipOp.kind == .extracting
+                                        ? String(format: NSLocalizedString("Extracting \"%@\"...", comment: ""), zipOp.targetTitle)
+                                        : String(format: NSLocalizedString("Compressing \"%@\"...", comment: ""), zipOp.targetTitle),
+                                    systemImage: "doc.zipper"
+                                )
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                                Spacer()
+                                Button("Cancel", role: .destructive) {
+                                    zipManager.cancelCurrentOperation()
+                                }
+                                .font(.caption)
+                                .buttonStyle(.borderless)
+                            }
+                            ProgressView(value: zipOp.fractionCompleted)
+                                .tint(alohaTeal)
+                        }
+                    }
+
                     ForEach(downloads.jobs) { job in
                         SimpleDownloadJobRow(
                             job: job,
@@ -1569,6 +1685,70 @@ struct FileManagerView: View {
             return list.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         case .sizeDescending:
             return list.sorted { ($0.byteSize ?? 0) > ($1.byteSize ?? 0) }
+        }
+    }
+
+    private func sortManagedFiles(_ list: [ManagedFileItem]) -> [ManagedFileItem] {
+        switch sortOption {
+        case .dateDescending:
+            return list.sorted { $0.createdAt > $1.createdAt }
+        case .nameAscending:
+            return list.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .sizeDescending:
+            return list.sorted { $0.byteSize > $1.byteSize }
+        }
+    }
+
+    // MARK: - ZIP展開・圧縮ハンドラ（Phase F1）
+
+    private func handleExtractZip(_ item: ManagedFileItem) {
+        Task {
+            do {
+                let extractedFolder = try await zipManager.extractZip(
+                    item: item,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                showToast(String(format: NSLocalizedString("Extracted to folder \"%@\"", comment: ""), extractedFolder))
+            } catch ZipOperationError.cancelled {
+                showToast(NSLocalizedString("ZIP operation was cancelled.", comment: ""))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func handleCompressVideo(_ video: SavedVideo) {
+        Task {
+            do {
+                let created = try await zipManager.compressSingleVideo(
+                    video,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                showToast(String(format: NSLocalizedString("Created \"%@.zip\"", comment: ""), created.title))
+            } catch ZipOperationError.cancelled {
+                showToast(NSLocalizedString("ZIP operation was cancelled.", comment: ""))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func handleCompressManagedFile(_ item: ManagedFileItem) {
+        Task {
+            do {
+                let created = try await zipManager.compressSingleManagedFile(
+                    item,
+                    downloads: downloads,
+                    folderManager: folderManager
+                )
+                showToast(String(format: NSLocalizedString("Created \"%@.zip\"", comment: ""), created.title))
+            } catch ZipOperationError.cancelled {
+                showToast(NSLocalizedString("ZIP operation was cancelled.", comment: ""))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -1667,6 +1847,7 @@ private struct AlohaVideoCardView: View {
     let onRename: () -> Void
     let onMove: () -> Void
     var onMoveToVault: (() -> Void)? = nil
+    var onCompress: (() -> Void)? = nil
     let onDelete: () -> Void
     let onOpenSourcePage: (URL) -> Void
     let onCopySourcePageURL: (String) -> Void
@@ -1784,6 +1965,12 @@ private struct AlohaVideoCardView: View {
                             }
                         }
 
+                        if let onCompress = onCompress, !video.isHLS && video.fileExists {
+                            Button(action: onCompress) {
+                                Label("Compress (Create ZIP)", systemImage: "doc.zipper")
+                            }
+                        }
+
                         if !video.isHLS && video.fileExists {
                             ShareLink(item: video.fileURL) {
                                 Label("Share", systemImage: "square.and.arrow.up")
@@ -1840,6 +2027,14 @@ private struct AlohaVideoCardView: View {
                         .frame(height: titleLineHeight * 2, alignment: .topLeading)
 
                     HStack(spacing: 4) {
+                        if let sub = video.displaySubfolderPrefix {
+                            Image(systemName: "folder")
+                                .font(.system(size: 9))
+                            Text("\(sub) ·")
+                                .font(.caption2)
+                                .lineLimit(1)
+                        }
+
                         Text(video.format.label)
                             .font(.caption2.weight(.semibold))
 
@@ -1856,6 +2051,142 @@ private struct AlohaVideoCardView: View {
             .buttonStyle(.plain)
         }
     }
+}
+
+// MARK: - Aloha風ZIP・一般ファイルカード（2列グリッド厳格整列・プレイヤー/サムネイル非接続）
+
+private struct AlohaManagedFileCardView: View {
+    let item: ManagedFileItem
+    var isOperating: Bool = false
+    var onExtract: (() -> Void)? = nil
+    var onCompress: (() -> Void)? = nil
+
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
+    @ScaledMetric(relativeTo: .caption2) private var subtitleHeight: CGFloat = 16
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                // ファイルタイル（ZIPの場合はタップで抽出可能、プレイヤーは絶対に起動しない）
+                Group {
+                    if let onExtract = onExtract, item.isZip {
+                        Button(action: onExtract) {
+                            tileVisual
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isOperating)
+                    } else {
+                        tileVisual
+                    }
+                }
+
+                // 右上「…」メニュー（Phase F1 対応済みの機能のみを表示）
+                Menu {
+                    if item.isZip, let onExtract = onExtract {
+                        Button(action: onExtract) {
+                            Label("Extract Files", systemImage: "archivebox")
+                        }
+                        .disabled(isOperating)
+                    }
+
+                    if !item.isZip, let onCompress = onCompress, item.fileExists {
+                        Button(action: onCompress) {
+                            Label("Compress (Create ZIP)", systemImage: "doc.zipper")
+                        }
+                        .disabled(isOperating)
+                    }
+
+                    if item.fileExists {
+                        ShareLink(item: item.fileURL) {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 28, height: 28)
+                        .background(Color.white.opacity(0.92), in: Circle())
+                        .shadow(color: .black.opacity(0.12), radius: 4, y: 1)
+                        .padding(8)
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 140)
+
+            // タイトルと形式・サイズ（Dynamic Type 2行高予約・左右上端厳格一致）
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .frame(height: titleLineHeight * 2, alignment: .topLeading)
+
+                HStack(spacing: 4) {
+                    if let sub = item.displaySubfolderPrefix {
+                        Image(systemName: "folder")
+                            .font(.system(size: 9))
+                        Text("\(sub) ·")
+                            .font(.caption2)
+                            .lineLimit(1)
+                    }
+
+                    Text(item.formatLabel)
+                        .font(.caption2.weight(.semibold))
+
+                    if item.byteSize > 0 {
+                        Text("· \(ByteCountFormatter.string(fromByteCount: item.byteSize, countStyle: .file))")
+                            .font(.caption2)
+                    }
+                }
+                .foregroundStyle(.secondary)
+                .frame(height: subtitleHeight, alignment: .leading)
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private var tileVisual: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: item.isZip
+                            ? [Color.orange.opacity(0.18), Color.amberAccent.opacity(0.10)]
+                            : [Color.teal.opacity(0.16), Color.cyan.opacity(0.10)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            VStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill((item.isZip ? Color.orange : Color.teal).opacity(0.15))
+                        .frame(width: 52, height: 52)
+                    Image(systemName: item.sfSymbolName)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(item.isZip ? Color.orange : Color.teal)
+                }
+
+                Text(item.formatLabel)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(item.isZip ? Color.orange : Color.teal)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background((item.isZip ? Color.orange : Color.teal).opacity(0.14), in: Capsule())
+            }
+        }
+        .frame(height: 140)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+private extension Color {
+    static let amberAccent = Color(red: 0.95, green: 0.65, blue: 0.12)
 }
 
 // MARK: - 枠に合わせて中央トリミングし、はみ出しを確実に防止するサムネイルタイルコンポーネント

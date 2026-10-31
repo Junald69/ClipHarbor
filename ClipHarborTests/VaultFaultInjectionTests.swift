@@ -2010,4 +2010,538 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertFalse(afterStealthOffResult, "ステルス解除後はカード非表示をOFFへ変更可能になること")
         XCTAssertFalse(VaultStealthSettingsStore.loadHideVaultInFileList(from: defaults))
     }
+
+    // MARK: - Phase F1: ZIPファイル管理・展開・単体圧縮・セキュリティ境界検証
+
+    @MainActor
+    func testZipPhaseF1_AutoDetection_ExclusiveClassification_AndUUIDStability() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Detect_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.detect.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 1. .zip、.txt、.mp4、および HLS .movpkg ディレクトリを配置
+        let zipURL = downloadsDir.appendingPathComponent("archive_sample.zip")
+        try ZipArchiveTestHelper.createArchive(at: zipURL, entries: [
+            .file("hello.txt", data: Data("hello world".utf8))
+        ])
+        let txtURL = downloadsDir.appendingPathComponent("notes.txt")
+        try Data("plain text note".utf8).write(to: txtURL)
+        let mp4URL = downloadsDir.appendingPathComponent("clip.mp4")
+        try Data(repeating: 0x42, count: 256).write(to: mp4URL)
+
+        let movpkgDir = downloadsDir.appendingPathComponent("stream.movpkg", isDirectory: true)
+        try FileManager.default.createDirectory(at: movpkgDir, withIntermediateDirectories: true)
+        try Data("fragment".utf8).write(to: movpkgDir.appendingPathComponent("0-1.frag"))
+
+        // 2. スキャン実行
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+
+        // 3. 排他分類の検証:
+        //    - clip.mp4 は SavedVideo のみに登録され、ManagedFileItem には含まれない
+        //    - archive_sample.zip と notes.txt は ManagedFileItem のみに登録され、SavedVideo には含まれない
+        //    - stream.movpkg 内部の .frag はどちらにも登録されない
+        XCTAssertTrue(dc.saved.contains(where: { $0.title == "clip" && $0.format == .mp4 }))
+        XCTAssertFalse(dc.saved.contains(where: { $0.title == "archive_sample" || $0.title == "notes" || $0.title == "0-1" }))
+
+        XCTAssertEqual(zipMgr.managedFiles.count, 2)
+        guard let detectedZip = zipMgr.managedFiles.first(where: { $0.title == "archive_sample" }),
+              let detectedTxt = zipMgr.managedFiles.first(where: { $0.title == "notes" }) else {
+            XCTFail("Expected both archive_sample.zip and notes.txt in managedFiles")
+            return
+        }
+        XCTAssertTrue(detectedZip.isZip)
+        XCTAssertEqual(detectedZip.sfSymbolName, "doc.zipper")
+        XCTAssertEqual(detectedZip.formatLabel, "ZIP")
+        XCTAssertFalse(detectedTxt.isZip)
+        XCTAssertEqual(detectedTxt.formatLabel, "TXT")
+        XCTAssertFalse(zipMgr.managedFiles.contains(where: { $0.title.contains("frag") || $0.title.contains("movpkg") }))
+
+        // 4. 再スキャン時の UUID 安定性検証
+        let firstZipID = detectedZip.id
+        let firstTxtID = detectedTxt.id
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let secondZip = zipMgr.managedFiles.first(where: { $0.title == "archive_sample" })
+        let secondTxt = zipMgr.managedFiles.first(where: { $0.title == "notes" })
+        XCTAssertEqual(secondZip?.id, firstZipID, "再スキャン後も既存のUUIDが維持されること")
+        XCTAssertEqual(secondTxt?.id, firstTxtID, "再スキャン後も既存のUUIDが維持されること")
+    }
+
+    @MainActor
+    func testZipPhaseF1_ExtractMultipleFiles_AndDuplicateFolderCollisionAvoidance() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Extract_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.extract.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let videoBytes = Data(repeating: 0xAA, count: 1024)
+        let imageBytes = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] + Array(repeating: UInt8(0x11), count: 120))
+        let docBytes = Data("Trip schedule and notes".utf8)
+
+        let zipURL = downloadsDir.appendingPathComponent("旅行動画.zip")
+        try ZipArchiveTestHelper.createArchive(at: zipURL, entries: [
+            .file("movie1.mp4", data: videoBytes),
+            .file("snap1.png", data: imageBytes),
+            .file("memo.txt", data: docBytes)
+        ])
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let zipItem = zipMgr.managedFiles.first(where: { $0.title == "旅行動画" && $0.isZip }) else {
+            XCTFail("旅行動画.zip should be detected")
+            return
+        }
+
+        // 1回目の展開 -> 「旅行動画」フォルダが作成される
+        let folder1 = try await zipMgr.extractZip(item: zipItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(folder1, "旅行動画")
+        // 元のZIPファイルが削除されず保持されていること
+        XCTAssertTrue(FileManager.default.fileExists(atPath: zipURL.path))
+        // 展開されたメディアと一般ファイルがそれぞれ正しく登録されていること
+        XCTAssertTrue(dc.saved.contains(where: { $0.title == "movie1" && $0.format == .mp4 }))
+        XCTAssertTrue(dc.saved.contains(where: { $0.title == "snap1" && $0.format == .png }))
+        XCTAssertTrue(zipMgr.managedFiles.contains(where: { $0.title == "memo" && $0.folderName == "旅行動画" }))
+
+        // 2回目の展開 -> 同名フォルダ衝突を回避して「旅行動画 (1)」が作成され、既存ファイルを上書きしないこと
+        let folder2 = try await zipMgr.extractZip(item: zipItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(folder2, "旅行動画 (1)")
+        let folder1Memo = downloadsDir.appendingPathComponent("旅行動画/memo.txt")
+        let folder2Memo = downloadsDir.appendingPathComponent("旅行動画 (1)/memo.txt")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder1Memo.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder2Memo.path))
+    }
+
+    @MainActor
+    func testZipPhaseF1_ExtractNestedSubfolders_PreservesHierarchyAndDisplaysSubpaths() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Nested_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.nested.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let zipURL = downloadsDir.appendingPathComponent("ProjectArchive.zip")
+        try ZipArchiveTestHelper.createArchive(at: zipURL, entries: [
+            .directory("Day1/"),
+            .directory("Day1/Morning/"),
+            .file("Day1/Morning/beach.mp4", data: Data(repeating: 0x33, count: 512)),
+            .file("Day2/Docs/guide.pdf", data: Data("PDF-content".utf8))
+        ])
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let zipItem = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "ProjectArchive" }))
+
+        let extractedFolder = try await zipMgr.extractZip(item: zipItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(extractedFolder, "ProjectArchive")
+
+        // 物理的な多階層ディレクトリ構造が保持されていること
+        let nestedVideoURL = downloadsDir.appendingPathComponent("ProjectArchive/Day1/Morning/beach.mp4")
+        let nestedPdfURL = downloadsDir.appendingPathComponent("ProjectArchive/Day2/Docs/guide.pdf")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: nestedVideoURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: nestedPdfURL.path))
+
+        // サブフォルダ内のファイルが一覧で見失われず、サブパス情報を持っていること
+        let extractedVideo = try XCTUnwrap(dc.saved.first(where: { $0.title == "beach" }))
+        XCTAssertEqual(extractedVideo.displaySubfolderPrefix, "Day1/Morning")
+
+        let extractedPdf = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "guide" }))
+        XCTAssertEqual(extractedPdf.folderName, "ProjectArchive")
+        XCTAssertEqual(extractedPdf.displaySubfolderPrefix, "Day2/Docs")
+
+        // フォルダ名変更時にネストされたサブパス参照が壊れないこと
+        zipMgr.handleFolderRenamed(from: "ProjectArchive", to: "RenamedProject")
+        let updatedPdf = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "guide" }))
+        XCTAssertEqual(updatedPdf.folderName, "RenamedProject")
+        XCTAssertEqual(updatedPdf.displaySubfolderPrefix, "Day2/Docs")
+        XCTAssertTrue(updatedPdf.relativePath.contains("RenamedProject/Day2/Docs/guide.pdf"))
+    }
+
+    @MainActor
+    func testZipPhaseF1_SingleFileCompression_RoundTripMatchesBytes_AndAvoidsDuplicateZipNames() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Compress_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.compress.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 元ファイルを作成（ランダム性のある決定論的バイナリデータ 40KB）
+        var originalPayload = Data(capacity: 40_960)
+        for i in 0..<40_960 {
+            originalPayload.append(UInt8((i * 73 + 19) & 0xFF))
+        }
+        let sourceFileURL = downloadsDir.appendingPathComponent("original_clip.mp4")
+        try originalPayload.write(to: sourceFileURL)
+
+        // 1回目の単体ZIP圧縮
+        let createdZip1 = try await zipMgr.compressSingleFileAtURL(
+            sourceURL: sourceFileURL,
+            preferredBaseName: "original_clip",
+            folderName: "",
+            downloads: dc,
+            folderManager: fm
+        )
+        XCTAssertEqual(createdZip1.title, "original_clip")
+        XCTAssertTrue(createdZip1.isZip)
+        // 元ファイルが削除されず保持されていること
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceFileURL.path))
+
+        // 2回目の単体ZIP圧縮 -> 同名ZIPを上書きせず「original_clip (1).zip」になること
+        let createdZip2 = try await zipMgr.compressSingleFileAtURL(
+            sourceURL: sourceFileURL,
+            preferredBaseName: "original_clip",
+            folderName: "",
+            downloads: dc,
+            folderManager: fm
+        )
+        XCTAssertEqual(createdZip2.title, "original_clip (1)")
+
+        // 作成したZIPを再展開し、元ファイルとバイト列が100%一致することを検証
+        let extractedFolder = try await zipMgr.extractZip(item: createdZip1, downloads: dc, folderManager: fm)
+        let roundTripFileURL = downloadsDir
+            .appendingPathComponent(extractedFolder, isDirectory: true)
+            .appendingPathComponent("original_clip.mp4")
+        let roundTripData = try Data(contentsOf: roundTripFileURL)
+        XCTAssertEqual(roundTripData, originalPayload, "圧縮→再展開後のファイル内容が元ファイルと完全一致すること")
+    }
+
+    @MainActor
+    func testZipPhaseF1_Security_RejectsZipSlip_AbsolutePaths_Symlinks_AndConflictingEntries() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_SecPath_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.secpath.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        func makeManagedZipItem(named name: String, entries: [ZipArchiveTestHelper.TestEntrySpec]) throws -> ManagedFileItem {
+            let url = downloadsDir.appendingPathComponent("\(name).zip")
+            try ZipArchiveTestHelper.createArchive(at: url, entries: entries)
+            return ManagedFileItem(
+                id: UUID(),
+                title: name,
+                relativePath: "Documents/Downloads/\(name).zip",
+                fileExtension: "zip",
+                createdAt: Date(),
+                byteSize: 100,
+                folderName: "",
+                relativeSubpath: nil
+            )
+        }
+
+        // 1. ZIP Slip ("../evil.txt") の拒否
+        let slipItem = try makeManagedZipItem(named: "slip", entries: [
+            .file("../evil.txt", data: Data("pwn".utf8))
+        ])
+        do {
+            _ = try await zipMgr.extractZip(item: slipItem, downloads: dc, folderManager: fm)
+            XCTFail("ZIP Slip archive must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .maliciousPathDetected = err else {
+                XCTFail("Expected maliciousPathDetected, got \(err)")
+                return
+            }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tempRoot.appendingPathComponent("evil.txt").path))
+
+        // 2. 絶対パス ("/etc/passwd") の拒否
+        let absItem = try makeManagedZipItem(named: "abs", entries: [
+            .file("/etc/passwd", data: Data("root".utf8))
+        ])
+        do {
+            _ = try await zipMgr.extractZip(item: absItem, downloads: dc, folderManager: fm)
+            XCTFail("Absolute path archive must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .maliciousPathDetected = err else {
+                XCTFail("Expected maliciousPathDetected, got \(err)")
+                return
+            }
+        }
+
+        // 3. シンボリックリンクの拒否
+        let symlinkItem = try makeManagedZipItem(named: "symlink", entries: [
+            .symlink("shortcut", target: "../outside")
+        ])
+        do {
+            _ = try await zipMgr.extractZip(item: symlinkItem, downloads: dc, folderManager: fm)
+            XCTFail("Symlink archive must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .symlinkNotAllowed = err else {
+                XCTFail("Expected symlinkNotAllowed, got \(err)")
+                return
+            }
+        }
+
+        // 4. ファイルとディレクトリの型衝突 ("conflict" がファイルであり、同時に "conflict/sub.txt" が存在する) の拒否
+        let conflictItem = try makeManagedZipItem(named: "conflict", entries: [
+            .file("conflict", data: Data("file".utf8)),
+            .file("conflict/sub.txt", data: Data("nested".utf8))
+        ])
+        do {
+            _ = try await zipMgr.extractZip(item: conflictItem, downloads: dc, folderManager: fm)
+            XCTFail("Conflicting file/directory archive must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .conflictingEntries = err else {
+                XCTFail("Expected conflictingEntries, got \(err)")
+                return
+            }
+        }
+
+        // ステージング一時ディレクトリが空にクリーンアップされていること
+        let remainingStaging = (try? FileManager.default.contentsOfDirectory(atPath: stagingDir.path)) ?? []
+        XCTAssertTrue(remainingStaging.isEmpty, "失敗後にステージング一時ファイルが残らないこと")
+    }
+
+    @MainActor
+    func testZipPhaseF1_Security_RuntimeByteLimit_EntryCountLimit_PasswordZip_AndCorruptedCRC() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Limits_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.limits.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 1. エントリ数上限超過の拒否
+        let manyFilesURL = downloadsDir.appendingPathComponent("many.zip")
+        try ZipArchiveTestHelper.createArchive(at: manyFilesURL, entries: [
+            .file("1.txt", data: Data("1".utf8)),
+            .file("2.txt", data: Data("2".utf8)),
+            .file("3.txt", data: Data("3".utf8))
+        ])
+        let manyItem = ManagedFileItem(
+            id: UUID(), title: "many", relativePath: "Documents/Downloads/many.zip",
+            fileExtension: "zip", createdAt: Date(), byteSize: 100, folderName: "", relativeSubpath: nil
+        )
+        let strictCountLimits = ZipSecurityLimits(maxEntryCount: 2)
+        do {
+            _ = try await zipMgr.extractZip(item: manyItem, downloads: dc, folderManager: fm, limits: strictCountLimits)
+            XCTFail("Archive exceeding maxEntryCount must be rejected")
+        } catch let err as ZipOperationError {
+            XCTAssertEqual(err, .entryCountLimitExceeded(2))
+        }
+
+        // 2. 展開サイズ上限超過の拒否とステージング完全削除
+        let oversizeURL = downloadsDir.appendingPathComponent("oversize.zip")
+        try ZipArchiveTestHelper.createArchive(at: oversizeURL, entries: [
+            .file("big.bin", data: Data(repeating: 0x55, count: 4096))
+        ])
+        let oversizeItem = ManagedFileItem(
+            id: UUID(), title: "oversize", relativePath: "Documents/Downloads/oversize.zip",
+            fileExtension: "zip", createdAt: Date(), byteSize: 100, folderName: "", relativeSubpath: nil
+        )
+        let strictByteLimits = ZipSecurityLimits(maxTotalUncompressedBytes: 1024)
+        do {
+            _ = try await zipMgr.extractZip(item: oversizeItem, downloads: dc, folderManager: fm, limits: strictByteLimits)
+            XCTFail("Archive exceeding maxTotalUncompressedBytes must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .uncompressedSizeLimitExceeded = err else {
+                XCTFail("Expected uncompressedSizeLimitExceeded, got \(err)")
+                return
+            }
+        }
+        // 元ZIPは保持され、不完全な展開先フォルダが存在しないこと
+        XCTAssertTrue(FileManager.default.fileExists(atPath: oversizeURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("oversize").path))
+
+        // 3. 高圧縮だが小サイズの正常テキスト（32KBの反復文字）が100倍超の圧縮率だけで誤拒否されないこと
+        let highRatioNormalURL = downloadsDir.appendingPathComponent("normal_log.zip")
+        try ZipArchiveTestHelper.createArchive(at: highRatioNormalURL, entries: [
+            .file("app.log", data: Data(repeating: 0x41, count: 32_768), compressed: true)
+        ])
+        let highRatioNormalItem = ManagedFileItem(
+            id: UUID(), title: "normal_log", relativePath: "Documents/Downloads/normal_log.zip",
+            fileExtension: "zip", createdAt: Date(), byteSize: 100, folderName: "", relativeSubpath: nil
+        )
+        let extractedNormalFolder = try await zipMgr.extractZip(item: highRatioNormalItem, downloads: dc, folderManager: fm)
+        XCTAssertEqual(extractedNormalFolder, "normal_log")
+
+        // 4. パスワード付きZIPの明確な拒否
+        let encURL = downloadsDir.appendingPathComponent("encrypted.zip")
+        try ZipArchiveTestHelper.createPasswordProtectedArchive(at: encURL)
+        let encItem = ManagedFileItem(
+            id: UUID(), title: "encrypted", relativePath: "Documents/Downloads/encrypted.zip",
+            fileExtension: "zip", createdAt: Date(), byteSize: 100, folderName: "", relativeSubpath: nil
+        )
+        do {
+            _ = try await zipMgr.extractZip(item: encItem, downloads: dc, folderManager: fm)
+            XCTFail("Password-protected archive must be rejected")
+        } catch let err as ZipOperationError {
+            XCTAssertEqual(err, .passwordProtected)
+        }
+
+        // 5. CRC32不一致（破損ZIP）の拒否とロールバック
+        let crcURL = downloadsDir.appendingPathComponent("badcrc.zip")
+        try ZipArchiveTestHelper.createCorruptedCRCArchive(at: crcURL)
+        let crcItem = ManagedFileItem(
+            id: UUID(), title: "badcrc", relativePath: "Documents/Downloads/badcrc.zip",
+            fileExtension: "zip", createdAt: Date(), byteSize: 100, folderName: "", relativeSubpath: nil
+        )
+        do {
+            _ = try await zipMgr.extractZip(item: crcItem, downloads: dc, folderManager: fm)
+            XCTFail("Corrupted CRC archive must be rejected")
+        } catch let err as ZipOperationError {
+            XCTAssertEqual(err, .corruptedArchive)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: crcURL.path), "失敗時も元のZIPファイルは保持されること")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("badcrc").path), "破損展開ファイルが残らないこと")
+    }
+
+    @MainActor
+    func testZipPhaseF1_VaultAndHLS_StrictIsolationFromCompression() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_Isolation_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let vaultSimDir = tempRoot.appendingPathComponent("Application Support/Vault", isDirectory: true)
+        let tempPlaybackDir = tempRoot.appendingPathComponent(".playback_temp", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: vaultSimDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempPlaybackDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.isolation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        dc.saved = []
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 1. Vault 暗号化ファイルの圧縮拒否
+        let vaultFile = vaultSimDir.appendingPathComponent("encrypted.vault")
+        try Data("secret".utf8).write(to: vaultFile)
+        do {
+            _ = try await zipMgr.compressSingleFileAtURL(
+                sourceURL: vaultFile,
+                preferredBaseName: "leak",
+                folderName: "",
+                downloads: dc,
+                folderManager: fm
+            )
+            XCTFail("Vault file compression must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .unsupportedSourceForCompression = err else {
+                XCTFail("Expected unsupportedSourceForCompression, got \(err)")
+                return
+            }
+        }
+
+        // 2. 一時復号再生ファイル (.playback_temp) の圧縮拒否
+        let tempDecrypted = tempPlaybackDir.appendingPathComponent("temp.mp4")
+        try Data("decrypted".utf8).write(to: tempDecrypted)
+        do {
+            _ = try await zipMgr.compressSingleFileAtURL(
+                sourceURL: tempDecrypted,
+                preferredBaseName: "temp",
+                folderName: "",
+                downloads: dc,
+                folderManager: fm
+            )
+            XCTFail("Playback temp file compression must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .unsupportedSourceForCompression = err else {
+                XCTFail("Expected unsupportedSourceForCompression, got \(err)")
+                return
+            }
+        }
+
+        // 3. HLS .movpkg の圧縮拒否
+        let hlsVideo = SavedVideo(
+            id: UUID(),
+            title: "HLSStream",
+            relativePath: "Documents/Downloads/stream.movpkg",
+            format: .hls,
+            sourceHost: nil,
+            createdAt: Date(),
+            byteSize: 1024
+        )
+        do {
+            _ = try await zipMgr.compressSingleVideo(hlsVideo, downloads: dc, folderManager: fm)
+            XCTFail("HLS .movpkg compression must be rejected")
+        } catch let err as ZipOperationError {
+            guard case .unsupportedSourceForCompression = err else {
+                XCTFail("Expected unsupportedSourceForCompression, got \(err)")
+                return
+            }
+        }
+    }
 }

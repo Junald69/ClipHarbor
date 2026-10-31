@@ -175,15 +175,28 @@ final class VideoFolderManager: ObservableObject {
                 try FileManager.default.createDirectory(at: newURL, withIntermediateDirectories: true)
             }
 
-            // 直接ファイル（MP4等）で対象フォルダ内に保存されているものの relativePath を更新
+            // 直接ファイル（MP4等・サブフォルダ内ファイル含む）で対象フォルダ内に保存されているものの relativePath を更新
+            let oldFolderPrefix = "Documents/Downloads/\(cleanOld)/"
             for video in downloads.saved where !video.isHLS {
                 let currentFolder = folderName(for: video)
                 if currentFolder == cleanOld {
-                    let fileName = (video.relativePath as NSString).lastPathComponent
-                    let updatedURL = newURL.appendingPathComponent(fileName)
-                    if let rel = SavedVideo.relativePath(for: updatedURL) {
-                        downloads.updateSavedVideo(id: video.id, relativePath: rel)
+                    let normRel = FileClassification.normalizedRelativePath(video.relativePath)
+                    let relativeInsideFolder: String
+                    if normRel.hasPrefix(oldFolderPrefix) {
+                        relativeInsideFolder = String(normRel.dropFirst(oldFolderPrefix.count))
+                    } else {
+                        relativeInsideFolder = (video.relativePath as NSString).lastPathComponent
                     }
+                    let updatedURL = newURL.appendingPathComponent(relativeInsideFolder)
+                    if let rel = SavedVideo.relativePath(for: updatedURL) {
+                        downloads.updateSavedVideo(id: video.id, relativePath: FileClassification.normalizedRelativePath(rel))
+                    }
+                }
+            }
+
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    ZipArchiveManager.shared.handleFolderRenamed(from: cleanOld, to: cleanNew)
                 }
             }
 
@@ -207,7 +220,7 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
-    /// フォルダを削除する（中の動画は削除せず、Downloads（未分類）へ戻す）
+    /// フォルダを削除する（中の動画・一般ファイルは削除せず、Downloads（未分類）へ戻す）
     func deleteFolder(name rawName: String) {
         let clean = Self.sanitizedFolderName(rawName)
         guard !clean.isEmpty else { return }
@@ -218,13 +231,24 @@ final class VideoFolderManager: ObservableObject {
             _ = moveVideo(video, toFolder: "")
         }
 
-        // 空になったサブフォルダがあれば削除
+        // フォルダ内のZIP・一般ファイルも未分類（Documents/Downloads 直下）へ退避
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                ZipArchiveManager.shared.evacuateManagedFilesForDeletedFolder(clean)
+            }
+        }
+
+        // 空になったサブディレクトリ（ネスト階層含む）を下位から削除し、空のフォルダを削除
         if let root = try? Self.ensureDownloadsDirectory() {
             let sub = root.appendingPathComponent(clean, isDirectory: true)
-            if FileNaming.isDirectChild(sub, of: root),
-               let items = try? FileManager.default.contentsOfDirectory(atPath: sub.path),
-               items.isEmpty {
-                try? FileManager.default.removeItem(at: sub)
+            if FileNaming.isDirectChild(sub, of: root), FileManager.default.fileExists(atPath: sub.path) {
+                Self.removeEmptySubdirectoriesRecursively(inside: sub)
+                let remaining = (try? FileManager.default.contentsOfDirectory(atPath: sub.path))?.filter {
+                    $0 != ".DS_Store" && $0 != "__MACOSX"
+                } ?? []
+                if remaining.isEmpty {
+                    try? FileManager.default.removeItem(at: sub)
+                }
             }
         }
 
@@ -289,7 +313,13 @@ final class VideoFolderManager: ObservableObject {
                     return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
                 }
                 try FileManager.default.moveItem(at: currentURL, to: destURL)
-                downloads.updateSavedVideo(id: video.id, relativePath: rel)
+                downloads.updateSavedVideo(id: video.id, relativePath: FileClassification.normalizedRelativePath(rel))
+                // 移動元がサブフォルダ内のネスト階層で空になった場合、親の管理フォルダ直下まで空ディレクトリを掃除
+                let oldFolder = folderName(for: video)
+                if !oldFolder.isEmpty {
+                    let oldTopFolderURL = root.appendingPathComponent(oldFolder, isDirectory: true)
+                    Self.removeEmptySubdirectoriesRecursively(inside: oldTopFolderURL)
+                }
             }
 
             if cleanFolder.isEmpty {
@@ -383,10 +413,16 @@ final class VideoFolderManager: ObservableObject {
         restoreVideoToFolder(video, targetFolder: folderName)
     }
 
-    /// ファイルシステム上のサブフォルダと保存済み動画一覧を再スキャンして同期する
+    /// ファイルシステム上のサブフォルダと保存済み動画・一般ファイル一覧を再スキャンして同期する
     func syncWithFileSystemAndSavedVideos() {
-        // 未登録画像の安全な自動スキャン・インデックス
+        // 未登録メディア（画像・展開された動画）の安全な自動スキャン・インデックス
         scanAndRegisterUnmanagedImages()
+
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                ZipArchiveManager.shared.syncWithFileSystem(downloads: self.downloads, folderManager: self)
+            }
+        }
 
         var folderSet = Set(folders)
 
@@ -398,7 +434,9 @@ final class VideoFolderManager: ObservableObject {
            ) {
             for url in contents {
                 if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    let clean = Self.sanitizedFolderName(url.lastPathComponent)
+                    let name = url.lastPathComponent
+                    guard !name.lowercased().hasSuffix(".movpkg"), name != "__MACOSX" else { continue }
+                    let clean = Self.sanitizedFolderName(name)
                     if !clean.isEmpty {
                         folderSet.insert(clean)
                     }
@@ -419,6 +457,14 @@ final class VideoFolderManager: ObservableObject {
             }
         }
 
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                for item in ZipArchiveManager.shared.managedFiles where !item.folderName.isEmpty {
+                    folderSet.insert(item.folderName)
+                }
+            }
+        }
+
         let sorted = folderSet.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         if sorted != folders || changedMap {
             folders = sorted
@@ -426,55 +472,63 @@ final class VideoFolderManager: ObservableObject {
         }
     }
 
-    /// Documents/Downloads 直下およびそのサブフォルダ内の未登録画像ファイルを検出し、SavedVideoとして登録
+    /// Documents/Downloads 直下およびそのサブフォルダ（多階層含む）内の未登録メディア（画像・展開動画）を検出し、SavedVideoとして登録
     func scanAndRegisterUnmanagedImages() {
         guard let root = try? Self.ensureDownloadsDirectory() else { return }
         let fileManager = FileManager.default
 
         // 既存の登録済み相対パス・URLパスのセット
-        let existingPaths = Set(downloads.saved.map { $0.relativePath })
-        let existingFullPaths = Set(downloads.saved.map { $0.fileURL.standardizedFileURL.path })
+        var existingPaths = Set(downloads.saved.map { FileClassification.normalizedRelativePath($0.relativePath) })
+        var existingFullPaths = Set(downloads.saved.map { $0.fileURL.standardizedFileURL.resolvingSymlinksInPath().path })
 
-        var directoriesToScan: [(dir: URL, folderName: String)] = [(root, "")]
-
-        // サブフォルダ（深さ1）を追加
-        if let subdirs = try? fileManager.contentsOfDirectory(
+        // Documents/Downloads 配下を再帰走査（.movpkg と __MACOSX はスキップ）
+        if let enumerator = fileManager.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .creationDateKey],
             options: [.skipsHiddenFiles]
         ) {
-            for sub in subdirs {
-                if (try? sub.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                    let folderName = Self.sanitizedFolderName(sub.lastPathComponent)
-                    if !folderName.isEmpty {
-                        directoriesToScan.append((sub, folderName))
-                    }
+            while let fileURL = enumerator.nextObject() as? URL {
+                let last = fileURL.lastPathComponent
+                if last == "__MACOSX" || last.lowercased().hasSuffix(".movpkg") || last.hasPrefix(".") {
+                    enumerator.skipDescendants()
+                    continue
+                }
+                let vals = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+                if vals?.isSymbolicLink == true || vals?.isDirectory == true {
+                    continue
+                }
+                if vals?.isRegularFile == true {
+                    let rel = SavedVideo.relativePath(for: fileURL) ?? ""
+                    let inferredFolder = Self.inferSubfolder(fromRelativePath: rel) ?? ""
+                    processCandidateFile(
+                        fileURL,
+                        folderName: inferredFolder,
+                        existingPaths: &existingPaths,
+                        existingFullPaths: &existingFullPaths
+                    )
                 }
             }
         }
 
-        // Documents直下にユーザーが配置した画像ファイルもチェック
+        // Documents直下にユーザーが配置した画像・メディアファイルもチェック
         let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
         if let docsFiles = try? fileManager.contentsOfDirectory(
             at: docs,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         ) {
             for file in docsFiles {
-                if (try? file.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == false {
-                    processCandidateFile(file, folderName: "", existingPaths: existingPaths, existingFullPaths: existingFullPaths)
+                let vals = try? file.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey])
+                if vals?.isSymbolicLink == true || vals?.isDirectory == true {
+                    continue
                 }
-            }
-        }
-
-        for item in directoriesToScan {
-            if let files = try? fileManager.contentsOfDirectory(
-                at: item.dir,
-                includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .creationDateKey],
-                options: [.skipsHiddenFiles]
-            ) {
-                for file in files {
-                    processCandidateFile(file, folderName: item.folderName, existingPaths: existingPaths, existingFullPaths: existingFullPaths)
+                if vals?.isRegularFile == true {
+                    processCandidateFile(
+                        file,
+                        folderName: "",
+                        existingPaths: &existingPaths,
+                        existingFullPaths: &existingFullPaths
+                    )
                 }
             }
         }
@@ -483,31 +537,23 @@ final class VideoFolderManager: ObservableObject {
     private func processCandidateFile(
         _ fileURL: URL,
         folderName: String,
-        existingPaths: Set<String>,
-        existingFullPaths: Set<String>
+        existingPaths: inout Set<String>,
+        existingFullPaths: inout Set<String>
     ) {
-        let ext = fileURL.pathExtension.lowercased()
-        guard ["jpg", "jpeg", "png", "heic", "gif"].contains(ext) else { return }
+        guard case .media(let format) = FileClassification.classify(url: fileURL) else { return }
 
         // シンボリックリンクや隠しファイルを除外
         guard !fileURL.lastPathComponent.hasPrefix(".") else { return }
-        let standardizedPath = fileURL.standardizedFileURL.path
+        let standardizedPath = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
         guard !existingFullPaths.contains(standardizedPath) else { return }
-        guard let rel = SavedVideo.relativePath(for: fileURL), !existingPaths.contains(rel) else { return }
+        guard let rawRel = SavedVideo.relativePath(for: fileURL) else { return }
+        let rel = FileClassification.normalizedRelativePath(rawRel)
+        guard !existingPaths.contains(rel) else { return }
 
         // サイズ確認
         let attrs = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)) ?? [:]
         let size = (attrs[.size] as? Int64) ?? 0
         guard size > 0 else { return }
-
-        // フォーマット判定
-        let format: SavedVideo.Format
-        switch ext {
-        case "png": format = .png
-        case "gif": format = .gif
-        case "heic": format = .heic
-        default: format = .jpeg
-        }
 
         let creation = (attrs[.creationDate] as? Date) ?? Date()
         let title = fileURL.deletingPathExtension().lastPathComponent
@@ -527,6 +573,35 @@ final class VideoFolderManager: ObservableObject {
         downloads.addSaved(newSaved)
         if !folderName.isEmpty {
             setFolderName(folderName, for: newSaved)
+        }
+        existingPaths.insert(rel)
+        existingFullPaths.insert(standardizedPath)
+    }
+
+    /// 指定ディレクトリ内部の空のサブディレクトリを再帰的に下位から削除する（ルートディレクトリ自体は削除しない）
+    static func removeEmptySubdirectoriesRecursively(inside directoryURL: URL) {
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        ) else { return }
+
+        for child in children {
+            let name = child.lastPathComponent
+            if name == ".DS_Store" || name == "__MACOSX" {
+                try? fm.removeItem(at: child)
+                continue
+            }
+            let vals = try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if vals?.isDirectory == true && vals?.isSymbolicLink != true {
+                guard !name.lowercased().hasSuffix(".movpkg") else { continue }
+                removeEmptySubdirectoriesRecursively(inside: child)
+                let subRemaining = (try? fm.contentsOfDirectory(atPath: child.path)) ?? []
+                if subRemaining.isEmpty {
+                    try? fm.removeItem(at: child)
+                }
+            }
         }
     }
 

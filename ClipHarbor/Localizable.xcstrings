@@ -10705,6 +10705,448 @@
           }
         }
       }
+    },
+    "Extract Files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extract Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを抽出"
+          }
+        }
+      }
+    },
+    "Compress (Create ZIP)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compress (Create ZIP)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圧縮（ZIPを作成）"
+          }
+        }
+      }
+    },
+    "Extracted to folder \"%@\"": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extracted to folder \"%@\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」へ展開しました"
+          }
+        }
+      }
+    },
+    "Created \"%@.zip\"": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created \"%@.zip\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@.zip」を作成しました"
+          }
+        }
+      }
+    },
+    "Extracting \"%@\"...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extracting \"%@\"..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を展開中..."
+          }
+        }
+      }
+    },
+    "Compressing \"%@\"...": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressing \"%@\"..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を圧縮中..."
+          }
+        }
+      }
+    },
+    "Target file could not be found.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target file could not be found."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象ファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "The ZIP file is invalid or empty.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ZIP file is invalid or empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPファイルが無効または空です。"
+          }
+        }
+      }
+    },
+    "Password-protected ZIP files are not supported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password-protected ZIP files are not supported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード保護されたZIPファイルには対応していません。"
+          }
+        }
+      }
+    },
+    "Rejected ZIP archive because it contains an unsafe file path.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected ZIP archive because it contains an unsafe file path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全でないファイルパスが含まれているため、ZIPの展開を拒否しました。"
+          }
+        }
+      }
+    },
+    "Rejected ZIP archive because symbolic links are not allowed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected ZIP archive because symbolic links are not allowed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シンボリックリンクが含まれているため、ZIPの展開を拒否しました。"
+          }
+        }
+      }
+    },
+    "Rejected ZIP archive because it contains duplicate or conflicting paths.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected ZIP archive because it contains duplicate or conflicting paths."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複または競合するパスが含まれているため、ZIPの展開を拒否しました。"
+          }
+        }
+      }
+    },
+    "ZIP archive contains too many files (limit: %lld).": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP archive contains too many files (limit: %lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP内のファイル数が上限（%lld件）を超えています。"
+          }
+        }
+      }
+    },
+    "ZIP extracted size exceeds the safety limit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP extracted size exceeds the safety limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPの展開サイズが安全上限を超えています。"
+          }
+        }
+      }
+    },
+    "Rejected ZIP archive due to an abnormal compression ratio (potential ZIP Bomb).": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejected ZIP archive due to an abnormal compression ratio (potential ZIP Bomb)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異常な圧縮率が検出されたため、ZIPの展開を拒否しました。"
+          }
+        }
+      }
+    },
+    "Not enough free storage space to complete the ZIP operation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough free storage space to complete the ZIP operation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空き容量が不足しているため、ZIP処理を完了できません。"
+          }
+        }
+      }
+    },
+    "The ZIP file is corrupted (CRC mismatch or damaged header).": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The ZIP file is corrupted (CRC mismatch or damaged header)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPファイルが破損しています（CRC不一致またはヘッダ破損）。"
+          }
+        }
+      }
+    },
+    "Another ZIP operation is currently in progress.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another ZIP operation is currently in progress."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のZIP処理が実行中です。"
+          }
+        }
+      }
+    },
+    "ZIP operation was cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP operation was cancelled."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIP処理をキャンセルしました。"
+          }
+        }
+      }
+    },
+    "HLS streaming packages (.movpkg) cannot be compressed to ZIP.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS streaming packages (.movpkg) cannot be compressed to ZIP."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HLS配信パッケージ（.movpkg）はZIP圧縮に対応していません。"
+          }
+        }
+      }
+    },
+    "Private Vault files cannot be compressed into normal ZIP archives.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault files cannot be compressed into normal ZIP archives."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private Vault内のファイルは通常のZIPに圧縮できません。"
+          }
+        }
+      }
+    },
+    "Only regular files can be compressed in this operation.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only regular files can be compressed in this operation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常のファイルのみ圧縮できます。"
+          }
+        }
+      }
+    },
+    "Failed to resolve imported file path.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to resolve imported file path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートしたファイルのパス解決に失敗しました。"
+          }
+        }
+      }
+    },
+    "Failed to create extracted file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to create extracted file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開ファイルの作成に失敗しました。"
+          }
+        }
+      }
+    },
+    "Failed to initialize ZIP archive.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to initialize ZIP archive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ZIPアーカイブの初期化に失敗しました。"
+          }
+        }
+      }
+    },
+    "Failed to register created ZIP file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to register created ZIP file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成したZIPファイルの登録に失敗しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

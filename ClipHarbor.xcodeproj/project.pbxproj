@@ -47,12 +47,14 @@
 		D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */ = {isa = PBXBuildFile; fileRef = 2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */; };
 		6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */ = {isa = PBXBuildFile; fileRef = 3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */; };
 		FDDF41EBA4C1F097FCE4B372 /* build ContentBlockerManager.swift */ = {isa = PBXBuildFile; fileRef = 9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */; };
+		15E21C5170322F8E99FC2AE7 /* build ZipArchiveManager.swift */ = {isa = PBXBuildFile; fileRef = 51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */; };
 		EBAAC2BCA023110D976A4EBE /* build Assets.xcassets */ = {isa = PBXBuildFile; fileRef = 768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */; };
 		17BF3D4D6443CA860CF92810 /* build Localizable.xcstrings */ = {isa = PBXBuildFile; fileRef = A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */; };
 		2D4E455C75B185A9C5198616 /* build InfoPlist.xcstrings */ = {isa = PBXBuildFile; fileRef = 4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */; };
 		777EE54E57CB668C325FC849 /* build blocker_rules.json */ = {isa = PBXBuildFile; fileRef = 03577C3445A420DDED519E12 /* file blocker_rules.json */; };
 		1588711800276E56594BA391 /* build blocker_metadata.json */ = {isa = PBXBuildFile; fileRef = E185D6B8460F723A59E17928 /* file blocker_metadata.json */; };
 		CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */ = {isa = PBXBuildFile; fileRef = A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */; };
+		4A25828E4BECAFF074EDA7FB /* build pkg ZIPFoundation */ = {isa = PBXBuildFile; productRef = B167CC9F31FF3831EBC6E05E /* pkg product ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,6 +110,7 @@
 		2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTrimmerView.swift; sourceTree = "<group>"; };
 		3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernVideoPlayerView.swift; sourceTree = "<group>"; };
 		9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentBlockerManager.swift; sourceTree = "<group>"; };
+		51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchiveManager.swift; sourceTree = "<group>"; };
 		768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
@@ -169,6 +172,7 @@
 				2BBA9E875776A524B7C1AA29 /* file VideoTrimmerView.swift */,
 				3BB2C6370257F10589038EB3 /* file ModernVideoPlayerView.swift */,
 				9C2E25F1DC9739D234CE197F /* file ContentBlockerManager.swift */,
+				51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */,
 				768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */,
 				A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */,
 				4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */,
@@ -194,14 +198,26 @@
 		};
 /* End PBXGroup section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		7805F7FC904F49F676E90BFE /* frameworks phase */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A25828E4BECAFF074EDA7FB /* build pkg ZIPFoundation */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXNativeTarget section */
 		0E8A3AD980EC179856012B7E /* target */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 20BA35986C8D108192A74E6F /* target configs */;
-			buildPhases = (1CE6DC2571680BAD24FA2D71 /* sources phase */, 7C9581047372A5681A4931A9 /* resources phase */, );
+			buildPhases = (1CE6DC2571680BAD24FA2D71 /* sources phase */, 7805F7FC904F49F676E90BFE /* frameworks phase */, 7C9581047372A5681A4931A9 /* resources phase */, );
 			buildRules = ();
 			dependencies = ();
 			name = ClipHarbor;
+			packageProductDependencies = (B167CC9F31FF3831EBC6E05E /* pkg product ZIPFoundation */, );
 			productReference = 83A5DD8EBAFB93BC34E3AB4F /* product app */;
 			productName = ClipHarbor;
 			productType = "com.apple.product-type.application";
@@ -233,6 +249,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (en, ja, Base, );
 			mainGroup = 7FEFA489E25E19BEF8A8A2A9 /* main group */;
+			packageReferences = (E55377FF87E449EFE7C853A4 /* pkg ref ZIPFoundation */, );
 			productRefGroup = 828132AE302825007DC2C140 /* product group */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -286,6 +303,7 @@
 				D57752674F94A08817BF4687 /* build VideoTrimmerView.swift */,
 				6A65707DDF4020295FE7F95B /* build ModernVideoPlayerView.swift */,
 				FDDF41EBA4C1F097FCE4B372 /* build ContentBlockerManager.swift */,
+				15E21C5170322F8E99FC2AE7 /* build ZipArchiveManager.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -453,6 +471,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		E55377FF87E449EFE7C853A4 /* pkg ref ZIPFoundation */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.20;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B167CC9F31FF3831EBC6E05E /* pkg product ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E55377FF87E449EFE7C853A4 /* pkg ref ZIPFoundation */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 98F54143AB4E86B28C3AFEE0 /* project */;
 }
