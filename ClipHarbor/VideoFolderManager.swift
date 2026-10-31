@@ -247,15 +247,17 @@ final class VideoFolderManager: ObservableObject {
 
     /// フォルダを削除する（中の動画・一般ファイル・未登録ファイルは削除せず、Downloads（未分類）へ安全に退避する）
     /// - 退避対象ファイルと移動元・移動先パスを事前に記録し、全件の移動結果を検証する。
-    /// - 1件でも移動に失敗した場合は、実行済みの移動を逆順でロールバックし、フォルダ管理情報を削除せず保持する。
-    /// - ロールバック自体が一部失敗した場合も、移動済みファイルのメタデータを未分類へ更新して整合性を保ちつつ、残存ファイルのためにフォルダ管理情報を維持する。
+    /// - 移動APIがエラーを返した場合でも実ファイルの所在地を確認し、移動が成立していた分も含めて逆順ロールバック対象とする。
+    /// - 移動失敗・ディレクトリ読み取り失敗・残存ファイル検出・物理フォルダ削除失敗のいずれにおいても、統一されたロールバック＆所在地確認＆メタデータ整合処理を実行し、論理フォルダ情報を削除せず保持してUIへ通知する。
     @discardableResult
     func deleteFolder(
         name rawName: String,
         customRootURL: URL? = nil,
         zipManager: ZipArchiveManager? = nil,
         fileMover: ((URL, URL) throws -> Void)? = nil,
-        rollbackMover: ((URL, URL) throws -> Void)? = nil
+        rollbackMover: ((URL, URL) throws -> Void)? = nil,
+        directoryReader: ((URL) throws -> [String])? = nil,
+        folderRemover: ((URL) throws -> Void)? = nil
     ) -> Result<Void, FolderError> {
         let clean = Self.sanitizedFolderName(rawName)
         guard !clean.isEmpty else { return .failure(.emptyName) }
@@ -283,6 +285,12 @@ final class VideoFolderManager: ObservableObject {
         }
         let performRollbackMove: (URL, URL) throws -> Void = rollbackMover ?? { src, dst in
             try fm.moveItem(at: src, to: dst)
+        }
+        let performReadDirectory: (URL) throws -> [String] = directoryReader ?? { dirURL in
+            try fm.contentsOfDirectory(atPath: dirURL.path)
+        }
+        let performFolderRemove: (URL) throws -> Void = folderRemover ?? { dirURL in
+            try fm.removeItem(at: dirURL)
         }
 
         // 1. 事前計画フェーズ：退避対象ファイル（SavedVideo / ManagedFileItem / 未登録物理ファイル）と一意の移動先URLを記録
@@ -392,94 +400,140 @@ final class VideoFolderManager: ObservableObject {
             }
         }
 
-        // 1-C. フォルダ内の未登録物理ファイル（およびシンボリックリンク有無）の事前走査
+        // 1-C. フォルダ内の未登録物理ファイル（およびディレクトリ読み取り可否・シンボリックリンク有無）の事前走査
         if fm.fileExists(atPath: folderURL.path) {
+            // ディレクトリ読み取り失敗を「空」と誤認しないよう明示的に検証
+            do {
+                _ = try performReadDirectory(folderURL)
+            } catch {
+                return .failure(.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
+                ))
+            }
+
+            var enumerationErrorOccurred = false
             let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
-            if let enumerator = fm.enumerator(at: folderURL, includingPropertiesForKeys: keys, options: []) {
-                for case let itemURL as URL in enumerator {
-                    let vals = try? itemURL.resourceValues(forKeys: Set(keys))
-                    let nameLower = itemURL.lastPathComponent.lowercased()
-                    if nameLower == ".ds_store" || nameLower == "__macosx" {
-                        if vals?.isDirectory == true {
-                            enumerator.skipDescendants()
-                        }
-                        continue
+            guard let enumerator = fm.enumerator(
+                at: folderURL,
+                includingPropertiesForKeys: keys,
+                options: [],
+                errorHandler: { _, _ in
+                    enumerationErrorOccurred = true
+                    return false
+                }
+            ) else {
+                return .failure(.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
+                ))
+            }
+
+            for case let itemURL as URL in enumerator {
+                let vals: URLResourceValues
+                do {
+                    vals = try itemURL.resourceValues(forKeys: Set(keys))
+                } catch {
+                    return .failure(.fileOperationFailed(
+                        String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
+                    ))
+                }
+
+                let nameLower = itemURL.lastPathComponent.lowercased()
+                if nameLower == ".ds_store" || nameLower == "__macosx" {
+                    if vals.isDirectory == true {
+                        enumerator.skipDescendants()
                     }
-                    // シンボリックリンクが含まれている場合は勝手に削除せず中止
-                    if vals?.isSymbolicLink == true {
+                    continue
+                }
+                // シンボリックリンクが含まれている場合は勝手に削除せず中止
+                if vals.isSymbolicLink == true {
+                    return .failure(.fileOperationFailed(
+                        NSLocalizedString("Cannot delete folder because it contains an unsupported symbolic link.", comment: "")
+                    ))
+                }
+                if vals.isDirectory == true {
+                    // サブディレクトリ自体も読み取り可能であることを確認
+                    do {
+                        _ = try performReadDirectory(itemURL)
+                    } catch {
                         return .failure(.fileOperationFailed(
-                            NSLocalizedString("Cannot delete folder because it contains an unsupported symbolic link.", comment: "")
+                            String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
                         ))
                     }
-                    if vals?.isRegularFile == true {
-                        let canonSrc = itemURL.standardizedFileURL.resolvingSymlinksInPath().path
-                        if !plannedSourceCanonicalPaths.contains(canonSrc) {
-                            let base = itemURL.deletingPathExtension().lastPathComponent
-                            let ext = itemURL.pathExtension
-                            let destURL = allocateUniqueDestination(baseName: base.isEmpty ? "File" : base, ext: ext)
-                            guard let destRel = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customRootURL) else {
-                                return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
-                            }
-                            plannedSourceCanonicalPaths.insert(canonSrc)
-                            plannedRecords.append(FolderEvacuationRecord(
-                                kind: .unregisteredFile,
-                                sourceURL: itemURL,
-                                destinationURL: destURL,
-                                destinationRelativePath: destRel,
-                                destinationTitle: destURL.deletingPathExtension().lastPathComponent
-                            ))
+                }
+                if vals.isRegularFile == true {
+                    let canonSrc = itemURL.standardizedFileURL.resolvingSymlinksInPath().path
+                    if !plannedSourceCanonicalPaths.contains(canonSrc) {
+                        let base = itemURL.deletingPathExtension().lastPathComponent
+                        let ext = itemURL.pathExtension
+                        let destURL = allocateUniqueDestination(baseName: base.isEmpty ? "File" : base, ext: ext)
+                        guard let destRel = FileClassification.normalizedContainerRelativePath(for: destURL, customRootURL: customRootURL) else {
+                            return .failure(.fileOperationFailed(NSLocalizedString("Destination path is invalid.", comment: "")))
                         }
+                        plannedSourceCanonicalPaths.insert(canonSrc)
+                        plannedRecords.append(FolderEvacuationRecord(
+                            kind: .unregisteredFile,
+                            sourceURL: itemURL,
+                            destinationURL: destURL,
+                            destinationRelativePath: destRel,
+                            destinationTitle: destURL.deletingPathExtension().lastPathComponent
+                        ))
                     }
                 }
             }
-        }
 
-        // 2. 移動実行と結果確認フェーズ
-        var completedRecords: [FolderEvacuationRecord] = []
-        var moveFailed = false
-
-        for record in plannedRecords {
-            do {
-                try performMove(record.sourceURL, record.destinationURL)
-                // 移動後に移動先ファイルの存在と移動元ファイルの不在を厳格確認
-                guard fm.fileExists(atPath: record.destinationURL.path),
-                      !fm.fileExists(atPath: record.sourceURL.path) else {
-                    moveFailed = true
-                    break
-                }
-                completedRecords.append(record)
-            } catch {
-                moveFailed = true
-                break
+            if enumerationErrorOccurred {
+                return .failure(.fileOperationFailed(
+                    String(format: NSLocalizedString("Failed to read contents of folder \"%@\". The folder was not deleted.", comment: ""), clean)
+                ))
             }
         }
 
-        // 3. 失敗時の逆順ロールバックフェーズ
-        if moveFailed {
-            var rollbackFailedRecords: [FolderEvacuationRecord] = []
-
-            for doneRecord in completedRecords.reversed() {
-                let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
-                try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                do {
-                    try performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
-                    if !fm.fileExists(atPath: doneRecord.sourceURL.path) {
-                        rollbackFailedRecords.append(doneRecord)
+        // 統一された逆順ロールバック＆実ファイル所在地確認＆メタデータ整合ルーチン
+        func rollbackAndReconcile(
+            recordsToRollback: [FolderEvacuationRecord],
+            defaultCompleteRollbackMessage: String
+        ) -> Result<Void, FolderError> {
+            // A. 逆順でロールバックを試行
+            for doneRecord in recordsToRollback.reversed() {
+                let srcExists = fm.fileExists(atPath: doneRecord.sourceURL.path)
+                let dstExists = fm.fileExists(atPath: doneRecord.destinationURL.path)
+                if dstExists && !srcExists {
+                    let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
+                    try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
+                    try? performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
+                } else if dstExists && srcExists {
+                    // 移動元に元ファイルが残っており移動先に不完全な重複物がある場合のみ移動先重複物を除去
+                    let srcSize = ((try? fm.attributesOfItem(atPath: doneRecord.sourceURL.path))?[.size] as? Int64) ?? 0
+                    if srcSize > 0 {
+                        try? fm.removeItem(at: doneRecord.destinationURL)
                     }
-                } catch {
-                    rollbackFailedRecords.append(doneRecord)
                 }
             }
 
-            // ロールバック自体が失敗し、Downloads直下に残ったファイルがある場合は、見失わないよう未分類としてメタデータを更新する
-            if !rollbackFailedRecords.isEmpty {
-                for unrolled in rollbackFailedRecords {
-                    switch unrolled.kind {
+            // B. 全計画レコードの実ファイルの実際の所在地を確認（ロールバック成否を実ファイル基準で確定）
+            var actuallyMovedToUncategorized: [FolderEvacuationRecord] = []
+            var remainingInFolderCount = 0
+
+            for record in plannedRecords {
+                let atSource = fm.fileExists(atPath: record.sourceURL.path)
+                let atDest = fm.fileExists(atPath: record.destinationURL.path)
+                if !atSource && atDest {
+                    actuallyMovedToUncategorized.append(record)
+                } else {
+                    remainingInFolderCount += 1
+                }
+            }
+
+            // C. ロールバックが一部失敗し Downloads 直下に残ったファイルがある場合は、IDを維持したまま未分類へメタデータを整合
+            var hadMovedUnregistered = false
+            if !actuallyMovedToUncategorized.isEmpty {
+                for moved in actuallyMovedToUncategorized {
+                    switch moved.kind {
                     case .savedVideo(let videoID):
                         downloads.updateSavedVideo(
                             id: videoID,
-                            title: unrolled.destinationTitle,
-                            relativePath: unrolled.destinationRelativePath
+                            title: moved.destinationTitle,
+                            relativePath: moved.destinationRelativePath
                         )
                         folderMap[videoID.uuidString] = nil
                     case .managedFile(let itemID):
@@ -487,66 +541,154 @@ final class VideoFolderManager: ObservableObject {
                             MainActor.assumeIsolated {
                                 zMgr.applyEvacuatedManagedFileUpdate(
                                     id: itemID,
-                                    newTitle: unrolled.destinationTitle,
-                                    newRelativePath: unrolled.destinationRelativePath
+                                    newTitle: moved.destinationTitle,
+                                    newRelativePath: moved.destinationRelativePath
                                 )
                             }
                         }
                     case .unregisteredFile:
-                        break
+                        hadMovedUnregistered = true
                     }
                 }
                 persistState()
-                if let zMgr = resolvedZipMgr {
+                if hadMovedUnregistered, let zMgr = resolvedZipMgr {
                     MainActor.assumeIsolated {
                         zMgr.syncWithFileSystem(downloads: downloads, folderManager: self)
                     }
                 }
 
-                let movedCount = rollbackFailedRecords.count
-                let remainingCount = max(1, plannedRecords.count - movedCount)
+                let movedCount = actuallyMovedToUncategorized.count
+                let remCount = max(1, remainingInFolderCount)
                 let partialMsg = String(
                     format: NSLocalizedString("Failed to delete folder \"%@\". %lld files moved to Uncategorized, and %lld files remain in the folder. The folder was kept to protect your data.", comment: ""),
-                    clean, movedCount, remainingCount
+                    clean, movedCount, remCount
                 )
                 return .failure(.fileOperationFailed(partialMsg))
             }
 
-            // 完全ロールバック成功時：既存のフォルダ情報・ファイル配置は100%元の状態を保持
-            let rolledBackMsg = String(
+            // D. 全ファイルが元のフォルダ内に復元・保持されている場合：既存のフォルダ管理情報とIDを100%保持
+            return .failure(.fileOperationFailed(defaultCompleteRollbackMessage))
+        }
+
+        // 2. 移動実行と結果確認フェーズ（移動APIがエラーを投げた場合も途中まで成立していないか実ファイルの存在を確認）
+        var touchedRecords: [FolderEvacuationRecord] = []
+        var moveFailed = false
+
+        for record in plannedRecords {
+            do {
+                try performMove(record.sourceURL, record.destinationURL)
+                let dstExists = fm.fileExists(atPath: record.destinationURL.path)
+                let srcExists = fm.fileExists(atPath: record.sourceURL.path)
+                if dstExists {
+                    touchedRecords.append(record)
+                }
+                guard dstExists && !srcExists else {
+                    moveFailed = true
+                    break
+                }
+            } catch {
+                // エラー発生時も、ファイル移動が実際には成立している（または移動先に生成されている）か確認
+                let dstExists = fm.fileExists(atPath: record.destinationURL.path)
+                if dstExists {
+                    touchedRecords.append(record)
+                }
+                moveFailed = true
+                break
+            }
+        }
+
+        // 3. 移動失敗時の逆順ロールバック＆整合フェーズ
+        if moveFailed {
+            let defaultMsg = String(
                 format: NSLocalizedString("Failed to move some files out of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.", comment: ""),
                 clean
             )
-            return .failure(.fileOperationFailed(rolledBackMsg))
+            return rollbackAndReconcile(
+                recordsToRollback: touchedRecords,
+                defaultCompleteRollbackMessage: defaultMsg
+            )
         }
 
-        // 4. 全件移動成功後の残存ファイル確認・メタデータ確定・空ディレクトリ削除フェーズ
+        // 4. 全件移動成功後の最終確認・物理フォルダ削除フェーズ
         if fm.fileExists(atPath: folderURL.path) {
             Self.removeEmptySubdirectoriesRecursively(inside: folderURL)
-            let remainingItems = (try? fm.contentsOfDirectory(atPath: folderURL.path)) ?? []
-            for meta in remainingItems where meta == ".DS_Store" || meta == "__MACOSX" {
+
+            // ディレクトリ読み取り失敗を「空」と扱わず、失敗時はロールバック＆整合処理へ移行
+            let firstListing: [String]
+            do {
+                firstListing = try performReadDirectory(folderURL)
+            } catch {
+                let readErrMsg = String(
+                    format: NSLocalizedString("Failed to verify contents of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.", comment: ""),
+                    clean
+                )
+                return rollbackAndReconcile(
+                    recordsToRollback: touchedRecords,
+                    defaultCompleteRollbackMessage: readErrMsg
+                )
+            }
+
+            for meta in firstListing where meta == ".DS_Store" || meta == "__MACOSX" {
                 try? fm.removeItem(at: folderURL.appendingPathComponent(meta))
             }
-            let unexpectedRemaining = ((try? fm.contentsOfDirectory(atPath: folderURL.path)) ?? []).filter {
+
+            let secondListing: [String]
+            do {
+                secondListing = try performReadDirectory(folderURL)
+            } catch {
+                let readErrMsg = String(
+                    format: NSLocalizedString("Failed to verify contents of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.", comment: ""),
+                    clean
+                )
+                return rollbackAndReconcile(
+                    recordsToRollback: touchedRecords,
+                    defaultCompleteRollbackMessage: readErrMsg
+                )
+            }
+
+            let unexpectedRemaining = secondListing.filter {
                 $0 != ".DS_Store" && $0 != "__MACOSX"
             }
             if !unexpectedRemaining.isEmpty {
-                // 万一未退避の項目が残っている場合は、勝手にフォルダを削除せずロールバックを試みる
-                for doneRecord in completedRecords.reversed() {
-                    let parentDir = doneRecord.sourceURL.deletingLastPathComponent()
-                    try? fm.createDirectory(at: parentDir, withIntermediateDirectories: true)
-                    try? performRollbackMove(doneRecord.destinationURL, doneRecord.sourceURL)
-                }
-                return .failure(.fileOperationFailed(
-                    String(format: NSLocalizedString("Failed to delete folder \"%@\" because some files still remain inside.", comment: ""), clean)
-                ))
+                // 予期しない残存ファイルを検出した場合も、統一されたロールバック＆実ファイル所在地確認＆メタデータ整合を実行
+                let remainingMsg = String(
+                    format: NSLocalizedString("Failed to delete folder \"%@\" because some files still remain inside.", comment: ""),
+                    clean
+                )
+                return rollbackAndReconcile(
+                    recordsToRollback: touchedRecords,
+                    defaultCompleteRollbackMessage: remainingMsg
+                )
             }
-            try? fm.removeItem(at: folderURL)
+
+            // 物理フォルダの削除を実行し、結果を明示的に確認（失敗時は論理フォルダ情報を削除せずロールバック）
+            do {
+                try performFolderRemove(folderURL)
+                guard !fm.fileExists(atPath: folderURL.path) else {
+                    let removeFailMsg = String(
+                        format: NSLocalizedString("Failed to remove folder \"%@\" from storage. All changes were rolled back and the folder was kept.", comment: ""),
+                        clean
+                    )
+                    return rollbackAndReconcile(
+                        recordsToRollback: touchedRecords,
+                        defaultCompleteRollbackMessage: removeFailMsg
+                    )
+                }
+            } catch {
+                let removeFailMsg = String(
+                    format: NSLocalizedString("Failed to remove folder \"%@\" from storage. All changes were rolled back and the folder was kept.", comment: ""),
+                    clean
+                )
+                return rollbackAndReconcile(
+                    recordsToRollback: touchedRecords,
+                    defaultCompleteRollbackMessage: removeFailMsg
+                )
+            }
         }
 
-        // 5. 全ファイルの移動と空フォルダ削除が確認できたため、インデックスとフォルダ管理情報を確定更新
+        // 5. 全ファイルの移動と物理フォルダ削除の完了が確認できたため、インデックスとフォルダ管理情報を確定更新
         var hadUnregisteredFiles = false
-        for record in completedRecords {
+        for record in touchedRecords {
             switch record.kind {
             case .savedVideo(let videoID):
                 downloads.updateSavedVideo(

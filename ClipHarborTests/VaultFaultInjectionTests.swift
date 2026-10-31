@@ -2865,4 +2865,268 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("vid2.mp4").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("spec.pdf").path))
     }
+
+    @MainActor
+    func testZipPhaseF1_DeleteFolder_DirectoryReadFailure_AndPhysicalFolderRemovalFailure() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_DelDirFail_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.deldirfail.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let targetFolder = "ProtectedFolder"
+        fm.registerLogicalFolderIfNeeded(targetFolder)
+        let folderURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true)
+        let subDir = folderURL.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+
+        let vidURL = subDir.appendingPathComponent("movie.mp4")
+        let pdfURL = folderURL.appendingPathComponent("manual.pdf")
+        try Data(repeating: 0x44, count: 512).write(to: vidURL)
+        try Data("Manual Content".utf8).write(to: pdfURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let origVidID = try XCTUnwrap(dc.saved.first(where: { $0.title == "movie" })?.id)
+        let origPdfID = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "manual" })?.id)
+
+        // 1. 事前走査時のディレクトリ読み取り失敗 -> 「空」と扱わず即座に中止し、ファイルもフォルダ情報も維持すること
+        let preReadFailRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            directoryReader: { _ in
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoPermissionError, userInfo: nil)
+            }
+        )
+        if case .success = preReadFailRes {
+            XCTFail("deleteFolder must fail when pre-scan directory reading fails")
+        }
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
+
+        // 2. 全ファイル移動後の最終確認フェーズでのディレクトリ読み取り失敗 -> 空と扱わず全件逆順ロールバックし、フォルダ情報を保持すること
+        var readCallCount = 0
+        let postMoveReadFailRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            directoryReader: { dirURL in
+                readCallCount += 1
+                // 事前走査（フォルダ直下＋サブディレクトリ）は成功させ、移動後の最終確認（3回目以降）でエラー注入
+                if readCallCount >= 3 {
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError, userInfo: nil)
+                }
+                return try FileManager.default.contentsOfDirectory(atPath: dirURL.path)
+            }
+        )
+        if case .success = postMoveReadFailRes {
+            XCTFail("deleteFolder must fail and rollback when post-move directory verification fails")
+        }
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("movie.mp4").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("manual.pdf").path))
+
+        // 3. 物理フォルダ削除失敗（エラー送出） -> 論理フォルダ情報を削除せず、退避済みファイルを元の階層へ完全ロールバックすること
+        let removeThrowRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            folderRemover: { _ in
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError, userInfo: nil)
+            }
+        )
+        switch removeThrowRes {
+        case .success:
+            XCTFail("deleteFolder must fail when physical folder removal throws")
+        case .failure(let err):
+            XCTAssertFalse((err.errorDescription ?? "").isEmpty)
+        }
+        XCTAssertTrue(fm.folders.contains(targetFolder), "物理削除が失敗した場合は論理フォルダ情報を削除しないこと")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folderURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
+
+        // 4. 物理フォルダ削除がエラーを投げないがフォルダがディスク上に残存している場合も検出しロールバックすること
+        let removeNoOpRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            folderRemover: { _ in
+                // 何もしない（フォルダが残存）
+            }
+        )
+        if case .success = removeNoOpRes {
+            XCTFail("deleteFolder must fail when folder still exists on disk after folderRemover")
+        }
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vidURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfURL.path))
+
+        // IDとメタデータが一切破損していないこと
+        let currentVid = try XCTUnwrap(dc.saved.first(where: { $0.title == "movie" }))
+        let currentPdf = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "manual" }))
+        XCTAssertEqual(currentVid.id, origVidID)
+        XCTAssertEqual( fm.folderName(for: currentVid), targetFolder)
+        XCTAssertEqual(currentPdf.id, origPdfID)
+        XCTAssertEqual(currentPdf.folderName, targetFolder)
+    }
+
+    @MainActor
+    func testZipPhaseF1_DeleteFolder_PartialMoveBeforeError_FinalRemainingRollbackFailure_AndIDIntegrity() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF1_DelEdge_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.zipf1.deledge.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        for v in dc.saved { dc.removeSavedVideoWithoutDeletingFile(id: v.id) }
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let targetFolder = "EdgeCaseFolder"
+        fm.registerLogicalFolderIfNeeded(targetFolder)
+        let folderURL = downloadsDir.appendingPathComponent(targetFolder, isDirectory: true)
+        let subA = folderURL.appendingPathComponent("SubA", isDirectory: true)
+        let subB = folderURL.appendingPathComponent("SubB", isDirectory: true)
+        try FileManager.default.createDirectory(at: subA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: subB, withIntermediateDirectories: true)
+
+        let vid1URL = subA.appendingPathComponent("alpha.mp4")
+        let vid2URL = subB.appendingPathComponent("beta.mp4")
+        let docURL = folderURL.appendingPathComponent("notes.txt")
+        try Data(repeating: 0xA1, count: 512).write(to: vid1URL)
+        try Data(repeating: 0xB2, count: 512).write(to: vid2URL)
+        try Data("Notes text".utf8).write(to: docURL)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let origVid1ID = try XCTUnwrap(dc.saved.first(where: { $0.title == "alpha" })?.id)
+        let origVid2ID = try XCTUnwrap(dc.saved.first(where: { $0.title == "beta" })?.id)
+        let origDocID = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.title == "notes" })?.id)
+
+        // 1. 「途中まで成立したファイル移動」の検証：
+        // 2件目の move で実ファイルを移動させた直後にエラーを投げた場合でも、実ファイルの存在を確認して2件目・1件目の両方を逆順ロールバックすること
+        var stepCount1 = 0
+        let moveThenThrowOnSecond: (URL, URL) throws -> Void = { src, dst in
+            stepCount1 += 1
+            try FileManager.default.moveItem(at: src, to: dst)
+            if stepCount1 == 2 {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
+            }
+        }
+
+        let partialMoveRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: moveThenThrowOnSecond
+        )
+        if case .success = partialMoveRes {
+            XCTFail("deleteFolder must fail when mover throws after moving file")
+        }
+
+        // 2件目も含めてすべて元のサブフォルダへ復元されていること
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vid1URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vid2URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: docURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("alpha.mp4").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("beta.mp4").path))
+
+        // IDと所属フォルダが完全に維持されていること
+        XCTAssertEqual(dc.saved.first(where: { $0.title == "alpha" })?.id, origVid1ID)
+        XCTAssertEqual(dc.saved.first(where: { $0.title == "beta" })?.id, origVid2ID)
+        XCTAssertEqual(zipMgr.managedFiles.first(where: { $0.title == "notes" })?.id, origDocID)
+
+        // 2. 「最終残存ファイル検出後のロールバック失敗」および「失敗後のファイルID・メタデータ整合性」の検証：
+        // 全件移動成功後、最終確認フェーズで予期しない残存ファイル（late_arrival.dat）が検出され、
+        // さらに逆順ロールバック時に alpha.mp4 の復元だけが失敗（Downloads直下に残存）し、beta.mp4 と notes.txt は元のフォルダへ戻ったケース
+        let lateFileURL = folderURL.appendingPathComponent("late_arrival.txt")
+        var injectedLateFile = false
+
+        let injectLateFileMover: (URL, URL) throws -> Void = { src, dst in
+            try FileManager.default.moveItem(at: src, to: dst)
+            if !injectedLateFile {
+                injectedLateFile = true
+                try? Data("Late file".utf8).write(to: lateFileURL)
+            }
+        }
+
+        let selectiveFailRollbackMover: (URL, URL) throws -> Void = { src, dst in
+            // alpha.mp4 のロールバックのみ失敗させる（Downloads/alpha.mp4 に残る）
+            if src.lastPathComponent == "alpha.mp4" {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError, userInfo: nil)
+            }
+            try FileManager.default.moveItem(at: src, to: dst)
+        }
+
+        let finalPhasePartialRollbackRes = fm.deleteFolder(
+            name: targetFolder,
+            customRootURL: downloadsDir,
+            zipManager: zipMgr,
+            fileMover: injectLateFileMover,
+            rollbackMover: selectiveFailRollbackMover
+        )
+        switch finalPhasePartialRollbackRes {
+        case .success:
+            XCTFail("deleteFolder must fail when unexpected file remains in final verification")
+        case .failure(let err):
+            let msg = err.errorDescription ?? ""
+            XCTAssertFalse(msg.isEmpty)
+        }
+
+        // 既存フォルダ情報は削除されず保持されていること
+        XCTAssertTrue(fm.folders.contains(targetFolder))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folderURL.path))
+
+        // 実ファイルの所在地確認：alpha.mp4 は Downloads 直下、beta.mp4 と notes.txt と late_arrival.txt はフォルダ内
+        XCTAssertTrue(FileManager.default.fileExists(atPath: downloadsDir.appendingPathComponent("alpha.mp4").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: vid1URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: vid2URL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: docURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: lateFileURL.path))
+
+        // メタデータとファイルIDの整合性確認：
+        // 1) alpha.mp4 は元の UUID (origVid1ID) を維持したまま未分類 ("") に更新されていること
+        let afterAlpha = try XCTUnwrap(dc.saved.first(where: { $0.id == origVid1ID }))
+        XCTAssertEqual(fm.folderName(for: afterAlpha), "")
+        XCTAssertTrue(afterAlpha.relativePath.hasSuffix("Documents/Downloads/alpha.mp4"))
+
+        // 2) beta.mp4 と notes.txt は元の UUID (origVid2ID, origDocID) とフォルダ所属 (EdgeCaseFolder) を維持していること
+        let afterBeta = try XCTUnwrap(dc.saved.first(where: { $0.id == origVid2ID }))
+        XCTAssertEqual(fm.folderName(for: afterBeta), targetFolder)
+        let afterNotes = try XCTUnwrap(zipMgr.managedFiles.first(where: { $0.id == origDocID }))
+        XCTAssertEqual(afterNotes.folderName, targetFolder)
+
+        // 3) 次回スキャンを実行しても ID が変わらず、全4ファイル（late_arrival.txt 含む）が正しく認識されること
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        XCTAssertNotNil(dc.saved.first(where: { $0.id == origVid1ID }))
+        XCTAssertNotNil(dc.saved.first(where: { $0.id == origVid2ID }))
+        XCTAssertNotNil(zipMgr.managedFiles.first(where: { $0.id == origDocID }))
+        XCTAssertNotNil(zipMgr.managedFiles.first(where: { $0.title == "late_arrival" && $0.folderName == targetFolder }))
+    }
 }

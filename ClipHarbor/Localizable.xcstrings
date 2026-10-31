@@ -11266,6 +11266,57 @@
           }
         }
       }
+    },
+    "Failed to read contents of folder \"%@\". The folder was not deleted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to read contents of folder \"%@\". The folder was not deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」の内容を読み取れなかったため、フォルダの削除を中止しました。"
+          }
+        }
+      }
+    },
+    "Failed to verify contents of folder \"%@\". All changes were rolled back and the folder was kept to protect your data.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to verify contents of folder \"%@\". All changes were rolled back and the folder was kept to protect your data."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」の最終確認に失敗したため、変更をすべて元に戻しフォルダを保持しました。"
+          }
+        }
+      }
+    },
+    "Failed to remove folder \"%@\" from storage. All changes were rolled back and the folder was kept.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to remove folder \"%@\" from storage. All changes were rolled back and the folder was kept."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレージからフォルダ「%@」を削除できなかったため、変更をすべて元に戻しフォルダを保持しました。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
