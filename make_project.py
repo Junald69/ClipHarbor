@@ -254,7 +254,8 @@ for kind in ['Debug', 'Release']:
         'SDKROOT': 'iphoneos',
         'IPHONEOS_DEPLOYMENT_TARGET': '17.0',
         'SWIFT_OPTIMIZATION_LEVEL': '"-Onone"' if kind == 'Debug' else '"-O"',
-        'ENABLE_TESTABILITY': 'YES' if kind == 'Debug' else 'NO'
+        'ENABLE_TESTABILITY': 'YES' if kind == 'Debug' else 'NO',
+        'ONLY_ACTIVE_ARCH': 'YES' if kind == 'Debug' else 'NO'
     }
     out.extend([f'\t\t{e(o)} = {{', '\t\t\tisa = XCBuildConfiguration;', '\t\t\tbuildSettings = {'])
     for key, val in settings.items(): out.append(f'\t\t\t\t{key} = {val};')
