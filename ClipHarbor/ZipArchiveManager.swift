@@ -569,6 +569,9 @@ final class ZipArchiveManager: ObservableObject {
     /// テスト用の永続化失敗注入クロージャ
     var metadataPersistFailureInjector: (() throws -> Void)? = nil
 
+    /// テスト用の原子的置換失敗注入クロージャ（Phase F2-C 原子的置換失敗・データ保全検証用）
+    var atomicReplaceFailureInjector: ((URL, URL) throws -> Void)? = nil
+
     private var activeCancellationToken: ZipCancellationToken? = nil
 
     /// 一時的なファイル不在でメタデータを即座に消さないための不在確認カウンタ
@@ -1619,6 +1622,9 @@ final class ZipArchiveManager: ObservableObject {
 
             // 3. 原子的置換 (replaceItemAt)
             do {
+                if let injector = atomicReplaceFailureInjector {
+                    try injector(targetURL, tempURL)
+                }
                 _ = try fm.replaceItemAt(
                     targetURL,
                     withItemAt: tempURL,

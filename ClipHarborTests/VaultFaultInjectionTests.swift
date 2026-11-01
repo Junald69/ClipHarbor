@@ -5196,11 +5196,11 @@ final class VaultFaultInjectionTests: XCTestCase {
             customStagingRootURL: stagingDir
         )
 
-        // ターゲットファイルを非空ディレクトリとして作成することで replaceItemAt を確実に失敗させる
+        // 正常な元ファイルを作成
+        let originalContent = "Original Clean Content Before Edit"
+        let originalData = Data(originalContent.utf8)
         let targetFile = downloadsDir.appendingPathComponent("corrupted.txt")
-        try FileManager.default.createDirectory(at: targetFile, withIntermediateDirectories: true)
-        let blockerFile = targetFile.appendingPathComponent("blocker.dat")
-        try Data("blocker_payload_prevents_replacement".utf8).write(to: blockerFile)
+        try originalData.write(to: targetFile)
 
         let item = ManagedFileItem(
             id: UUID(),
@@ -5208,13 +5208,19 @@ final class VaultFaultInjectionTests: XCTestCase {
             relativePath: "Documents/Downloads/corrupted.txt",
             fileExtension: "txt",
             createdAt: Date(),
-            byteSize: 0,
+            byteSize: Int64(originalData.count),
             folderName: "",
             relativeSubpath: nil
         )
 
-        var meta = TextDocumentCodec.decode(data: Data("dummy".utf8)).metadata
-        meta.contentHash = "expected_hash_does_not_match_directory"
+        let meta = TextDocumentCodec.decode(data: originalData).metadata
+
+        // 原子的置換時に障害が発生し、元ファイルが損傷したシナリオを注入
+        zipMgr.atomicReplaceFailureInjector = { targetURL, tempURL in
+            // 置換処理中の障害で元ファイルが破損/変化した状態を模擬
+            try Data("corrupted_during_hardware_fault".utf8).write(to: targetURL)
+            throw NSError(domain: NSCocoaErrorDomain, code: 512, userInfo: [NSLocalizedDescriptionKey: "Simulated atomic replace failure"])
+        }
 
         do {
             _ = try zipMgr.saveTextDocument(item, content: "New Content", metadata: meta)
@@ -5230,7 +5236,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             XCTFail("Unexpected error: \(error)")
         }
 
-        // 重大置換失敗時に一時退避ファイルが削除されず保持されていることを確認
+        // 重大置換失敗時に元ファイル無傷が証明できないため、一時退避ファイルが削除されず保持されていることを確認
         let tempFiles = (try? FileManager.default.contentsOfDirectory(at: downloadsDir, includingPropertiesForKeys: nil))?
             .filter { $0.lastPathComponent.contains(".corrupted.txt.tmp.") } ?? []
         XCTAssertFalse(tempFiles.isEmpty, "重大置換失敗時に一時退避ファイルが保持されていること")
