@@ -48,6 +48,8 @@ files = [
     'ModernVideoPlayerView.swift',
     'ContentBlockerManager.swift',
     'ZipArchiveManager.swift',
+    'TextDocumentCodec.swift',
+    'TextDocumentEditorSheet.swift',
 ]
 
 test_files = [
