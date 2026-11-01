@@ -107,6 +107,21 @@ struct SaveVideoSheet: View {
         isMP4Selected ? NSLocalizedString("MP4 (Converted from HLS)", comment: "") : candidate.formatLabel
     }
 
+        private var isBackgroundCandidate: Bool {
+        guard candidate.url.scheme?.lowercased() == "https", !candidate.isHLS else { return false }
+        switch candidate.kind {
+        case .file(let type):
+            switch type {
+            case .mp4, .m4v, .mov, .webm: return true
+            case .unknown:
+                let ext = candidate.url.pathExtension.lowercased()
+                return ["mp4", "m4v", "mov", "webm", "m4a", "mp3"].contains(ext)
+            }
+        case .hls:
+            return false
+        }
+    }
+
     private var destinationLabel: String {
         let filesPath = resolvedFolderName.isEmpty
             ? "ClipHarbor / Documents / Downloads"
@@ -220,8 +235,16 @@ struct SaveVideoSheet: View {
 
                 Section("Save Info") {
                     LabeledContent(NSLocalizedString("Save Format", comment: ""), value: formatDisplayLabel)
+                    if isBackgroundCandidate {
+                        LabeledContent(NSLocalizedString("Download Mode", comment: ""), value: NSLocalizedString("Background", comment: ""))
+                    }
                     LabeledContent(NSLocalizedString("Source", comment: ""), value: candidate.host)
                     LabeledContent(NSLocalizedString("Save Destination", comment: ""), value: destinationLabel)
+                    if isBackgroundCandidate {
+                        Text(NSLocalizedString("This file will continue downloading even if the screen is locked or the app is closed.", comment: ""))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     if !isMP4Selected, let note = candidate.formatNote {
                         Text(note)
                             .font(.caption)

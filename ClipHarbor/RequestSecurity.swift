@@ -93,6 +93,7 @@ enum CookiePolicy {
 enum MediaSniffer {
     enum Result: Equatable {
         case mp4, m4v, mov, webm
+        case m4a, mp3
         case hlsPlaylist
         case textOrHTML
         case unknown
@@ -103,6 +104,8 @@ enum MediaSniffer {
             case .m4v: return "m4v"
             case .mov: return "mov"
             case .webm: return "webm"
+            case .m4a: return "m4a"
+            case .mp3: return "mp3"
             default: return nil
             }
         }
@@ -124,11 +127,18 @@ enum MediaSniffer {
             let brand = String(bytes: bytes[8..<12], encoding: .ascii) ?? ""
             if brand == "qt  " { return .mov }
             if brand.hasPrefix("M4V") { return .m4v }
+            if brand.hasPrefix("M4A") { return .m4a }
             return .mp4
         }
         if ["moov", "mdat", "wide", "free", "skip"].contains(box) { return .mov }
         if let head = String(bytes: bytes.prefix(16), encoding: .utf8), head.hasPrefix("#EXTM3U") || head.hasPrefix("\u{FEFF}#EXTM3U") {
             return .hlsPlaylist
+        }
+        if bytes.count >= 3 && bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33 {
+            return .mp3
+        }
+        if bytes.count >= 2 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0 {
+            return .mp3
         }
         if looksLikeText(bytes) { return .textOrHTML }
         return .unknown

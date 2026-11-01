@@ -2711,7 +2711,15 @@ private struct SimpleDownloadJobRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(spacing: 6) {
+                if job.isBackground {
+                    Text("BG")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .background(Color.blue, in: RoundedRectangle(cornerRadius: 3))
+                }
                 Text(job.displayName)
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)

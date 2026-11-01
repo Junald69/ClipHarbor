@@ -100,18 +100,43 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         var name = FileNaming.sanitizedBaseName(displayName)
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
-        let job = DownloadJob(id: UUID(), displayName: name, isHLS: candidate.isHLS,
-                              host: candidate.host, state: .preparing)
+
+        // バックグラウンドダウンロード適格判定（認証不要・静的HTTPSファイル）
+        let isBackgroundEligible = BackgroundDownloadManager.isEligible(candidate: candidate, context: context)
+        let job = DownloadJob(
+            id: UUID(),
+            displayName: name,
+            isHLS: candidate.isHLS,
+            host: candidate.host,
+            state: .preparing,
+            canRetry: false,
+            isBackground: isBackgroundEligible
+        )
         jobs.insert(job, at: 0)
         let cleanPageURL = SourceURLPolicy.sanitize(context.pageURL)
         let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name, sourcePageURL: cleanPageURL)
         transfers[job.id] = transfer
-        launch(transfer)
+
+        if isBackgroundEligible {
+            BackgroundDownloadManager.shared.startDownload(
+                jobID: job.id,
+                url: candidate.url,
+                displayName: name,
+                host: candidate.host,
+                folderName: nil,
+                sourcePageURL: cleanPageURL
+            )
+            setStatus(String(format: NSLocalizedString("Started download for "%@"", comment: ""), name))
+        } else {
+            launch(transfer)
+        }
         return job.id
     }
 
     func cancel(_ jobID: UUID) {
-        if let task = tasks[jobID] {
+        if let job = jobs.first(where: { $0.id == jobID }), job.isBackground {
+            BackgroundDownloadManager.shared.cancel(jobID: jobID)
+        } else if let task = tasks[jobID] {
             task.cancel()
         } else {
             updateJob(jobID) { $0.state = .cancelled }
@@ -119,15 +144,52 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     }
 
     func retry(_ jobID: UUID) {
-        guard let transfer = transfers[jobID],
-              let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
-        launch(transfer)
+        guard let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
+        if job.isBackground {
+            updateJob(jobID) { $0.state = .preparing; $0.canRetry = false }
+            BackgroundDownloadManager.shared.retry(jobID: jobID)
+        } else if let transfer = transfers[jobID] {
+            launch(transfer)
+        }
     }
 
     func dismissJob(_ jobID: UUID) {
         guard let job = jobs.first(where: { $0.id == jobID }), !job.state.isActive else { return }
+        if job.isBackground {
+            BackgroundDownloadManager.shared.dismiss(jobID: jobID)
+        }
         jobs.removeAll { $0.id == jobID }
         transfers[jobID] = nil
+    }
+
+    // MARK: - バックグラウンドダウンロード連携用API
+
+    func updateJobProgress(id: UUID, receivedBytes: Int64, expectedBytes: Int64, progress: Double?) {
+        updateJob(id) {
+            $0.receivedBytes = receivedBytes
+            $0.expectedBytes = expectedBytes
+            $0.state = .downloading(progress: progress)
+        }
+    }
+
+    func finishBackgroundJob(id: UUID, state: DownloadState, name: String) {
+        finish(id, state: state, name: name)
+    }
+
+    func addSavedVideoFromBackground(_ video: SavedVideo) {
+        addSaved(video)
+    }
+
+    func notifyVideoSaved(jobID: UUID, video: SavedVideo) {
+        onVideoSaved?(jobID, video)
+    }
+
+    func restoreBackgroundJob(_ job: DownloadJob) {
+        if let idx = jobs.firstIndex(where: { $0.id == job.id }) {
+            jobs[idx] = job
+        } else {
+            jobs.append(job)
+        }
     }
 
     func delete(_ item: SavedVideo) {
@@ -545,12 +607,14 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         case .m4v: format = .m4v
         case .mov: format = .mov
         case .webm: format = .webm
+        case .m4a: format = .m4a
+        case .mp3: format = .mp3
         case .hlsPlaylist:
             return .failed(NSLocalizedString("This streaming URL format is not supported.", comment: ""))
         case .textOrHTML:
             return .failed(NSLocalizedString("This URL cannot be identified as a video file.", comment: ""))
         case .unknown:
-            if mime.hasPrefix("video/"), let ext = transfer.candidate.expectedExtension,
+            if (mime.hasPrefix("video/") || mime.hasPrefix("audio/")), let ext = transfer.candidate.expectedExtension,
                let f = SavedVideo.Format(rawValue: ext) {
                 format = f
             } else {

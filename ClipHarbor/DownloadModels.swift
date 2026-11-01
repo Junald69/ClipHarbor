@@ -5,17 +5,27 @@ struct SavedVideo: Identifiable, Codable, Equatable {
     enum Format: String, Codable {
         case mp4, m4v, mov, webm, hls
         case jpeg, jpg, png, gif, heic
+        case m4a, mp3
 
         var isImage: Bool {
             switch self {
             case .jpeg, .jpg, .png, .gif, .heic:
                 return true
-            case .mp4, .m4v, .mov, .webm, .hls:
+            case .mp4, .m4v, .mov, .webm, .hls, .m4a, .mp3:
                 return false
             }
         }
 
-        var isVideo: Bool { !isImage }
+        var isAudio: Bool {
+            switch self {
+            case .m4a, .mp3:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var isVideo: Bool { !isImage && !isAudio }
 
         var label: String {
             switch self {
@@ -149,6 +159,8 @@ struct DownloadJob: Identifiable, Equatable {
     var expectedBytes: Int64 = 0
     /// 同じアプリ起動中であれば再試行できる（URLはメモリ上のみ）
     var canRetry: Bool = false
+    /// バックグラウンドURLSessionによるダウンロードかどうか
+    var isBackground: Bool = false
 }
 
 /// アプリ再起動後もHLSのバックグラウンドダウンロードを表示するための情報

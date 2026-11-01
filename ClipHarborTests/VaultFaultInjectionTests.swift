@@ -6202,4 +6202,325 @@ final class VaultFaultInjectionTests: XCTestCase {
         onOpenAudio()
         XCTAssertEqual(playedItem?.id, audioItem.id, "通常モードでは音声プレイヤーが起動すること")
     }
+
+    // MARK: - Phase F3-B バックグラウンドダウンロード（URLSessionConfiguration.background）テスト
+
+    func testBackgroundDownload_EligibilityCriteria() {
+        // 1. HTTPSの静的MP4（Cookieなし） -> 適格
+        let validCandidate = MediaCandidate(
+            url: URL(string: "https://example.com/video/sample.mp4")!,
+            kind: .file(.mp4),
+            videoTitle: "Sample Video",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        let cleanContext = RequestContext(cookies: [], userAgent: "ClipHarbor", pageURL: URL(string: "https://example.com/page")!)
+        XCTAssertTrue(BackgroundDownloadManager.isEligible(candidate: validCandidate, context: cleanContext))
+
+        // 2. 非暗号化HTTP -> 不適格
+        let httpCandidate = MediaCandidate(
+            url: URL(string: "http://example.com/video/sample.mp4")!,
+            kind: .file(.mp4),
+            videoTitle: "HTTP Video",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertFalse(BackgroundDownloadManager.isEligible(candidate: httpCandidate, context: cleanContext))
+
+        // 3. HLSストリーミング -> 不適格（前景/AVAssetDownloadで処理）
+        let hlsCandidate = MediaCandidate(
+            url: URL(string: "https://example.com/live/master.m3u8")!,
+            kind: .hls,
+            videoTitle: "Live HLS",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertFalse(BackgroundDownloadManager.isEligible(candidate: hlsCandidate, context: cleanContext))
+
+        // 4. 認証Cookie必須リクエスト -> 不適格（DL-04規約・前景セッションを維持）
+        let cookie = HTTPCookie(properties: [
+            .domain: "example.com",
+            .path: "/",
+            .name: "session_id",
+            .value: "secret123"
+        ])!
+        let authContext = RequestContext(cookies: [cookie], userAgent: "ClipHarbor", pageURL: URL(string: "https://example.com/page")!)
+        XCTAssertFalse(BackgroundDownloadManager.isEligible(candidate: validCandidate, context: authContext))
+
+        // 5. 音声ファイル（M4A, MP3） -> 適格
+        let m4aCandidate = MediaCandidate(
+            url: URL(string: "https://example.com/audio/song.m4a")!,
+            kind: .file(.unknown),
+            videoTitle: "Song M4A",
+            pageTitle: "Audio Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertTrue(BackgroundDownloadManager.isEligible(candidate: m4aCandidate, context: cleanContext))
+
+        let mp3Candidate = MediaCandidate(
+            url: URL(string: "https://example.com/audio/track.mp3")!,
+            kind: .file(.unknown),
+            videoTitle: "Track MP3",
+            pageTitle: "Audio Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertTrue(BackgroundDownloadManager.isEligible(candidate: mp3Candidate, context: cleanContext))
+    }
+
+    func testBackgroundDownload_ProcessDownloadedFile_SuccessAndDeduplication() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("BGDL_Test_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.bgdl.dedup.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults, customDownloadsRootURL: downloadsDir)
+
+        // 疑似MP4データ（ftypボックスヘッダー）
+        var mp4Bytes: [UInt8] = [
+            0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, // size 24, "ftyp"
+            0x69, 0x73, 0x6F, 0x6D,                         // major brand "isom"
+            0x00, 0x00, 0x02, 0x00,                         // minor version
+            0x69, 0x73, 0x6F, 0x6D, 0x6D, 0x70, 0x34, 0x31  // compatible brands
+        ]
+        mp4Bytes.append(contentsOf: [UInt8](repeating: 0xAA, count: 128))
+        let mp4Data = Data(mp4Bytes)
+
+        let tmpFile1 = tempRoot.appendingPathComponent("tmp1.dat")
+        try mp4Data.write(to: tmpFile1)
+
+        let record1 = PendingBackgroundDownloadRecord(
+            jobID: UUID(),
+            taskIdentifier: 101,
+            originalURL: URL(string: "https://example.com/video.mp4")!,
+            displayName: "LectureVideo",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: Int64(mp4Data.count),
+            receivedBytes: Int64(mp4Data.count)
+        )
+
+        let response = HTTPURLResponse(
+            url: record1.originalURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "video/mp4"]
+        )
+
+        // 1回目の保存
+        let outcome1 = manager.processDownloadedFile(at: tmpFile1, response: response, record: record1)
+        guard case .saved(let video1, let savedURL1) = outcome1 else {
+            XCTFail("1回目のダウンロード保存が成功すること")
+            return
+        }
+        XCTAssertEqual(video1?.title, "LectureVideo")
+        XCTAssertEqual(video1?.format, .mp4)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL1.path))
+        XCTAssertEqual(savedURL1.lastPathComponent, "LectureVideo.mp4")
+
+        // 2回目の保存（同名衝突テスト: LectureVideo.mp4 が既に存在）
+        let tmpFile2 = tempRoot.appendingPathComponent("tmp2.dat")
+        try mp4Data.write(to: tmpFile2)
+
+        let record2 = PendingBackgroundDownloadRecord(
+            jobID: UUID(),
+            taskIdentifier: 102,
+            originalURL: URL(string: "https://example.com/video2.mp4")!,
+            displayName: "LectureVideo",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: Int64(mp4Data.count),
+            receivedBytes: Int64(mp4Data.count)
+        )
+
+        let outcome2 = manager.processDownloadedFile(at: tmpFile2, response: response, record: record2)
+        guard case .saved(let video2, let savedURL2) = outcome2 else {
+            XCTFail("2回目の同名ダウンロード保存も成功すること")
+            return
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL2.path))
+        XCTAssertEqual(savedURL2.lastPathComponent, "LectureVideo (2).mp4", "既存ファイルの上書きを回避しユニーク名で保存されること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL1.path), "元の1本目のファイルが保持されていること")
+    }
+
+    func testBackgroundDownload_ProcessDownloadedFile_RejectsHTTPErrorAndHTML() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("BGDL_Rej_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.bgdl.rej.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults, customDownloadsRootURL: downloadsDir)
+
+        // 1. HTTP 404 Not Found エラー応答
+        let html404 = "<html><body>404 Not Found</body></html>".data(using: .utf8)!
+        let tmp404 = tempRoot.appendingPathComponent("tmp404.html")
+        try html404.write(to: tmp404)
+
+        let record404 = PendingBackgroundDownloadRecord(
+            jobID: UUID(),
+            taskIdentifier: 201,
+            originalURL: URL(string: "https://example.com/notfound.mp4")!,
+            displayName: "NotFoundVideo",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: Int64(html404.count),
+            receivedBytes: Int64(html404.count)
+        )
+
+        let response404 = HTTPURLResponse(
+            url: record404.originalURL,
+            statusCode: 404,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "text/html"]
+        )
+
+        let outcome404 = manager.processDownloadedFile(at: tmp404, response: response404, record: record404)
+        if case .failed = outcome404 {
+            // 成功（正しく拒絶された）
+        } else {
+            XCTFail("HTTP 404応答は保存されず失敗すること")
+        }
+
+        // 2. HTTP 200 だが中身がHTMLの偽装ページ
+        let tmpDisguised = tempRoot.appendingPathComponent("tmpDisguised.mp4")
+        try html404.write(to: tmpDisguised)
+
+        let recordDisguised = PendingBackgroundDownloadRecord(
+            jobID: UUID(),
+            taskIdentifier: 202,
+            originalURL: URL(string: "https://example.com/disguised.mp4")!,
+            displayName: "DisguisedVideo",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: Int64(html404.count),
+            receivedBytes: Int64(html404.count)
+        )
+
+        let response200HTML = HTTPURLResponse(
+            url: recordDisguised.originalURL,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "text/html"]
+        )
+
+        let outcomeDisguised = manager.processDownloadedFile(at: tmpDisguised, response: response200HTML, record: recordDisguised)
+        if case .failed = outcomeDisguised {
+            // 成功（正しく拒絶された）
+        } else {
+            XCTFail("中身がHTMLのエラーページはMP4として保存されず失敗すること")
+        }
+    }
+
+    func testBackgroundDownload_PersistenceAndInterruptedTaskRecovery() {
+        let suiteName = "com.clipharbor.test.bgdl.persist.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+
+        let jobID = UUID()
+        let record = PendingBackgroundDownloadRecord(
+            jobID: jobID,
+            taskIdentifier: 999,
+            originalURL: URL(string: "https://example.com/stream.mp4")!,
+            displayName: "InterruptedLecture",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: 10_000_000,
+            receivedBytes: 2_000_000
+        )
+
+        manager.appendPendingRecordForTesting(record)
+        XCTAssertEqual(manager.pendingRecords[jobID]?.displayName, "InterruptedLecture")
+
+        // 新しいインスタンスを生成して永続化からの復元を確認
+        let restoredManager = BackgroundDownloadManager(userDefaults: defaults)
+        XCTAssertEqual(restoredManager.pendingRecords[jobID]?.displayName, "InterruptedLecture")
+        XCTAssertEqual(restoredManager.pendingRecords[jobID]?.receivedBytes, 2_000_000)
+
+        // dismiss で永続化からクリーンアップされることの確認
+        restoredManager.dismiss(jobID: jobID)
+        XCTAssertNil(restoredManager.pendingRecords[jobID])
+
+        let cleanManager = BackgroundDownloadManager(userDefaults: defaults)
+        XCTAssertNil(cleanManager.pendingRecords[jobID], "削除後に永続化ストアからも除外されていること")
+    }
+
+    func testBackgroundDownload_DuplicateTaskPrevention() {
+        let suiteName = "com.clipharbor.test.bgdl.dup.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+
+        let url = URL(string: "https://example.com/single_instance.mp4")!
+        let record = PendingBackgroundDownloadRecord(
+            jobID: UUID(),
+            taskIdentifier: 501,
+            originalURL: url,
+            displayName: "SingleInstance",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: 5000,
+            receivedBytes: 1000
+        )
+        manager.appendPendingRecordForTesting(record)
+
+        // 同一URLで再度startDownloadを呼び出した場合
+        let duplicateTask = manager.startDownload(
+            jobID: UUID(),
+            url: url,
+            displayName: "DuplicateRequest",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil
+        )
+        // 既存のアクティブタスクが存在しない場合（テスト環境）は二重作成せずnilを返し、既存レコード件数を維持
+        XCTAssertEqual(manager.pendingRecords.count, 1, "同一URLのタスクは重複登録されないこと")
+    }
+
+    func testBackgroundDownload_BackgroundCompletionHandlerExecution() {
+        let manager = BackgroundDownloadManager()
+        var handlerCalled = false
+        manager.backgroundCompletionHandler = {
+            handlerCalled = true
+        }
+
+        // URLSessionの全イベント配送完了をシミュレート
+        manager.urlSessionDidFinishEvents(forBackgroundURLSession: manager.session)
+
+        let expectation = expectation(description: "Completion handler called on main thread")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 2.0)
+
+        XCTAssertTrue(handlerCalled, "urlSessionDidFinishEvents でAppDelegateの完了ハンドラーが実行されること")
+        XCTAssertNil(manager.backgroundCompletionHandler, "実行後にハンドラーが解放されること")
+    }
+
 }

@@ -24,6 +24,7 @@ files = [
     'MediaCandidate.swift',
     'DownloadModels.swift',
     'DownloadCenter.swift',
+    'BackgroundDownloadManager.swift',
     'RequestSecurity.swift',
     'HistoryManager.swift',
     'HistoryView.swift',
