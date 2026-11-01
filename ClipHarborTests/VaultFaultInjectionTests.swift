@@ -1,5 +1,6 @@
 import XCTest
 import CryptoKit
+import ZIPFoundation
 @testable import ClipHarbor
 
 // MARK: - テスト用モック（本番データ・Keychain・UserDefaults・実ファイル完全隔離）
@@ -5241,22 +5242,22 @@ final class VaultFaultInjectionTests: XCTestCase {
         let fm = VideoFolderManager(downloads: dc)
         let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
 
-        let sourceFile = downloadsDir.appendingPathComponent("conflict_video.mp4")
+        let videoUniqueName = "conflict_video_\(UUID().uuidString).mp4"
         let sourceContent = Data("Original Source File Content (Never overwrite me)".utf8)
-        try sourceContent.write(to: sourceFile)
-
         let video = SavedVideo(
             id: UUID(),
             title: "conflict_video",
-            url: URL(string: "https://example.com/conflict.mp4")!,
+            relativePath: "Documents/Downloads/\(videoUniqueName)",
             format: .mp4,
-            duration: 10.0,
-            byteSize: Int64(sourceContent.count),
-            fileURL: sourceFile,
-            downloadDate: Date(),
-            sourcePageURL: nil,
-            tags: []
+            sourceHost: "clipharbor.test",
+            createdAt: Date(),
+            byteSize: Int64(sourceContent.count)
         )
+        let sourceFile = video.fileURL
+        try FileManager.default.createDirectory(at: sourceFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try sourceContent.write(to: sourceFile)
+        defer { try? FileManager.default.removeItem(at: sourceFile) }
+        dc.addSaved(video)
 
         // ゴミ箱のメタデータ書き込みをブロックするためディレクトリを作成
         let actualTrashDir = trashDir.appendingPathComponent("Trash", isDirectory: true)
@@ -5303,22 +5304,22 @@ final class VaultFaultInjectionTests: XCTestCase {
         )
 
         // 1. 動画ファイル
-        let videoFile = downloadsDir.appendingPathComponent("summer_trip.mp4")
+        let videoUniqueName = "summer_\(UUID().uuidString).mp4"
         let videoData = Data("MP4_TEST_DATA_STREAM".utf8)
-        try videoData.write(to: videoFile)
         let video = SavedVideo(
             id: UUID(),
             title: "summer_trip",
-            url: URL(string: "https://example.com/summer_trip.mp4")!,
+            relativePath: "Documents/Downloads/\(videoUniqueName)",
             format: .mp4,
-            duration: 12.0,
-            byteSize: Int64(videoData.count),
-            fileURL: videoFile,
-            downloadDate: Date(),
-            sourcePageURL: nil,
-            tags: []
+            sourceHost: "clipharbor.test",
+            createdAt: Date(),
+            byteSize: Int64(videoData.count)
         )
-        dc.saved = [video]
+        let videoFile = video.fileURL
+        try FileManager.default.createDirectory(at: videoFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try videoData.write(to: videoFile)
+        defer { try? FileManager.default.removeItem(at: videoFile) }
+        dc.addSaved(video)
 
         // 2. テキストファイル
         let txtFile = downloadsDir.appendingPathComponent("notes.txt")
@@ -5354,7 +5355,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         // ZIP内のエントリーを確認
         let archive = try Archive(url: createdURL, accessMode: .read)
         let entryNames = Set(archive.map { $0.path })
-        XCTAssertTrue(entryNames.contains("summer_trip.mp4"), "動画エントリーがアーカイブ内に含まれること")
+        XCTAssertTrue(entryNames.contains(videoUniqueName), "動画エントリーがアーカイブ内に含まれること")
         XCTAssertTrue(entryNames.contains("notes.txt"), "テキストエントリーがアーカイブ内に含まれること")
         XCTAssertTrue(entryNames.contains("picture.png"), "画像エントリーがアーカイブ内に含まれること")
 
@@ -5382,21 +5383,20 @@ final class VaultFaultInjectionTests: XCTestCase {
         )
 
         // HLSパッケージをシミュレート
-        let hlsFolder = downloadsDir.appendingPathComponent("stream.movpkg", isDirectory: true)
-        try FileManager.default.createDirectory(at: hlsFolder, withIntermediateDirectories: true)
+        let hlsUniqueName = "stream_\(UUID().uuidString).movpkg"
         let hlsVideo = SavedVideo(
             id: UUID(),
             title: "stream",
-            url: URL(string: "https://example.com/master.m3u8")!,
+            relativePath: "Documents/Downloads/\(hlsUniqueName)",
             format: .hls,
-            duration: 60.0,
-            byteSize: 1024,
-            fileURL: hlsFolder,
-            downloadDate: Date(),
-            sourcePageURL: nil,
-            tags: [],
-            isHLS: true
+            sourceHost: "clipharbor.test",
+            createdAt: Date(),
+            byteSize: 1024
         )
+        let hlsFolder = hlsVideo.fileURL
+        try FileManager.default.createDirectory(at: hlsFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: hlsFolder) }
+        dc.addSaved(hlsVideo)
 
         let normalFile = downloadsDir.appendingPathComponent("doc.txt")
         try Data("content".utf8).write(to: normalFile)
