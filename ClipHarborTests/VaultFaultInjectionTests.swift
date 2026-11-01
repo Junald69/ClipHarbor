@@ -5681,7 +5681,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertEqual(trashItem.payloadKind, .generalFile)
 
         // 5. 復元できること
-        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        let restoreRes = await trashMgr.restore(item: trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
         guard case .success = restoreRes else {
             XCTFail("restoreItem failed for root managed file")
             return
@@ -5742,10 +5742,10 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         // フォルダ詳細一覧から消え、ゴミ箱に元のフォルダ名付きで格納されること
         XCTAssertFalse(zipMgr.managedFiles(in: .folder("Projects")).contains(where: { $0.id == item.id }), "フォルダ詳細一覧から除外されること")
-        XCTAssertEqual(trashItem.folderName, "Projects", "元フォルダ名がゴミ箱アイテムに記録されること")
+        XCTAssertEqual(trashItem.originalFolderName, "Projects", "元フォルダ名がゴミ箱アイテムに記録されること")
 
         // 復元検証（元のフォルダ内に復帰）
-        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        let restoreRes = await trashMgr.restore(item: trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
         guard case .success = restoreRes else {
             XCTFail("restoreItem failed")
             return
@@ -5813,7 +5813,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(zipMgr.managedFiles(in: .all).contains(where: { $0.title == "system_log" }))
 
         // 復元検証
-        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        let restoreRes = await trashMgr.restore(item: trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
         guard case .success = restoreRes else {
             XCTFail("restoreItem failed")
             return
