@@ -4,6 +4,19 @@ import AVFoundation
 import UIKit
 import MediaPlayer
 
+/// 音声プレイヤー診断ログ管理
+/// - 個人情報（PII）、音声ファイルの絶対パス、認証URLは一切記録しない
+/// - リリース時やデバッグ時にフラグで無効化可能
+public enum AudioDiagnostics {
+    /// 診断ログの有効・無効フラグ（リリース時に無効化可能）
+    public static var isLoggingEnabled: Bool = true
+
+    static func log(_ category: String, _ message: String) {
+        guard isLoggingEnabled else { return }
+        print("[AudioPlayerDiag][\(category)] \(message)")
+    }
+}
+
 /// オフライン音声再生ビューモデル
 /// - AVAudioPlayerによる安定した端末内ローカル音声再生
 /// - ロック画面・コントロールセンター（MPNowPlayingInfoCenter / MPRemoteCommandCenter）連携
@@ -44,9 +57,11 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
 
     func loadAndPlay(item: ManagedFileItem, zipManager: ZipArchiveManager) {
         self.currentTitle = item.title
+        AudioDiagnostics.log("Lifecycle", "loadAndPlay requested: title=\"\(item.title)\", ext=\(item.fileExtension)")
 
         guard item.isAudioFile else {
             errorMessage = NSLocalizedString("Not an audio file.", comment: "")
+            AudioDiagnostics.log("Playback", "Rejected: not an audio file")
             return
         }
 
@@ -55,19 +70,25 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 format: NSLocalizedString("Unsupported audio format: %@ is not supported.", comment: ""),
                 item.fileExtension.uppercased()
             )
+            AudioDiagnostics.log("Playback", "Rejected: unsupported audio format: \(item.fileExtension)")
             return
         }
 
         let url = zipManager.resolveFileURL(for: item)
         guard FileManager.default.fileExists(atPath: url.path) else {
             errorMessage = NSLocalizedString("Audio file not found on disk.", comment: "")
+            AudioDiagnostics.log("Playback", "Rejected: file does not exist on disk")
             return
         }
 
         if FileClassification.isInsideVaultOrTempArea(url) {
             errorMessage = NSLocalizedString("Cannot play files located in protected storage.", comment: "")
+            AudioDiagnostics.log("Playback", "Rejected: file located in protected storage")
             return
         }
+
+        // 先行して動作している動画プレイヤー（PiP含む）を一時停止（AudioSession再設定前に競合排除）
+        VideoPlaybackCoordinator.shared.activePlayer?.pause()
 
         setupRemoteCommands()
         setupAudioSessionObservers()
@@ -78,11 +99,13 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     func loadAudio(from url: URL) {
         stopAndCleanupPlayer()
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-
-            // 先行して動作している動画プレイヤー（PiP含む）を一時停止
+            // 先行動画プレイヤーの停止
             VideoPlaybackCoordinator.shared.activePlayer?.pause()
+
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true)
+            AudioDiagnostics.log("AudioSession", "Activated .playback, mode=.default successfully")
 
             let player = try AVAudioPlayer(contentsOf: url)
             player.delegate = self
@@ -97,8 +120,12 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                 self.isPlaying = true
                 self.startTimer()
                 self.updateNowPlayingInfo()
+                AudioDiagnostics.log("Playback", "Start succeeded: duration=\(String(format: "%.1f", duration))s")
+            } else {
+                AudioDiagnostics.log("Playback", "AVAudioPlayer.play() returned false")
             }
         } catch {
+            AudioDiagnostics.log("Playback", "Failed to load/play audio: \(error.localizedDescription)")
             self.errorMessage = NSLocalizedString("Failed to play audio file.", comment: "")
             self.audioPlayer = nil
             self.isPlaying = false
@@ -122,6 +149,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             isPlaying = true
             startTimer()
             updateNowPlayingInfo()
+            AudioDiagnostics.log("Playback", "Resumed: currentTime=\(String(format: "%.1f", currentTime))s")
+        } else {
+            AudioDiagnostics.log("Playback", "Resume failed")
         }
     }
 
@@ -131,6 +161,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         isPlaying = false
         stopTimer()
         updateNowPlayingInfo()
+        AudioDiagnostics.log("Playback", "Paused: currentTime=\(String(format: "%.1f", currentTime))s")
     }
 
     func togglePlayPause() {
@@ -147,6 +178,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         player.currentTime = newTime
         currentTime = newTime
         updateNowPlayingInfo()
+        AudioDiagnostics.log("Playback", "Skip backward 15s to \(String(format: "%.1f", newTime))s")
     }
 
     func skipForward(seconds: TimeInterval = 15) {
@@ -158,8 +190,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             player.pause()
             isPlaying = false
             stopTimer()
+            AudioDiagnostics.log("Playback", "Reached end of audio file during skipForward")
         }
         updateNowPlayingInfo()
+        AudioDiagnostics.log("Playback", "Skip forward 15s to \(String(format: "%.1f", newTime))s")
     }
 
     func onSliderChanged(to newValue: TimeInterval) {
@@ -178,6 +212,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         player.currentTime = clamped
         currentTime = clamped
         updateNowPlayingInfo()
+        AudioDiagnostics.log("Playback", "Seek to \(String(format: "%.1f", clamped))s")
     }
 
     private func startTimer() {
@@ -206,53 +241,42 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         }
 
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = currentTitle.isEmpty ? NSLocalizedString("Audio", comment: "") : currentTitle
+        let title = currentTitle.isEmpty ? NSLocalizedString("Audio", comment: "") : currentTitle
+        info[MPMediaItemPropertyTitle] = title
+        info[MPMediaItemPropertyArtist] = "ClipHarbor"
+        info[MPNowPlayingInfoPropertyMediaType] = NSNumber(value: MPNowPlayingInfoMediaType.audio.rawValue)
         info[MPMediaItemPropertyPlaybackDuration] = player.duration
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
 
-        if let artwork = artworkImage {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
-        } else if let fallbackArtwork = makeFallbackArtwork() {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: fallbackArtwork.size) { _ in fallbackArtwork }
+        // 実画像が存在する場合のみ、安全な@Sendableハンドラで登録
+        // （動的生成 fallbackArtwork は iOS 16/17/18 で外部検証エラー MRNowPlaying 拒否を引き起こすため完全廃止）
+        if let artwork = artworkImage, artwork.size.width > 0, artwork.size.height > 0 {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { @Sendable _ in artwork }
         }
 
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        AudioDiagnostics.log("NowPlaying", "Updated info: title=\"\(title)\", duration=\(String(format: "%.1f", player.duration))s, elapsed=\(String(format: "%.1f", player.currentTime))s, rate=\(isPlaying ? 1.0 : 0.0), hasArtwork=\(artworkImage != nil)")
     }
 
     func clearNowPlayingInfo() {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        AudioDiagnostics.log("NowPlaying", "Cleared nowPlayingInfo")
     }
 
-    private func makeFallbackArtwork() -> UIImage? {
-        let size = CGSize(width: 512, height: 512)
-        UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
-        defer { UIGraphicsEndImageContext() }
-
-        guard UIGraphicsGetCurrentContext() != nil else { return nil }
-
-        let rect = CGRect(origin: .zero, size: size)
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 48)
-        UIColor.systemIndigo.setFill()
-        path.fill()
-
-        let config = UIImage.SymbolConfiguration(pointSize: 180, weight: .light)
-        if let icon = UIImage(systemName: "waveform", withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
-            let iconOrigin = CGPoint(
-                x: (size.width - icon.size.width) / 2.0,
-                y: (size.height - icon.size.height) / 2.0
-            )
-            icon.draw(at: iconOrigin)
-        }
-
-        return UIGraphicsGetImageFromCurrentImageContext()
+    #if DEBUG
+    func setArtworkForTesting(_ image: UIImage?) {
+        self.artworkImage = image
+        self.updateNowPlayingInfo()
     }
+    #endif
 
     // MARK: - 外部メディア操作（MPRemoteCommandCenter）
 
     private func setupRemoteCommands() {
         removeRemoteCommands()
+        UIApplication.shared.beginReceivingRemoteControlEvents()
         let commandCenter = MPRemoteCommandCenter.shared()
 
         // 再生
@@ -313,6 +337,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             }
             return .commandFailed
         }
+        AudioDiagnostics.log("RemoteCommand", "Registered 6 remote commands (play, pause, toggle, skipBack, skipFwd, seek) & beginReceivingRemoteControlEvents()")
     }
 
     private func removeRemoteCommands() {
@@ -348,6 +373,9 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         commandCenter.skipBackwardCommand.isEnabled = false
         commandCenter.skipForwardCommand.isEnabled = false
         commandCenter.changePlaybackPositionCommand.isEnabled = false
+
+        UIApplication.shared.endReceivingRemoteControlEvents()
+        AudioDiagnostics.log("RemoteCommand", "Removed remote commands & endReceivingRemoteControlEvents()")
     }
 
     // MARK: - オーディオセッション割り込み & ルート変更監視
@@ -449,12 +477,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     func stopAndCleanup() {
+        AudioDiagnostics.log("Lifecycle", "stopAndCleanup() called")
         stopAndCleanupPlayer()
         removeRemoteCommands()
         removeAudioSessionObservers()
         clearNowPlayingInfo()
         wasPlayingBeforeInterruption = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AudioDiagnostics.log("AudioSession", "Deactivated session")
     }
 
     private func extractArtwork(from url: URL) {
@@ -526,6 +556,7 @@ struct AudioPlayerSheet: View {
     let item: ManagedFileItem
     @ObservedObject var zipManager: ZipArchiveManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var viewModel = AudioPlayerViewModel()
 
@@ -658,6 +689,7 @@ struct AudioPlayerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        viewModel.stopAndCleanup()
                         dismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -668,10 +700,21 @@ struct AudioPlayerSheet: View {
             }
         }
         .onAppear {
+            AudioDiagnostics.log("Lifecycle", "AudioPlayerSheet appeared: ext=\(item.fileExtension)")
             viewModel.loadAndPlay(item: item, zipManager: zipManager)
         }
         .onDisappear {
-            viewModel.stopAndCleanup()
+            AudioDiagnostics.log("Lifecycle", "AudioPlayerSheet onDisappear: scenePhase=\(scenePhase), isPlaying=\(viewModel.isPlaying)")
+            // 画面ロックやホーム移行（scenePhase != .active）による意図しない再生停止を防止
+            // フォアグラウンドでシートが閉じられた場合のみクリーンアップを実行
+            if scenePhase == .active {
+                viewModel.stopAndCleanup()
+            } else {
+                AudioDiagnostics.log("Lifecycle", "Preserving playback and NowPlaying across background/screen-lock transition")
+            }
+        }
+        .onChange(of: scenePhase) { phase in
+            AudioDiagnostics.log("Scene", "Scene phase changed to \(phase)")
         }
     }
 }

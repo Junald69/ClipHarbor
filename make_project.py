@@ -270,7 +270,7 @@ for kind in ['Debug', 'Release']:
     settings = {
         'CODE_SIGN_STYLE': 'Automatic',
         'CURRENT_PROJECT_VERSION': '2',
-        'MARKETING_VERSION': '2.1',
+        'MARKETING_VERSION': '2.8',
         'GENERATE_INFOPLIST_FILE': 'YES',
         'INFOPLIST_FILE': 'ClipHarbor/Info.plist',
         'INFOPLIST_KEY_CFBundleDisplayName': 'ClipHarbor',

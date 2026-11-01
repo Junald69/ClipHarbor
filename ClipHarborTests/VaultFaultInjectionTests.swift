@@ -6668,13 +6668,15 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         let viewModel = AudioPlayerViewModel()
 
-        // 1. 再生開始時の NowPlaying 同期検証
+        // 1. 再生開始時の NowPlaying 同期検証（最小構成＋必須キー）
         viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
         let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
         XCTAssertNotNil(info, "NowPlayingInfoが設定されていること")
         XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "f3a_track")
+        XCTAssertEqual(info?[MPMediaItemPropertyArtist] as? String, "ClipHarbor")
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyMediaType] as? NSNumber, NSNumber(value: MPNowPlayingInfoMediaType.audio.rawValue))
         XCTAssertEqual(info?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
-        XCTAssertNotNil(info?[MPMediaItemPropertyArtwork], "アートワーク（または代替波形画像）が設定されていること")
+        XCTAssertNil(info?[MPMediaItemPropertyArtwork], "外部検証エラーを防止するため、実アートワークが存在しない場合はnilであること")
 
         // 2. 一時停止時の再生速度 0.0 反映
         viewModel.pause()
@@ -7217,4 +7219,139 @@ final class VaultFaultInjectionTests: XCTestCase {
         manager.dismiss(jobID: activeJobID)
     }
 
+
+    // MARK: - Phase F3 ロック画面 Now Playing & 診断ログ検証
+
+    @MainActor
+    func testAudioPlayback_LockScreen_MinimalMetadata_AndDiagnostics() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3_LockScreen_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3.lockscreen.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 2.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("lockscreen_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "lockscreen_track",
+            relativePath: "Documents/Downloads/lockscreen_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        // 診断ログのトグル検証
+        AudioDiagnostics.isLoggingEnabled = true
+        AudioDiagnostics.log("Test", "Diagnostic log enabled test")
+        AudioDiagnostics.isLoggingEnabled = false
+        AudioDiagnostics.log("Test", "Diagnostic log should be silenced")
+        AudioDiagnostics.isLoggingEnabled = true
+
+        let viewModel = AudioPlayerViewModel()
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+
+        // 1. ロック画面向けメタデータ最小構成の検証
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertNotNil(info)
+        XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "lockscreen_track")
+        XCTAssertEqual(info?[MPMediaItemPropertyArtist] as? String, "ClipHarbor")
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyMediaType] as? NSNumber, NSNumber(value: MPNowPlayingInfoMediaType.audio.rawValue))
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyDefaultPlaybackRate] as? Double, 1.0)
+        let duration = info?[MPMediaItemPropertyPlaybackDuration] as? Double ?? 0.0
+        XCTAssertGreaterThan(duration, 1.5)
+
+        // 2. 実アートワーク設定時の反映検証
+        let sampleSize = CGSize(width: 100, height: 100)
+        UIGraphicsBeginImageContext(sampleSize)
+        let sampleImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+
+        if let validImage = sampleImage {
+            viewModel.setArtworkForTesting(validImage)
+            let updatedInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo
+            XCTAssertNotNil(updatedInfo?[MPMediaItemPropertyArtwork], "有効な実画像が存在する場合はMPMediaItemPropertyArtworkが設定されること")
+        }
+
+        // 3. クリーンアップ
+        viewModel.stopAndCleanup()
+        XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo, "クリーンアップ後はNowPlayingInfoがnilになること")
+    }
+
+    @MainActor
+    func testAudioPlayback_LockScreen_RemoteCommandsAndSessionLifecycle() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3_Lifecycle_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3.lifecycle.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("lifecycle_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "lifecycle_track",
+            relativePath: "Documents/Downloads/lifecycle_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+
+        let center = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(center.playCommand.isEnabled)
+        XCTAssertTrue(center.pauseCommand.isEnabled)
+        XCTAssertTrue(center.togglePlayPauseCommand.isEnabled)
+        XCTAssertTrue(center.skipBackwardCommand.isEnabled)
+        XCTAssertTrue(center.skipForwardCommand.isEnabled)
+        XCTAssertTrue(center.changePlaybackPositionCommand.isEnabled)
+
+        // 一時停止と再開時のRate検証
+        viewModel.pause()
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 0.0)
+
+        viewModel.play()
+        XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+
+        viewModel.stopAndCleanup()
+        XCTAssertFalse(center.playCommand.isEnabled)
+        XCTAssertFalse(center.pauseCommand.isEnabled)
+        XCTAssertFalse(center.togglePlayPauseCommand.isEnabled)
+        XCTAssertFalse(center.skipBackwardCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertFalse(center.changePlaybackPositionCommand.isEnabled)
+    }
 }

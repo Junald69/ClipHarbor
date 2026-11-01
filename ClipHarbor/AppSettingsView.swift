@@ -30,7 +30,7 @@ struct AppSettingsView: View {
     }
 
     private var appVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.3.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.8"
     }
 
     private var buildNumber: String {
