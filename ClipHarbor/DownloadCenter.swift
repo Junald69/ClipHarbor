@@ -126,7 +126,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
                 folderName: nil,
                 sourcePageURL: cleanPageURL
             )
-            setStatus(String(format: NSLocalizedString("Started download for "%@"", comment: ""), name))
+            setStatus(String(format: NSLocalizedString("Started download for \"%@\"", comment: ""), name))
         } else {
             launch(transfer)
         }
