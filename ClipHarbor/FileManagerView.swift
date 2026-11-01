@@ -273,6 +273,30 @@ struct FileManagerView: View {
         }
     }
 
+    @ViewBuilder
+    private var deletionConfirmationMessageView: some View {
+        if let target = itemPendingDeletion {
+            let messageText: String = target.dialogMessage(retentionPeriod: settingsManager.trashRetentionPeriod)
+            Text(messageText)
+        }
+    }
+
+    @ViewBuilder
+    private func videoPlayerDestination(for video: SavedVideo) -> some View {
+        let currentFilter: VideoFolderManager.FolderFilter = navigationPath.last ?? .uncategorized
+        let baseVideos: [SavedVideo] = (!searchText.trimmingCharacters(in: .whitespaces).isEmpty && navigationPath.isEmpty)
+            ? folderManager.videos(in: .all)
+            : folderManager.videos(in: currentFilter)
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        let matching = query.isEmpty ? baseVideos : baseVideos.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        let playlist = sortVideos(matching)
+        OfflineVideoPlayerSheet(
+            video: video,
+            playlist: playlist,
+            folderTitle: folderTitle(for: currentFilter)
+        )
+    }
+
     var body: some View {
         applyAlerts(to: applySheets(to: fileManagerRootNavigation))
     }
@@ -311,9 +335,7 @@ struct FileManagerView: View {
                     itemPendingDeletion = nil
                 }
             } message: {
-                if let target = itemPendingDeletion {
-                    Text(target.dialogMessage(retentionPeriod: settingsManager.trashRetentionPeriod))
-                }
+                deletionConfirmationMessageView
             }
             .navigationDestination(for: VideoFolderManager.FolderFilter.self) { filter in
                 folderDetailView(for: filter)
@@ -335,21 +357,7 @@ struct FileManagerView: View {
                 }
             }
             .fullScreenCover(item: $playingVideo) { video in
-                let currentFilter = navigationPath.last ?? .uncategorized
-                let baseVideos: [SavedVideo]
-                if !searchText.trimmingCharacters(in: .whitespaces).isEmpty && navigationPath.isEmpty {
-                    baseVideos = folderManager.videos(in: .all)
-                } else {
-                    baseVideos = folderManager.videos(in: currentFilter)
-                }
-                let query = searchText.trimmingCharacters(in: .whitespaces)
-                let matching = query.isEmpty ? baseVideos : baseVideos.filter { $0.title.localizedCaseInsensitiveContains(query) }
-                let playlist = sortVideos(matching)
-                OfflineVideoPlayerSheet(
-                    video: video,
-                    playlist: playlist,
-                    folderTitle: folderTitle(for: currentFilter)
-                )
+                videoPlayerDestination(for: video)
             }
             .photosPicker(isPresented: $showPhotosPicker, selection: $selectedPhotoItems, matching: .images)
             .onChange(of: selectedPhotoItems) { newItems in
@@ -525,7 +533,7 @@ struct FileManagerView: View {
             .sheet(item: $movingManagedFile) { item in
                 MoveManagedFileToFolderSheet(
                     item: item,
-                    currentFolder: item.folderName ?? "",
+                    currentFolder: item.folderName,
                     folders: folderManager.folders,
                     onSelectFolder: { targetFolder in
                         do {
@@ -1208,9 +1216,7 @@ struct FileManagerView: View {
                 itemPendingDeletion = nil
             }
         } message: {
-            if let target = itemPendingDeletion {
-                Text(target.dialogMessage(retentionPeriod: settingsManager.trashRetentionPeriod))
-            }
+            deletionConfirmationMessageView
         }
     }
 
