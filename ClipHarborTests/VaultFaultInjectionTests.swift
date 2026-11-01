@@ -5196,9 +5196,11 @@ final class VaultFaultInjectionTests: XCTestCase {
             customStagingRootURL: stagingDir
         )
 
-        // ターゲットファイルをディレクトリとして作成することで replaceItemAt を失敗させる
+        // ターゲットファイルを非空ディレクトリとして作成することで replaceItemAt を確実に失敗させる
         let targetFile = downloadsDir.appendingPathComponent("corrupted.txt")
         try FileManager.default.createDirectory(at: targetFile, withIntermediateDirectories: true)
+        let blockerFile = targetFile.appendingPathComponent("blocker.dat")
+        try Data("blocker_payload_prevents_replacement".utf8).write(to: blockerFile)
 
         let item = ManagedFileItem(
             id: UUID(),
@@ -5222,11 +5224,16 @@ final class VaultFaultInjectionTests: XCTestCase {
             case .ioError(let msg):
                 XCTAssertTrue(msg.contains("CRITICAL") || msg.contains("preserved at") || msg.contains("Atomic replace failed"), "置換失敗時の安全通知が含まれていること: \(msg)")
             default:
-                break
+                XCTFail("Unexpected ZipOperationError: \(zipErr)")
             }
         } catch {
-            // 他のエラーでも許容
+            XCTFail("Unexpected error: \(error)")
         }
+
+        // 重大置換失敗時に一時退避ファイルが削除されず保持されていることを確認
+        let tempFiles = (try? FileManager.default.contentsOfDirectory(at: downloadsDir, includingPropertiesForKeys: nil))?
+            .filter { $0.lastPathComponent.contains(".corrupted.txt.tmp.") } ?? []
+        XCTAssertFalse(tempFiles.isEmpty, "重大置換失敗時に一時退避ファイルが保持されていること")
     }
 
     @MainActor
@@ -5303,7 +5310,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             customStagingRootURL: stagingDir
         )
 
-        // 1. 動画ファイル
+        // 1. 動画ファイル (SavedVideo: mp4)
         let videoUniqueName = "summer_\(UUID().uuidString).mp4"
         let videoData = Data("MP4_TEST_DATA_STREAM".utf8)
         let video = SavedVideo(
@@ -5321,24 +5328,42 @@ final class VaultFaultInjectionTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: videoFile) }
         dc.addSaved(video)
 
-        // 2. テキストファイル
+        // 2. 画像ファイル (SavedVideo: png)
+        let photoUniqueName = "picture_\(UUID().uuidString).png"
+        let photoData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let photo = SavedVideo(
+            id: UUID(),
+            title: "vacation_pic",
+            relativePath: "Documents/Downloads/\(photoUniqueName)",
+            format: .png,
+            sourceHost: "clipharbor.test",
+            createdAt: Date(),
+            byteSize: Int64(photoData.count)
+        )
+        let photoFile = photo.fileURL
+        try FileManager.default.createDirectory(at: photoFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try photoData.write(to: photoFile)
+        defer { try? FileManager.default.removeItem(at: photoFile) }
+        dc.addSaved(photo)
+
+        // 3. テキストファイル (ManagedFileItem: txt)
         let txtFile = downloadsDir.appendingPathComponent("notes.txt")
         let txtData = Data("Hello Batch ZIP World\nLine 2".utf8)
         try txtData.write(to: txtFile)
 
-        // 3. 画像ファイル
-        let imgFile = downloadsDir.appendingPathComponent("picture.png")
-        let imgData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-        try imgData.write(to: imgFile)
+        // 4. 一般PDFドキュメント (ManagedFileItem: pdf)
+        let pdfFile = downloadsDir.appendingPathComponent("document.pdf")
+        let pdfData = Data("%PDF-1.4 SAMPLE DOCUMENT CONTENT".utf8)
+        try pdfData.write(to: pdfFile)
 
         zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
         let txtItem = zipMgr.managedFiles.first(where: { $0.title == "notes" })!
-        let imgItem = zipMgr.managedFiles.first(where: { $0.title == "picture" })!
+        let pdfItem = zipMgr.managedFiles.first(where: { $0.title == "document" })!
 
-        // 一括圧縮を実行
+        // 一括圧縮を実行（動画、画像、テキスト、一般PDFドキュメントの包括的混在）
         let createdZip = try await zipMgr.compressMultipleItems(
-            videos: [video],
-            managedFiles: [txtItem, imgItem],
+            videos: [video, photo],
+            managedFiles: [txtItem, pdfItem],
             targetFolderName: "",
             downloads: dc,
             folderManager: fm
@@ -5356,13 +5381,15 @@ final class VaultFaultInjectionTests: XCTestCase {
         let archive = try Archive(url: createdURL, accessMode: .read)
         let entryNames = Set(archive.map { $0.path })
         XCTAssertTrue(entryNames.contains(videoUniqueName), "動画エントリーがアーカイブ内に含まれること")
+        XCTAssertTrue(entryNames.contains(photoUniqueName), "画像エントリーがアーカイブ内に含まれること")
         XCTAssertTrue(entryNames.contains("notes.txt"), "テキストエントリーがアーカイブ内に含まれること")
-        XCTAssertTrue(entryNames.contains("picture.png"), "画像エントリーがアーカイブ内に含まれること")
+        XCTAssertTrue(entryNames.contains("document.pdf"), "PDFエントリーがアーカイブ内に含まれること")
 
         // 原本ファイルが非破壊で保持されていることを確認
         XCTAssertTrue(FileManager.default.fileExists(atPath: videoFile.path), "原本動画ファイルが保持されていること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: photoFile.path), "原本画像ファイルが保持されていること")
         XCTAssertTrue(FileManager.default.fileExists(atPath: txtFile.path), "原本テキストファイルが保持されていること")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: imgFile.path), "原本画像ファイルが保持されていること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pdfFile.path), "原本PDFファイルが保持されていること")
     }
 
     @MainActor
