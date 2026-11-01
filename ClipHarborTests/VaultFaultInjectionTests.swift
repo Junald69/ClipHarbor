@@ -6523,4 +6523,109 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertNil(manager.backgroundCompletionHandler, "実行後にハンドラーが解放されること")
     }
 
+
+    // MARK: - ファイル管理階層整理・重複排除テスト（iOS「ファイル」アプリ構造統一）
+
+    func testFileManagerHierarchy_RootDisplay_NoVirtualUncategorizedFolder() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("HierarchyTest_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let tutorialsDir = downloadsDir.appendingPathComponent("Tutorials", isDirectory: true)
+        try FileManager.default.createDirectory(at: tutorialsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.hierarchy.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // 1. ルート直下の動画と一般ファイル
+        let rootVideoURL = downloadsDir.appendingPathComponent("root_video.mp4")
+        try Data("root_video_data".utf8).write(to: rootVideoURL)
+
+        let rootZipURL = downloadsDir.appendingPathComponent("root_archive.zip")
+        try Data("root_zip_data".utf8).write(to: rootZipURL)
+
+        // 2. フォルダ「Tutorials」配下の動画と一般ファイル
+        let subVideoURL = tutorialsDir.appendingPathComponent("tutorial.mp4")
+        try Data("sub_video_data".utf8).write(to: subVideoURL)
+
+        let subTxtURL = tutorialsDir.appendingPathComponent("notes.txt")
+        try Data("sub_txt_data".utf8).write(to: subTxtURL)
+
+        // ManagedFileItem の登録
+        let rootZipItem = ManagedFileItem(
+            id: UUID(),
+            title: "root_archive",
+            relativePath: "Documents/Downloads/root_archive.zip",
+            fileExtension: "zip",
+            createdAt: Date(),
+            byteSize: 100,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        let subTxtItem = ManagedFileItem(
+            id: UUID(),
+            title: "notes",
+            relativePath: "Documents/Downloads/Tutorials/notes.txt",
+            fileExtension: "txt",
+            createdAt: Date(),
+            byteSize: 50,
+            folderName: "Tutorials",
+            relativeSubpath: "Tutorials/notes.txt"
+        )
+        zipMgr.appendManagedFileForTesting(rootZipItem)
+        zipMgr.appendManagedFileForTesting(subTxtItem)
+
+        // 3. ルートとフォルダのフィルタ検証
+        let rootManaged = zipMgr.managedFiles(in: .uncategorized)
+        XCTAssertEqual(rootManaged.count, 1, "ルート直下の一般ファイルは1件のみであること")
+        XCTAssertEqual(rootManaged.first?.id, rootZipItem.id, "ルートにはroot_archiveのみが表示されること")
+
+        let folderManaged = zipMgr.managedFiles(in: .folder("Tutorials"))
+        XCTAssertEqual(folderManaged.count, 1, "Tutorialsフォルダ内には1件のみ表示されること")
+        XCTAssertEqual(folderManaged.first?.id, subTxtItem.id, "Tutorials内にはnotes.txtのみが表示されること")
+
+        // 4. FolderFilter.uncategorized のタイトルが Downloads であることの確認
+        XCTAssertEqual(VideoFolderManager.FolderFilter.uncategorized.title, "Downloads", "未分類フィルタのタイトルがDownloadsに統一されていること")
+    }
+
+    func testFileManagerHierarchy_ExternalFilesAppAdditionSync() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("FilesAppSync_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.filesapp.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        // iPhoneの「ファイル」アプリからDownloads直下に外部ファイルが追加された状態を再現
+        let externalFile = downloadsDir.appendingPathComponent("external_doc.pdf")
+        try Data("pdf_bytes".utf8).write(to: externalFile)
+
+        // 同期スキャンの実行
+        zipMgr.syncWithFileSystem(
+            downloads: DownloadCenter.shared,
+            folderManager: VideoFolderManager.shared
+        )
+
+        let rootFiles = zipMgr.managedFiles(in: .uncategorized)
+        let matched = rootFiles.filter { $0.title == "external_doc" && $0.fileExtension == "pdf" }
+        XCTAssertEqual(matched.count, 1, "「ファイル」アプリから追加されたファイルがルート一覧に重複なく1件だけ現れること")
+        XCTAssertEqual(matched.first?.folderName, "", "ルート直下に追加されたファイルの所属フォルダが空（ルート）であること")
+    }
+
 }

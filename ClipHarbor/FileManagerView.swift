@@ -286,7 +286,7 @@ struct FileManagerView: View {
                 privacyShieldOverlay
             }
             .animation(.easeInOut(duration: 0.25), value: copyNotice)
-            .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount) : NSLocalizedString("Files", comment: ""))
+            .navigationTitle(isSelecting ? String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount) : NSLocalizedString("Downloads", comment: ""))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 rootToolbarContent
@@ -335,8 +335,13 @@ struct FileManagerView: View {
                 }
             }
             .fullScreenCover(item: $playingVideo) { video in
-                let currentFilter = navigationPath.last ?? .all
-                let baseVideos = folderManager.videos(in: currentFilter)
+                let currentFilter = navigationPath.last ?? .uncategorized
+                let baseVideos: [SavedVideo]
+                if !searchText.trimmingCharacters(in: .whitespaces).isEmpty && navigationPath.isEmpty {
+                    baseVideos = folderManager.videos(in: .all)
+                } else {
+                    baseVideos = folderManager.videos(in: currentFilter)
+                }
                 let query = searchText.trimmingCharacters(in: .whitespaces)
                 let matching = query.isEmpty ? baseVideos : baseVideos.filter { $0.title.localizedCaseInsensitiveContains(query) }
                 let playlist = sortVideos(matching)
@@ -385,7 +390,7 @@ struct FileManagerView: View {
                 Text(String(format: NSLocalizedString("%lld selected", comment: ""), totalSelectedCount))
                     .font(.headline)
             } else if navigationPath.isEmpty {
-                Text("Files")
+                Text(NSLocalizedString("Downloads", comment: ""))
                     .font(.headline)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -640,7 +645,7 @@ struct FileManagerView: View {
                 }
             } message: {
                 if let target = deletingFolder {
-                    Text(String(format: NSLocalizedString("Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Uncategorized.", comment: ""), target))
+                    Text(String(format: NSLocalizedString("Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Downloads.", comment: ""), target))
                 }
             }
             .alert(
@@ -698,7 +703,7 @@ struct FileManagerView: View {
     // MARK: - ルート画面のフォルダ・動画グリッド
 
     private var rootFoldersAndVideosGrid: some View {
-        let uncategorizedVideos = folderManager.videos(in: .uncategorized)
+        let uncategorizedVideos = sortVideos(folderManager.videos(in: .uncategorized))
         let uncategorizedFiles = sortManagedFiles(zipManager.managedFiles(in: .uncategorized))
         let hasFolders = !folderManager.folders.isEmpty
         let hasUncategorized = !uncategorizedVideos.isEmpty || !uncategorizedFiles.isEmpty
@@ -708,17 +713,6 @@ struct FileManagerView: View {
                 // Private Vaultカード（非公開保管庫、隠しモード無効時のみ表示）
                 if vaultPolicy.showsVaultCard {
                     privateVaultCard
-                }
-
-                // 未分類フォルダカード（未分類動画・ファイルがある、またはフォルダが作成されている場合に表示）
-                if hasUncategorized || hasFolders {
-                    folderCard(
-                        title: NSLocalizedString("Uncategorized Videos", comment: ""),
-                        itemCount: uncategorizedVideos.count + uncategorizedFiles.count,
-                        videos: uncategorizedVideos,
-                        filter: .uncategorized,
-                        isCustomFolder: false
-                    )
                 }
 
                 // ユーザー作成フォルダ群
@@ -731,6 +725,42 @@ struct FileManagerView: View {
                         videos: videosInFolder,
                         filter: .folder(folderName),
                         isCustomFolder: true
+                    )
+                }
+
+                // ルート直下（Documents/Downloads）の動画カード表示（未分類仮想フォルダを廃止し直接表示）
+                ForEach(uncategorizedVideos) { video in
+                    AlohaVideoCardView(
+                        video: video,
+                        isSelecting: isSelecting,
+                        isSelected: selectedVideoIDs.contains(video.id),
+                        onToggleSelect: {
+                            if selectedVideoIDs.contains(video.id) {
+                                selectedVideoIDs.remove(video.id)
+                            } else {
+                                selectedVideoIDs.insert(video.id)
+                            }
+                        },
+                        onPlay: { playingVideo = video },
+                        onRename: {
+                            renameVideoInput = video.title
+                            renamingVideo = video
+                        },
+                        onMove: { movingVideo = video },
+                        onMoveToVault: vaultPolicy.allowsMoveToVaultFromNormalUI ? {
+                            handleMoveToVault(video: video)
+                        } : nil,
+                        onCompress: !video.isHLS ? {
+                            handleCompressVideo(video)
+                        } : nil,
+                        onDelete: {
+                            itemPendingDeletion = .video(video)
+                        },
+                        onOpenSourcePage: { url in
+                            onOpenSourcePage?(url)
+                            dismiss()
+                        },
+                        onCopySourcePageURL: copySourcePageURL
                     )
                 }
 
@@ -1536,7 +1566,7 @@ struct FileManagerView: View {
             selectedVideoIDs.removeAll()
             selectedManagedFileIDs.removeAll()
         }
-        let destName = targetFolder.isEmpty ? NSLocalizedString("Downloads (Uncategorized)", comment: "") : "「\(targetFolder)」"
+        let destName = targetFolder.isEmpty ? NSLocalizedString("Downloads", comment: "") : "「\(targetFolder)」"
         showToast(String(format: NSLocalizedString("Moved %lld items to %@", comment: ""), successCount, destName))
     }
 
@@ -1672,7 +1702,7 @@ let targetFolder = currentActiveFolderName
     private func folderTitle(for filter: VideoFolderManager.FolderFilter) -> String {
         switch filter {
         case .all: return NSLocalizedString("All Files", comment: "")
-        case .uncategorized: return NSLocalizedString("Uncategorized", comment: "")
+        case .uncategorized: return NSLocalizedString("Downloads", comment: "")
         case .folder(let name): return name
         }
     }
@@ -2887,7 +2917,7 @@ struct MoveToFolderSheet: View {
                         onSelectFolder("")
                     } label: {
                         HStack {
-                            Label("Downloads (Uncategorized)", systemImage: "folder")
+                            Label("Downloads", systemImage: "folder")
                             Spacer()
                             if currentFolder.isEmpty {
                                 Image(systemName: "checkmark")
@@ -2959,7 +2989,7 @@ private struct MoveManagedFileToFolderSheet: View {
                         onSelectFolder("")
                     } label: {
                         HStack {
-                            Label("Downloads (Uncategorized)", systemImage: "folder")
+                            Label("Downloads", systemImage: "folder")
                             Spacer()
                             if currentFolder.isEmpty {
                                 Image(systemName: "checkmark")
@@ -3029,7 +3059,7 @@ private struct BatchMoveToFolderSheet: View {
                         dismiss()
                         onSelectFolder("")
                     } label: {
-                        Label("Downloads (Uncategorized)", systemImage: "folder")
+                        Label("Downloads", systemImage: "folder")
                     }
 
                     ForEach(folders, id: \.self) { folder in

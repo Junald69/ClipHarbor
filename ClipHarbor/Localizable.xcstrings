@@ -12558,6 +12558,40 @@
           }
         }
       }
+    },
+    "Downloads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads"
+          }
+        }
+      }
+    },
+    "Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Downloads.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Downloads."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ「%@」を削除してもよろしいですか？\n中の動画は削除されず、Downloadsに戻ります。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

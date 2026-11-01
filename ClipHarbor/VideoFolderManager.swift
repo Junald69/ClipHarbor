@@ -22,7 +22,7 @@ final class VideoFolderManager: ObservableObject {
         var title: String {
             switch self {
             case .all: return NSLocalizedString("All Videos", comment: "")
-            case .uncategorized: return NSLocalizedString("Downloads (Uncategorized)", comment: "")
+            case .uncategorized: return NSLocalizedString("Downloads", comment: "")
             case .folder(let name): return name
             }
         }
