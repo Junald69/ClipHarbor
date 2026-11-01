@@ -89,6 +89,35 @@ jobs:
               sys.exit("ERROR: UILaunchScreen is missing from Info.plist")
           print("Info.plist verification passed successfully.")
           EOF
+          echo "=== Inspecting PrivacyInfo.xcprivacy ==="
+          test -f "$APP/PrivacyInfo.xcprivacy"
+          plutil -p "$APP/PrivacyInfo.xcprivacy"
+          python3 - "$APP/PrivacyInfo.xcprivacy" << 'EOF'
+          import plistlib, sys
+          privacy_path = sys.argv[1]
+          with open(privacy_path, "rb") as f:
+              privacy = plistlib.load(f)
+          if privacy.get("NSPrivacyTracking") is not False:
+              sys.exit(f"ERROR: NSPrivacyTracking must be False, got {privacy.get('NSPrivacyTracking')!r}")
+          if privacy.get("NSPrivacyTrackingDomains") != []:
+              sys.exit(f"ERROR: NSPrivacyTrackingDomains must be empty, got {privacy.get('NSPrivacyTrackingDomains')!r}")
+          if privacy.get("NSPrivacyCollectedDataTypes") != []:
+              sys.exit(f"ERROR: NSPrivacyCollectedDataTypes must be empty, got {privacy.get('NSPrivacyCollectedDataTypes')!r}")
+          accessed_types = {item.get("NSPrivacyAccessedAPIType"): item.get("NSPrivacyAccessedAPITypeReasons") for item in privacy.get("NSPrivacyAccessedAPITypes", [])}
+          required_categories = [
+              "NSPrivacyAccessedAPICategoryUserDefaults",
+              "NSPrivacyAccessedAPICategoryFileTimestamp",
+              "NSPrivacyAccessedAPICategoryDiskSpace",
+              "NSPrivacyAccessedAPICategorySystemBootTime"
+          ]
+          for cat in required_categories:
+              if cat not in accessed_types:
+                  sys.exit(f"ERROR: Missing Required Reason API category {cat} in PrivacyInfo.xcprivacy")
+              if not accessed_types[cat]:
+                  sys.exit(f"ERROR: Category {cat} has no declared reasons in PrivacyInfo.xcprivacy")
+              print(f"Verified {cat} -> {accessed_types[cat]}")
+          print("PrivacyInfo.xcprivacy verification passed successfully.")
+          EOF
           STAGE="$RUNNER_TEMP/ClipHarborIPA"
           mkdir -p "$STAGE/Payload"
           ditto "$APP" "$STAGE/Payload/ClipHarbor.app"

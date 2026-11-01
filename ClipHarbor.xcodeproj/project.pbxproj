@@ -57,6 +57,7 @@
 		2D4E455C75B185A9C5198616 /* build InfoPlist.xcstrings */ = {isa = PBXBuildFile; fileRef = 4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */; };
 		777EE54E57CB668C325FC849 /* build blocker_rules.json */ = {isa = PBXBuildFile; fileRef = 03577C3445A420DDED519E12 /* file blocker_rules.json */; };
 		1588711800276E56594BA391 /* build blocker_metadata.json */ = {isa = PBXBuildFile; fileRef = E185D6B8460F723A59E17928 /* file blocker_metadata.json */; };
+		B35B61FF3B1070FBD7E774C6 /* build PrivacyInfo.xcprivacy */ = {isa = PBXBuildFile; fileRef = FCAEE84FE186317A52C1C3FF /* file PrivacyInfo.xcprivacy */; };
 		CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */ = {isa = PBXBuildFile; fileRef = A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */; };
 		4A25828E4BECAFF074EDA7FB /* build pkg ZIPFoundation */ = {isa = PBXBuildFile; productRef = B167CC9F31FF3831EBC6E05E /* pkg product ZIPFoundation */; };
 /* End PBXBuildFile section */
@@ -124,6 +125,7 @@
 		4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		03577C3445A420DDED519E12 /* file blocker_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = blocker_rules.json; sourceTree = "<group>"; };
 		E185D6B8460F723A59E17928 /* file blocker_metadata.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = blocker_metadata.json; sourceTree = "<group>"; };
+		FCAEE84FE186317A52C1C3FF /* file PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultFaultInjectionTests.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9820010F6EAE5B56A3C0CF68 /* product test */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClipHarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -190,6 +192,7 @@
 				4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */,
 				03577C3445A420DDED519E12 /* file blocker_rules.json */,
 				E185D6B8460F723A59E17928 /* file blocker_metadata.json */,
+				FCAEE84FE186317A52C1C3FF /* file PrivacyInfo.xcprivacy */,
 			);
 			path = ClipHarbor;
 			sourceTree = "<group>";
@@ -343,6 +346,7 @@
 				2D4E455C75B185A9C5198616 /* build InfoPlist.xcstrings */,
 				777EE54E57CB668C325FC849 /* build blocker_rules.json */,
 				1588711800276E56594BA391 /* build blocker_metadata.json */,
+				B35B61FF3B1070FBD7E774C6 /* build PrivacyInfo.xcprivacy */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

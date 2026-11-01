@@ -64,6 +64,7 @@ resources = [
     'InfoPlist.xcstrings',
     'blocker_rules.json',
     'blocker_metadata.json',
+    'PrivacyInfo.xcprivacy',
 ]
 
 def ident(s): return sha1(s.encode()).hexdigest()[:24].upper()
@@ -101,6 +102,8 @@ for name in resources:
         file_type = "folder.assetcatalog"
     elif name.endswith('.xcstrings'):
         file_type = "text.json.xcstrings"
+    elif name.endswith('.xcprivacy'):
+        file_type = "text.xml"
     else:
         file_type = "text.json"
     out.append(f'\t\t{e("file "+name)} = {{isa = PBXFileReference; lastKnownFileType = {file_type}; path = {name}; sourceTree = "<group>"; }};')
