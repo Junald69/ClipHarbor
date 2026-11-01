@@ -2,9 +2,13 @@ import Foundation
 import SwiftUI
 import AVFoundation
 import UIKit
+import MediaPlayer
 
 /// オフライン音声再生ビューモデル
 /// - AVAudioPlayerによる安定した端末内ローカル音声再生
+/// - ロック画面・コントロールセンター（MPNowPlayingInfoCenter / MPRemoteCommandCenter）連携
+/// - 電話着信・アラーム・Siri等のオーディオ割り込み処理
+/// - 有線イヤホン抜去・Bluetooth切断時の自動一時停止（誤爆防止）
 /// - 再生・一時停止・15秒送り戻し・シーク・時間表示・アートワーク抽出・終了時自動リセット
 @MainActor
 final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
@@ -15,8 +19,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     @Published var artworkImage: UIImage? = nil
     @Published var isDraggingSlider: Bool = false
 
+    private(set) var currentTitle: String = ""
     private(set) var audioPlayer: AVAudioPlayer?
     private var timer: Timer?
+
+    // ロック画面・リモート操作ターゲット
+    private var playCommandTarget: Any?
+    private var pauseCommandTarget: Any?
+    private var togglePlayPauseTarget: Any?
+    private var skipBackwardTarget: Any?
+    private var skipForwardTarget: Any?
+    private var changePlaybackPositionTarget: Any?
+
+    // 割り込み直前の再生状態
+    private var wasPlayingBeforeInterruption: Bool = false
 
     var formattedCurrentTime: String {
         formatTime(currentTime)
@@ -27,6 +43,8 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     func loadAndPlay(item: ManagedFileItem, zipManager: ZipArchiveManager) {
+        self.currentTitle = item.title
+
         guard item.isAudioFile else {
             errorMessage = NSLocalizedString("Not an audio file.", comment: "")
             return
@@ -51,15 +69,20 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             return
         }
 
+        setupRemoteCommands()
+        setupAudioSessionObservers()
         loadAudio(from: url)
         extractArtwork(from: url)
     }
 
     func loadAudio(from url: URL) {
-        stopAndCleanup()
+        stopAndCleanupPlayer()
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
+
+            // 先行して動作している動画プレイヤー（PiP含む）を一時停止
+            VideoPlaybackCoordinator.shared.activePlayer?.pause()
 
             let player = try AVAudioPlayer(contentsOf: url)
             player.delegate = self
@@ -73,6 +96,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             if player.play() {
                 self.isPlaying = true
                 self.startTimer()
+                self.updateNowPlayingInfo()
             }
         } catch {
             self.errorMessage = NSLocalizedString("Failed to play audio file.", comment: "")
@@ -80,25 +104,40 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             self.isPlaying = false
             self.duration = 0
             self.currentTime = 0
+            self.clearNowPlayingInfo()
         }
     }
 
-    func togglePlayPause() {
+    func play() {
         guard let player = audioPlayer else { return }
+
+        // 動画プレイヤーとの競合防止
+        VideoPlaybackCoordinator.shared.activePlayer?.pause()
+
+        if currentTime >= duration && duration > 0 {
+            player.currentTime = 0
+            currentTime = 0
+        }
+        if player.play() {
+            isPlaying = true
+            startTimer()
+            updateNowPlayingInfo()
+        }
+    }
+
+    func pause() {
+        guard let player = audioPlayer else { return }
+        player.pause()
+        isPlaying = false
+        stopTimer()
+        updateNowPlayingInfo()
+    }
+
+    func togglePlayPause() {
         if isPlaying {
-            player.pause()
-            isPlaying = false
-            stopTimer()
+            pause()
         } else {
-            // 末尾に達している場合は先頭から再生
-            if currentTime >= duration && duration > 0 {
-                player.currentTime = 0
-                currentTime = 0
-            }
-            if player.play() {
-                isPlaying = true
-                startTimer()
-            }
+            play()
         }
     }
 
@@ -107,6 +146,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         let newTime = max(0, player.currentTime - seconds)
         player.currentTime = newTime
         currentTime = newTime
+        updateNowPlayingInfo()
     }
 
     func skipForward(seconds: TimeInterval = 15) {
@@ -119,6 +159,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             isPlaying = false
             stopTimer()
         }
+        updateNowPlayingInfo()
     }
 
     func onSliderChanged(to newValue: TimeInterval) {
@@ -136,6 +177,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         let clamped = max(0, min(time, duration))
         player.currentTime = clamped
         currentTime = clamped
+        updateNowPlayingInfo()
     }
 
     private func startTimer() {
@@ -155,7 +197,248 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         timer = nil
     }
 
-    func stopAndCleanup() {
+    // MARK: - ロック画面・コントロールセンター（MPNowPlayingInfoCenter）
+
+    func updateNowPlayingInfo() {
+        guard let player = audioPlayer else {
+            clearNowPlayingInfo()
+            return
+        }
+
+        var info = [String: Any]()
+        info[MPMediaItemPropertyTitle] = currentTitle.isEmpty ? NSLocalizedString("Audio", comment: "") : currentTitle
+        info[MPMediaItemPropertyPlaybackDuration] = player.duration
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = player.currentTime
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+
+        if let artwork = artworkImage {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: artwork.size) { _ in artwork }
+        } else if let fallbackArtwork = makeFallbackArtwork() {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: fallbackArtwork.size) { _ in fallbackArtwork }
+        }
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    func clearNowPlayingInfo() {
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    private func makeFallbackArtwork() -> UIImage? {
+        let size = CGSize(width: 512, height: 512)
+        UIGraphicsBeginImageContextWithOptions(size, false, 0.0)
+        defer { UIGraphicsEndImageContext() }
+
+        guard UIGraphicsGetCurrentContext() != nil else { return nil }
+
+        let rect = CGRect(origin: .zero, size: size)
+        let path = UIBezierPath(roundedRect: rect, cornerRadius: 48)
+        UIColor.systemIndigo.setFill()
+        path.fill()
+
+        let config = UIImage.SymbolConfiguration(pointSize: 180, weight: .light)
+        if let icon = UIImage(systemName: "waveform", withConfiguration: config)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+            let iconOrigin = CGPoint(
+                x: (size.width - icon.size.width) / 2.0,
+                y: (size.height - icon.size.height) / 2.0
+            )
+            icon.draw(at: iconOrigin)
+        }
+
+        return UIGraphicsGetImageFromCurrentImageContext()
+    }
+
+    // MARK: - 外部メディア操作（MPRemoteCommandCenter）
+
+    private func setupRemoteCommands() {
+        removeRemoteCommands()
+        let commandCenter = MPRemoteCommandCenter.shared()
+
+        // 再生
+        commandCenter.playCommand.isEnabled = true
+        playCommandTarget = commandCenter.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.play()
+            }
+            return .success
+        }
+
+        // 一時停止
+        commandCenter.pauseCommand.isEnabled = true
+        pauseCommandTarget = commandCenter.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.pause()
+            }
+            return .success
+        }
+
+        // トグル（AirPods タップなど）
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        togglePlayPauseTarget = commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.togglePlayPause()
+            }
+            return .success
+        }
+
+        // 15秒戻し
+        commandCenter.skipBackwardCommand.isEnabled = true
+        commandCenter.skipBackwardCommand.preferredIntervals = [15]
+        skipBackwardTarget = commandCenter.skipBackwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.skipBackward(seconds: 15)
+            }
+            return .success
+        }
+
+        // 15秒送り
+        commandCenter.skipForwardCommand.isEnabled = true
+        commandCenter.skipForwardCommand.preferredIntervals = [15]
+        skipForwardTarget = commandCenter.skipForwardCommand.addTarget { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.skipForward(seconds: 15)
+            }
+            return .success
+        }
+
+        // シーク位置変更（ロック画面スライダー操作）
+        commandCenter.changePlaybackPositionCommand.isEnabled = true
+        changePlaybackPositionTarget = commandCenter.changePlaybackPositionCommand.addTarget { [weak self] event in
+            if let posEvent = event as? MPChangePlaybackPositionCommandEvent {
+                Task { @MainActor [weak self] in
+                    self?.seek(to: posEvent.positionTime)
+                }
+                return .success
+            }
+            return .commandFailed
+        }
+    }
+
+    private func removeRemoteCommands() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        if let target = playCommandTarget {
+            commandCenter.playCommand.removeTarget(target)
+            playCommandTarget = nil
+        }
+        if let target = pauseCommandTarget {
+            commandCenter.pauseCommand.removeTarget(target)
+            pauseCommandTarget = nil
+        }
+        if let target = togglePlayPauseTarget {
+            commandCenter.togglePlayPauseCommand.removeTarget(target)
+            togglePlayPauseTarget = nil
+        }
+        if let target = skipBackwardTarget {
+            commandCenter.skipBackwardCommand.removeTarget(target)
+            skipBackwardTarget = nil
+        }
+        if let target = skipForwardTarget {
+            commandCenter.skipForwardCommand.removeTarget(target)
+            skipForwardTarget = nil
+        }
+        if let target = changePlaybackPositionTarget {
+            commandCenter.changePlaybackPositionCommand.removeTarget(target)
+            changePlaybackPositionTarget = nil
+        }
+
+        commandCenter.playCommand.isEnabled = false
+        commandCenter.pauseCommand.isEnabled = false
+        commandCenter.togglePlayPauseCommand.isEnabled = false
+        commandCenter.skipBackwardCommand.isEnabled = false
+        commandCenter.skipForwardCommand.isEnabled = false
+        commandCenter.changePlaybackPositionCommand.isEnabled = false
+    }
+
+    // MARK: - オーディオセッション割り込み & ルート変更監視
+
+    private func setupAudioSessionObservers() {
+        removeAudioSessionObservers()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioRouteChange(_:)),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVideoPlaybackStarted(_:)),
+            name: .videoPlaybackDidStart,
+            object: nil
+        )
+    }
+
+    private func removeAudioSessionObservers() {
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .videoPlaybackDidStart, object: nil)
+    }
+
+    @objc private nonisolated func handleAudioInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+        Task { @MainActor in
+            switch type {
+            case .began:
+                // 電話着信、Siri、アラーム等で割り込み発生
+                self.wasPlayingBeforeInterruption = self.isPlaying
+                if self.isPlaying {
+                    self.pause()
+                }
+            case .ended:
+                // 割り込み終了時、OSが再開を推奨しており直前に再生中だった場合のみ自動再開
+                if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                    let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+                    if options.contains(.shouldResume) && self.wasPlayingBeforeInterruption {
+                        self.play()
+                    }
+                }
+                self.wasPlayingBeforeInterruption = false
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    @objc private nonisolated func handleAudioRouteChange(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+        Task { @MainActor in
+            switch reason {
+            case .oldDeviceUnavailable:
+                // 有線イヤホン抜去、Bluetoothイヤホン切断時に意図しないスピーカー大音量再生を防ぐため自動一時停止
+                if self.isPlaying {
+                    self.pause()
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    @objc private nonisolated func handleVideoPlaybackStarted(_ notification: Notification) {
+        Task { @MainActor in
+            if self.isPlaying {
+                self.pause()
+            }
+        }
+    }
+
+    // MARK: - リソース解放・クリーンアップ
+
+    private func stopAndCleanupPlayer() {
         stopTimer()
         if let player = audioPlayer {
             player.stop()
@@ -163,6 +446,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             audioPlayer = nil
         }
         isPlaying = false
+    }
+
+    func stopAndCleanup() {
+        stopAndCleanupPlayer()
+        removeRemoteCommands()
+        removeAudioSessionObservers()
+        clearNowPlayingInfo()
+        wasPlayingBeforeInterruption = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
@@ -176,6 +467,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                             if let data = try? await item.load(.dataValue), let img = UIImage(data: data) {
                                 await MainActor.run {
                                     self.artworkImage = img
+                                    self.updateNowPlayingInfo()
                                 }
                                 return
                             }
@@ -187,6 +479,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
                     if item.commonKey == .commonKeyArtwork, let data = item.dataValue, let img = UIImage(data: data) {
                         await MainActor.run {
                             self.artworkImage = img
+                            self.updateNowPlayingInfo()
                         }
                         return
                     }
@@ -196,12 +489,14 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
     }
 
     // MARK: - AVAudioPlayerDelegate
+
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
             self.isPlaying = false
             self.currentTime = 0
             self.audioPlayer?.currentTime = 0
             self.stopTimer()
+            self.updateNowPlayingInfo()
         }
     }
 
