@@ -5978,7 +5978,7 @@ final class VaultFaultInjectionTests: XCTestCase {
             ManagedFileItem(
                 id: UUID(),
                 title: "audio_track",
-                relativePath: "Documents/audio_track.\(ext)",
+                relativePath: "Documents/Downloads/audio_track.\(ext)",
                 fileExtension: ext,
                 createdAt: Date(),
                 byteSize: 1024,
@@ -6017,22 +6017,31 @@ final class VaultFaultInjectionTests: XCTestCase {
 
     @MainActor
     func testAudioPlayback_PlayerViewModel_UnsupportedAndCorruptFile() async throws {
-        let tempRoot = try makeTempDirectory(name: "AudioErrorTests")
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2_AudioErr_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let dc = DownloadCoordinator(customRootURL: tempRoot)
-        let fm = VideoFolderManager(customRootURL: tempRoot)
-        let zipMgr = ZipArchiveManager(customRootURL: tempRoot)
+        let suiteName = "com.clipharbor.test.f2.audio.err.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
 
         let viewModel = AudioPlayerViewModel()
 
         // 1. 非対応形式（FLAC）の読み込みエラー
-        let flacFile = tempRoot.appendingPathComponent("track.flac")
+        let flacFile = downloadsDir.appendingPathComponent("track.flac")
         try Data("dummy flac".utf8).write(to: flacFile)
         let flacItem = ManagedFileItem(
             id: UUID(),
             title: "track",
-            relativePath: "Documents/track.flac",
+            relativePath: "Documents/Downloads/track.flac",
             fileExtension: "flac",
             createdAt: Date(),
             byteSize: 10,
@@ -6046,12 +6055,12 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertFalse(viewModel.isPlaying)
 
         // 2. 破損したMP3ファイル（10バイトの不正データ）
-        let corruptMp3 = tempRoot.appendingPathComponent("corrupted.mp3")
+        let corruptMp3 = downloadsDir.appendingPathComponent("corrupted.mp3")
         try Data([0x00, 0x01, 0x02, 0x03, 0x04]).write(to: corruptMp3)
         let corruptItem = ManagedFileItem(
             id: UUID(),
             title: "corrupted",
-            relativePath: "Documents/corrupted.mp3",
+            relativePath: "Documents/Downloads/corrupted.mp3",
             fileExtension: "mp3",
             createdAt: Date(),
             byteSize: 5,
@@ -6068,7 +6077,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         let missingItem = ManagedFileItem(
             id: UUID(),
             title: "missing",
-            relativePath: "Documents/non_existent.mp3",
+            relativePath: "Documents/Downloads/non_existent.mp3",
             fileExtension: "mp3",
             createdAt: Date(),
             byteSize: 100,
@@ -6084,22 +6093,31 @@ final class VaultFaultInjectionTests: XCTestCase {
 
     @MainActor
     func testAudioPlayback_PlayerViewModel_PlaybackAndSeeking() async throws {
-        let tempRoot = try makeTempDirectory(name: "AudioPlaybackTests")
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2_AudioPlay_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempRoot) }
 
-        let dc = DownloadCoordinator(customRootURL: tempRoot)
-        let fm = VideoFolderManager(customRootURL: tempRoot)
-        let zipMgr = ZipArchiveManager(customRootURL: tempRoot)
+        let suiteName = "com.clipharbor.test.f2.audio.play.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
 
         // 有効な1秒間のWAVデータを生成
         let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
-        let wavFile = tempRoot.appendingPathComponent("sample_sound.wav")
+        let wavFile = downloadsDir.appendingPathComponent("sample_sound.wav")
         try wavData.write(to: wavFile)
 
         let wavItem = ManagedFileItem(
             id: UUID(),
             title: "sample_sound",
-            relativePath: "Documents/sample_sound.wav",
+            relativePath: "Documents/Downloads/sample_sound.wav",
             fileExtension: "wav",
             createdAt: Date(),
             byteSize: Int64(wavData.count),
@@ -6146,7 +6164,7 @@ final class VaultFaultInjectionTests: XCTestCase {
         let audioItem = ManagedFileItem(
             id: UUID(),
             title: "song",
-            relativePath: "Documents/song.mp3",
+            relativePath: "Documents/Downloads/song.mp3",
             fileExtension: "mp3",
             createdAt: Date(),
             byteSize: 1024,
@@ -6156,7 +6174,7 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         // 選択モード中のタップ動作確認
         var selectedIDs = Set<UUID>()
-        let isSelecting = true
+        var isSelecting = true
 
         let onToggleSelect = {
             if selectedIDs.contains(audioItem.id) {
@@ -6175,14 +6193,13 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         // 選択モード中: 選択トグルが実行され、再生は起動しない
         onToggleSelect()
+        onOpenAudio()
         XCTAssertTrue(selectedIDs.contains(audioItem.id))
         XCTAssertNil(playedItem, "選択モード中は音声再生が起動しないこと")
 
         // 通常モード中: 再生が起動する
-        let normalSelecting = false
-        if !normalSelecting {
-            playedItem = audioItem
-        }
+        isSelecting = false
+        onOpenAudio()
         XCTAssertEqual(playedItem?.id, audioItem.id, "通常モードでは音声プレイヤーが起動すること")
     }
 }
