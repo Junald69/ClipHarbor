@@ -259,7 +259,8 @@ for kind in ['Debug', 'Release']:
         'IPHONEOS_DEPLOYMENT_TARGET': '17.0',
         'SWIFT_OPTIMIZATION_LEVEL': '"-Onone"' if kind == 'Debug' else '"-O"',
         'ENABLE_TESTABILITY': 'YES' if kind == 'Debug' else 'NO',
-        'ONLY_ACTIVE_ARCH': 'YES' if kind == 'Debug' else 'NO'
+        'ONLY_ACTIVE_ARCH': 'YES' if kind == 'Debug' else 'NO',
+        'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if kind == 'Debug' else '""'
     }
     out.extend([f'\t\t{e(o)} = {{', '\t\t\tisa = XCBuildConfiguration;', '\t\t\tbuildSettings = {'])
     for key, val in settings.items(): out.append(f'\t\t\t\t{key} = {val};')
@@ -286,7 +287,8 @@ for kind in ['Debug', 'Release']:
         'SWIFT_EMIT_LOC_STRINGS': 'YES',
         'ASSETCATALOG_COMPILER_APPICON_NAME': 'AppIcon',
         'ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS': 'YES',
-        'SUPPORTED_PLATFORMS': '"iphoneos iphonesimulator"'
+        'SUPPORTED_PLATFORMS': '"iphoneos iphonesimulator"',
+        'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if kind == 'Debug' else '""'
     }
     out.extend([f'\t\t{e(o)} = {{', '\t\t\tisa = XCBuildConfiguration;', '\t\t\tbuildSettings = {'])
     for key, val in settings.items(): out.append(f'\t\t\t\t{key} = {val};')

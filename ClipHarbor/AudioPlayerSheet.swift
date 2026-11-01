@@ -265,12 +265,10 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
         AudioDiagnostics.log("NowPlaying", "Cleared nowPlayingInfo")
     }
 
-    #if DEBUG
     func setArtworkForTesting(_ image: UIImage?) {
         self.artworkImage = image
         self.updateNowPlayingInfo()
     }
-    #endif
 
     // MARK: - 外部メディア操作（MPRemoteCommandCenter）
 
