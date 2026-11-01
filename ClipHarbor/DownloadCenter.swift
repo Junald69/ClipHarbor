@@ -92,7 +92,7 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
     // MARK: - 公開操作
 
     @discardableResult
-    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext) -> UUID? {
+    func start(_ candidate: MediaCandidate, displayName: String, context: RequestContext, folderName: String? = nil) -> UUID? {
         // HLSダウンロードの二重防御（UIを経由しない呼び出しからもHLSダウンロードを開始させない）
         guard !candidate.isHLS else {
             return nil
@@ -101,36 +101,66 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         if name.isEmpty { name = FileNaming.sanitizedBaseName(candidate.suggestedName) }
         if name.isEmpty { name = "Video" }
 
-        // バックグラウンドダウンロード適格判定（認証不要・静的HTTPSファイル）
+        let sanitizedFolder = folderName.flatMap {
+            let clean = VideoFolderManager.sanitizedFolderName($0)
+            return clean.isEmpty ? nil : clean
+        }
+
+        // バックグラウンドダウンロード適格判定（認証不要・静的HTTPSファイル・クエリパラメータなし）
         let isBackgroundEligible = BackgroundDownloadManager.isEligible(candidate: candidate, context: context)
-        let job = DownloadJob(
-            id: UUID(),
-            displayName: name,
-            isHLS: candidate.isHLS,
-            host: candidate.host,
-            state: .preparing,
-            canRetry: false,
-            isBackground: isBackgroundEligible
-        )
-        jobs.insert(job, at: 0)
         let cleanPageURL = SourceURLPolicy.sanitize(context.pageURL)
-        let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name, sourcePageURL: cleanPageURL)
-        transfers[job.id] = transfer
 
         if isBackgroundEligible {
-            BackgroundDownloadManager.shared.startDownload(
+            // 同一URLのバックグラウンドタスクが既に進行中の場合は二重ジョブを作成せず既存IDを返す
+            if let existingJobID = BackgroundDownloadManager.shared.activeJobID(for: candidate.url) {
+                setStatus(String(format: NSLocalizedString("Download already in progress for \"%@\"", comment: ""), name))
+                return existingJobID
+            }
+
+            let job = DownloadJob(
+                id: UUID(),
+                displayName: name,
+                isHLS: candidate.isHLS,
+                host: candidate.host,
+                state: .preparing,
+                canRetry: false,
+                isBackground: true
+            )
+            jobs.insert(job, at: 0)
+
+            let task = BackgroundDownloadManager.shared.startDownload(
                 jobID: job.id,
                 url: candidate.url,
                 displayName: name,
                 host: candidate.host,
-                folderName: nil,
+                folderName: sanitizedFolder,
                 sourcePageURL: cleanPageURL
             )
-            setStatus(String(format: NSLocalizedString("Started download for \"%@\"", comment: ""), name))
+            if task == nil {
+                // 容量不足などでタスク生成に失敗した場合、preparing状態で残さない
+                if let idx = jobs.firstIndex(where: { $0.id == job.id }), jobs[idx].state == .preparing {
+                    jobs.remove(at: idx)
+                }
+            } else {
+                setStatus(String(format: NSLocalizedString("Started download for \"%@\"", comment: ""), name))
+            }
+            return job.id
         } else {
+            let job = DownloadJob(
+                id: UUID(),
+                displayName: name,
+                isHLS: candidate.isHLS,
+                host: candidate.host,
+                state: .preparing,
+                canRetry: false,
+                isBackground: false
+            )
+            jobs.insert(job, at: 0)
+            let transfer = Transfer(jobID: job.id, candidate: candidate, context: context, baseName: name, sourcePageURL: cleanPageURL)
+            transfers[job.id] = transfer
             launch(transfer)
+            return job.id
         }
-        return job.id
     }
 
     func cancel(_ jobID: UUID) {

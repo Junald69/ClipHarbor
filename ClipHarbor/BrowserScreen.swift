@@ -539,7 +539,9 @@ private struct ActiveBrowserContainer: View {
             browser.showNotice(NSLocalizedString("💡 Saved videos and source URLs are stored on local device storage.", comment: ""))
         }
         browser.makeRequestContext { context in
-            if let jobID = downloads.start(candidate, displayName: displayName, context: context) {
+            let cleanFolder = VideoFolderManager.sanitizedFolderName(folderName)
+            let folderParam = cleanFolder.isEmpty ? nil : cleanFolder
+            if let jobID = downloads.start(candidate, displayName: displayName, context: context, folderName: folderParam) {
                 folderManager.registerPendingFolder(folderName, forJobID: jobID)
             }
         }

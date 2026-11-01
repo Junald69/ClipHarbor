@@ -12609,6 +12609,23 @@
           }
         }
       }
+    },
+    "Download already in progress for \"%@\"": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download already in progress for \"%@\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は既にダウンロード中です。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -7067,4 +7067,154 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(video?.relativePath.contains("Downloads/Podcasts") == true, "相対パスにサブフォルダが反映されていること")
     }
 
+    // MARK: - Phase F3 / v2.8 最終修正回帰テスト（保存先フォルダ・クエリURL除外・再試行永続化・重複ジョブ整合）
+
+    func testBackgroundDownload_TargetFolderForwarding_AndRestorationAcrossRestart() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("BGDL_FolderRestart_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.bgdl.folder.restart.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults, customDownloadsRootURL: downloadsDir)
+        let jobID = UUID()
+        let targetFolder = "Lectures"
+        let rawURL = URL(string: "https://example.com/lecture_audio.m4a")!
+
+        let task = manager.startDownload(
+            jobID: jobID,
+            url: rawURL,
+            displayName: "LectureAudio",
+            host: "example.com",
+            folderName: targetFolder,
+            sourcePageURL: nil
+        )
+        XCTAssertNotNil(task)
+
+        // 1. 永続化レコードに指定フォルダ名が格納されていること
+        XCTAssertEqual(manager.pendingRecords[jobID]?.folderName, "Lectures")
+
+        // 2. アプリ再起動（コールドローンチ）シミュレーション：新規マネージャーインスタンスで復元
+        let restoredManager = BackgroundDownloadManager(userDefaults: defaults, customDownloadsRootURL: downloadsDir)
+        XCTAssertEqual(restoredManager.pendingRecords[jobID]?.folderName, "Lectures", "再起動後も保存先フォルダ名が正しく復元されること")
+
+        // 3. ダウンロード完了処理で指定フォルダ内に保存されること
+        let tempFile = tempRoot.appendingPathComponent("temp.m4a")
+        try Data("audio_bytes".utf8).write(to: tempFile)
+        let record = restoredManager.pendingRecords[jobID]!
+        let outcome = restoredManager.processDownloadedFile(
+            at: tempFile,
+            response: HTTPURLResponse(url: rawURL, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "audio/m4a"]),
+            record: record
+        )
+        guard case .saved(let video, let savedURL) = outcome else {
+            XCTFail("保存に成功すること")
+            return
+        }
+        XCTAssertTrue(savedURL.path.contains("Downloads/Lectures/"))
+        XCTAssertTrue(video?.relativePath.contains("Downloads/Lectures/") == true)
+
+        manager.dismiss(jobID: jobID)
+    }
+
+    func testBackgroundDownload_QueryURL_ExcludedAndFallsBackToForeground() {
+        let cleanContext = RequestContext(cookies: [], userAgent: "ClipHarbor", pageURL: nil)
+
+        // 1. クエリパラメータ付きURL（署名トークン付き） -> 不適格
+        let queryURL = URL(string: "https://example.com/stream.mp4?token=jwt_xyz&expires=1793500000")!
+        let queryCandidate = MediaCandidate(
+            url: queryURL,
+            kind: .file(.mp4),
+            videoTitle: "Secure Stream",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertFalse(
+            BackgroundDownloadManager.isEligible(candidate: queryCandidate, context: cleanContext),
+            "クエリパラメータ付きURLはバックグラウンド対象外として安全側に倒すこと"
+        )
+
+        // 2. クエリなしの静的URL -> 適格
+        let cleanURL = URL(string: "https://example.com/static_video.mp4")!
+        let cleanCandidate = MediaCandidate(
+            url: cleanURL,
+            kind: .file(.mp4),
+            videoTitle: "Static Video",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        XCTAssertTrue(
+            BackgroundDownloadManager.isEligible(candidate: cleanCandidate, context: cleanContext),
+            "クエリなしの静的URLはバックグラウンド適格であること"
+        )
+
+        // 3. BackgroundDownloadManager.startDownload に直接クエリURLが渡された場合も拒絶（多層防御）
+        let suiteName = "com.clipharbor.test.bgdl.query.guard.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+        let rejectedTask = manager.startDownload(
+            jobID: UUID(),
+            url: queryURL,
+            displayName: "ShouldReject",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil
+        )
+        XCTAssertNil(rejectedTask, "クエリパラメータ付きURLはstartDownloadでも直接拒絶されること")
+    }
+
+    func testBackgroundDownload_RetryRecordPreservedOnColdLaunch_AndDuplicateJobPrevention() {
+        let suiteName = "com.clipharbor.test.bgdl.cold.retry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+        let jobID = UUID()
+        let url = URL(string: "https://example.com/preserved_retry.mp4")!
+
+        // 1. 失敗・キャンセル状態の再試行待機レコード（taskIdentifier = -1）を作成
+        let retryRecord = PendingBackgroundDownloadRecord(
+            jobID: jobID,
+            taskIdentifier: -1,
+            originalURL: url,
+            displayName: "PreservedRetryJob",
+            host: "example.com",
+            folderName: "Archive",
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: 1000,
+            receivedBytes: 500
+        )
+        manager.appendPendingRecordForTesting(retryRecord)
+
+        // 2. activeJobID の判定（非アクティブ時はnilを返し、アクティブ時はjobIDを返す）
+        XCTAssertNil(manager.activeJobID(for: url), "taskIdentifier == -1の再試行待機レコードは進行中とみなされないこと")
+
+        let activeJobID = UUID()
+        let activeRecord = PendingBackgroundDownloadRecord(
+            jobID: activeJobID,
+            taskIdentifier: 101,
+            originalURL: url,
+            displayName: "ActiveJob",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: 2000,
+            receivedBytes: 100
+        )
+        manager.appendPendingRecordForTesting(activeRecord)
+        XCTAssertEqual(manager.activeJobID(for: url), activeJobID, "アクティブ進行中タスクは正しくactiveJobIDとして検出されること")
+
+        // クリーンアップ
+        manager.dismiss(jobID: jobID)
+        manager.dismiss(jobID: activeJobID)
+    }
+
 }

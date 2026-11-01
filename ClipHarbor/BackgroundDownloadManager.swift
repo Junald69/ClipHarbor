@@ -29,6 +29,29 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
     /// AppDelegateから渡される、バックグラウンドURLSession完了時のハンドラー
     var backgroundCompletionHandler: (() -> Void)?
 
+    /// 機密認証情報（ユーザー名・パスワード）を除去した正規化URLを返す
+    static func cleanOriginalURL(_ url: URL) -> URL {
+        var cleanURL = url
+        if var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            if comps.user != nil || comps.password != nil {
+                comps.user = nil
+                comps.password = nil
+                if let stripped = comps.url {
+                    cleanURL = stripped
+                }
+            }
+        }
+        return cleanURL
+    }
+
+    /// 指定URLに対して現在アクティブに進行中のタスクのJobIDを返す（重複要求防止用）
+    func activeJobID(for url: URL) -> UUID? {
+        lock.lock()
+        defer { lock.unlock() }
+        let clean = Self.cleanOriginalURL(url)
+        return pendingRecords.values.first(where: { $0.originalURL == clean && $0.taskIdentifier > 0 })?.jobID
+    }
+
     /// テスト容易性のためのUserDefaultsおよびダウンロード先ディレクトリ注入
     let userDefaults: UserDefaults
     let customDownloadsRootURL: URL?
@@ -78,6 +101,10 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         if candidate.url.user != nil || candidate.url.password != nil {
             return false
         }
+        // クエリパラメータ付きURL（署名トークン・機密情報等の漏洩リスクがあるため安全側に倒して前景DLへフォールバック）
+        if let query = candidate.url.query, !query.isEmpty {
+            return false
+        }
         // 2. HLSは対象外（前景またはAVAssetDownload）
         guard !candidate.isHLS else {
             return false
@@ -117,17 +144,13 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         lock.lock()
         defer { lock.unlock() }
 
-        // 機密URL保護：埋め込みクレデンシャルの除去
-        var cleanURL = url
-        if var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            if comps.user != nil || comps.password != nil {
-                comps.user = nil
-                comps.password = nil
-                if let stripped = comps.url {
-                    cleanURL = stripped
-                }
-            }
+        // クエリパラメータ付きURLはバックグラウンド対象外ガード
+        if let query = url.query, !query.isEmpty {
+            return nil
         }
+
+        // 機密URL保護：埋め込みクレデンシャルの除去
+        let cleanURL = Self.cleanOriginalURL(url)
 
         // 保存元WebページURLのサニタイズ（機密クエリパラメータ等の除去）
         let cleanSourcePageURL = sourcePageURL.flatMap { SourceURLPolicy.sanitize(URL(string: $0)) }
@@ -559,10 +582,25 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
 
             let activeTaskIDs = Set(tasks.map { $0.taskIdentifier })
             var activeJobsToRestore: [DownloadJob] = []
-            var deadJobIDs: [UUID] = []
+            var retryJobsToRestore: [DownloadJob] = []
+            var newlyDeadRecords: [PendingBackgroundDownloadRecord] = []
 
             for (jobID, record) in self.pendingRecords {
-                if activeTaskIDs.contains(record.taskIdentifier) {
+                if record.taskIdentifier == -1 {
+                    // 失敗・キャンセルで保持されている再試行レコード：削除せず保持し、再試行可能な状態でUIに復元
+                    let job = DownloadJob(
+                        id: jobID,
+                        displayName: record.displayName,
+                        isHLS: false,
+                        host: record.host,
+                        state: .failed(NSLocalizedString("The download was interrupted because the app was closed.", comment: "")),
+                        receivedBytes: record.receivedBytes,
+                        expectedBytes: record.expectedBytes,
+                        canRetry: true,
+                        isBackground: true
+                    )
+                    retryJobsToRestore.append(job)
+                } else if activeTaskIDs.contains(record.taskIdentifier) {
                     if let task = tasks.first(where: { $0.taskIdentifier == record.taskIdentifier }) as? URLSessionDownloadTask {
                         self.activeTasks[jobID] = task
                         self.taskIDToJobMap[task.taskIdentifier] = jobID
@@ -582,30 +620,41 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
                         activeJobsToRestore.append(job)
                     }
                 } else {
-                    // タスクがOSにより破棄された（App Switcher強制終了等）
-                    deadJobIDs.append(jobID)
+                    // 実行中だったタスクがOSにより破棄された（App Switcherスワイプ終了等）
+                    // レコードは再試行可能（taskIdentifier = -1）として保持し、失敗状態として通知
+                    let updatedRecord = PendingBackgroundDownloadRecord(
+                        jobID: record.jobID,
+                        taskIdentifier: -1,
+                        originalURL: record.originalURL,
+                        displayName: record.displayName,
+                        host: record.host,
+                        folderName: record.folderName,
+                        sourcePageURL: record.sourcePageURL,
+                        createdAt: record.createdAt,
+                        expectedBytes: record.expectedBytes,
+                        receivedBytes: record.receivedBytes
+                    )
+                    self.pendingRecords[jobID] = updatedRecord
+                    self.taskIDToJobMap.removeValue(forKey: record.taskIdentifier)
+                    newlyDeadRecords.append(record)
                 }
             }
 
-            for id in deadJobIDs {
-                if let record = self.pendingRecords.removeValue(forKey: id) {
-                    self.taskIDToJobMap.removeValue(forKey: record.taskIdentifier)
-                    DispatchQueue.main.async {
-                        DownloadCenter.shared.finishBackgroundJob(
-                            id: id,
-                            state: .failed(NSLocalizedString("The download was interrupted because the app was closed.", comment: "")),
-                            name: record.displayName
-                        )
-                    }
-                }
-            }
             self.persistPendingRecords()
 
-            if !activeJobsToRestore.isEmpty {
-                DispatchQueue.main.async {
-                    for job in activeJobsToRestore {
-                        DownloadCenter.shared.restoreBackgroundJob(job)
-                    }
+            DispatchQueue.main.async {
+                for record in newlyDeadRecords {
+                    DownloadCenter.shared.finishBackgroundJob(
+                        id: record.jobID,
+                        state: .failed(NSLocalizedString("The download was interrupted because the app was closed.", comment: "")),
+                        name: record.displayName
+                    )
+                }
+                for job in activeJobsToRestore {
+                    DownloadCenter.shared.restoreBackgroundJob(job)
+                }
+                for job in retryJobsToRestore {
+                    DownloadCenter.shared.restoreBackgroundJob(job)
                 }
             }
         }
