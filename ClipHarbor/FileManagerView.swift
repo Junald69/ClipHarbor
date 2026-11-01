@@ -63,6 +63,46 @@ struct FileManagerView: View {
     @State private var renameFolderInput = ""
     @State private var deletingFolder: String?
 
+    // 削除対象の統合管理（動画・一般ファイルの共通ダイアログ用）
+    enum DeletionTarget: Identifiable, Equatable {
+        case video(SavedVideo)
+        case managedFile(ManagedFileItem)
+
+        var id: UUID {
+            switch self {
+            case .video(let v): return v.id
+            case .managedFile(let m): return m.id
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .video(let v): return v.title
+            case .managedFile(let m): return m.title
+            }
+        }
+
+        var dialogTitle: String {
+            switch self {
+            case .video:
+                return NSLocalizedString("Move Video to Trash", comment: "")
+            case .managedFile:
+                return NSLocalizedString("Move File to Trash", comment: "")
+            }
+        }
+
+        var dialogMessage: String {
+            switch self {
+            case .video(let v):
+                return String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), v.title)
+            case .managedFile(let m):
+                return String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)", comment: ""), m.title)
+            }
+        }
+    }
+
+    @State private var itemPendingDeletion: DeletionTarget? = nil
+
     // 動画操作用ダイアログ
     @State private var renamingVideo: SavedVideo?
     @State private var renameVideoInput = ""
@@ -71,14 +111,12 @@ struct FileManagerView: View {
     @State private var renamingManagedFile: ManagedFileItem?
     @State private var renameManagedFileInput = ""
     @State private var movingManagedFile: ManagedFileItem?
-    @State private var deletingManagedFile: ManagedFileItem?
     @State private var editingTextDocument: ManagedFileItem?
 
     // 画像インポート
     @State private var showPhotosPicker = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showFileImporter = false
-    @State private var deletingVideo: SavedVideo?
 
     // エラー・通知
     @State private var errorMessage: String?
@@ -254,6 +292,28 @@ struct FileManagerView: View {
             }
             .toolbarBackground(Color(.systemBackground), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .confirmationDialog(
+                itemPendingDeletion?.dialogTitle ?? "",
+                isPresented: Binding(
+                    get: { itemPendingDeletion != nil && navigationPath.isEmpty },
+                    set: { if !$0 { itemPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Move to Trash", role: .destructive) {
+                    if let target = itemPendingDeletion {
+                        executeDeletion(target)
+                    }
+                    itemPendingDeletion = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    itemPendingDeletion = nil
+                }
+            } message: {
+                if let target = itemPendingDeletion {
+                    Text(target.dialogMessage)
+                }
+            }
             .navigationDestination(for: VideoFolderManager.FolderFilter.self) { filter in
                 folderDetailView(for: filter)
             }
@@ -618,28 +678,6 @@ struct FileManagerView: View {
                     renamingManagedFile = nil
                 }
             }
-            .confirmationDialog(
-                NSLocalizedString("Move Video to Trash", comment: ""),
-                isPresented: Binding(
-                    get: { deletingVideo != nil && navigationPath.isEmpty && searchText.isEmpty },
-                    set: { if !$0 { deletingVideo = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Move to Trash", role: .destructive) {
-                    if let target = deletingVideo {
-                        handleMoveToTrash(video: target)
-                    }
-                    deletingVideo = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    deletingVideo = nil
-                }
-            } message: {
-                if let target = deletingVideo {
-                    Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
-                }
-            }
             .alert(
                 NSLocalizedString("Could not perform operation", comment: ""),
                 isPresented: Binding(
@@ -723,7 +761,7 @@ struct FileManagerView: View {
                             movingManagedFile = fileItem
                         },
                         onDelete: {
-                            deletingManagedFile = fileItem
+                            itemPendingDeletion = .managedFile(fileItem)
                         }
                     )
                 }
@@ -985,7 +1023,7 @@ struct FileManagerView: View {
                                         handleCompressVideo(video)
                                     } : nil,
                                     onDelete: {
-                                        deletingVideo = video
+                                        itemPendingDeletion = .video(video)
                                     },
                                     onOpenSourcePage: { url in
                                         onOpenSourcePage?(url)
@@ -1025,7 +1063,7 @@ struct FileManagerView: View {
                                         movingManagedFile = fileItem
                                     },
                                     onDelete: {
-                                        deletingManagedFile = fileItem
+                                        itemPendingDeletion = .managedFile(fileItem)
                                     }
                                 )
                             }
@@ -1111,27 +1149,27 @@ struct FileManagerView: View {
         }
         .toolbarBackground(Color(.systemBackground), for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        // 遷移先画面自身に確認ダイアログを接続することで確実に表示されるよう修正
+        // 遷移先画面自身に共通削除確認ダイアログを接続（動画・一般ファイル双方対応）
         .confirmationDialog(
-            NSLocalizedString("Move Video to Trash", comment: ""),
+            itemPendingDeletion?.dialogTitle ?? "",
             isPresented: Binding(
-                get: { deletingVideo != nil },
-                set: { if !$0 { deletingVideo = nil } }
+                get: { itemPendingDeletion != nil && !navigationPath.isEmpty },
+                set: { if !$0 { itemPendingDeletion = nil } }
             ),
             titleVisibility: .visible
         ) {
             Button("Move to Trash", role: .destructive) {
-                if let target = deletingVideo {
-                    handleMoveToTrash(video: target)
+                if let target = itemPendingDeletion {
+                    executeDeletion(target)
                 }
-                deletingVideo = nil
+                itemPendingDeletion = nil
             }
             Button("Cancel", role: .cancel) {
-                deletingVideo = nil
+                itemPendingDeletion = nil
             }
         } message: {
-            if let target = deletingVideo {
-                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
+            if let target = itemPendingDeletion {
+                Text(target.dialogMessage)
             }
         }
     }
@@ -1208,7 +1246,7 @@ struct FileManagerView: View {
                                         handleCompressVideo(video)
                                     } : nil,
                                     onDelete: {
-                                        deletingVideo = video
+                                        itemPendingDeletion = .video(video)
                                     },
                                     onOpenSourcePage: { url in
                                         onOpenSourcePage?(url)
@@ -1248,7 +1286,7 @@ struct FileManagerView: View {
                                         movingManagedFile = fileItem
                                     },
                                     onDelete: {
-                                        deletingManagedFile = fileItem
+                                        itemPendingDeletion = .managedFile(fileItem)
                                     }
                                 )
                             }
@@ -1257,50 +1295,7 @@ struct FileManagerView: View {
                 }
             }
         }
-        .confirmationDialog(
-            NSLocalizedString("Move Video to Trash", comment: ""),
-            isPresented: Binding(
-                get: { deletingVideo != nil && !searchText.isEmpty },
-                set: { if !$0 { deletingVideo = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Move to Trash", role: .destructive) {
-                if let target = deletingVideo {
-                    handleMoveToTrash(video: target)
-                }
-                deletingVideo = nil
-            }
-            Button("Cancel", role: .cancel) {
-                deletingVideo = nil
-            }
-        } message: {
-            if let target = deletingVideo {
-                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), target.title))
-            }
-        }
-        .confirmationDialog(
-            NSLocalizedString("Move File to Trash", comment: ""),
-            isPresented: Binding(
-                get: { deletingManagedFile != nil },
-                set: { if !$0 { deletingManagedFile = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button("Move to Trash", role: .destructive) {
-                if let target = deletingManagedFile {
-                    handleMoveToTrash(managedFile: target)
-                }
-                deletingManagedFile = nil
-            }
-            Button("Cancel", role: .cancel) {
-                deletingManagedFile = nil
-            }
-        } message: {
-            if let target = deletingManagedFile {
-                Text(String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)", comment: ""), target.title))
-            }
-        }
+
     }
 
     // MARK: - フローティング操作バー
@@ -2025,6 +2020,15 @@ let targetFolder = currentActiveFolderName
     }
 
     // MARK: - ゴミ箱移動とURLコピー通知
+
+    private func executeDeletion(_ target: DeletionTarget) {
+        switch target {
+        case .video(let video):
+            handleMoveToTrash(video: video)
+        case .managedFile(let managedFile):
+            handleMoveToTrash(managedFile: managedFile)
+        }
+    }
 
     private func handleMoveToTrash(video: SavedVideo) {
         let folder = folderManager.folderName(for: video)

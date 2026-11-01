@@ -5620,4 +5620,206 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertEqual(resolved[1].entryName, "doc (1).txt")
         XCTAssertEqual(resolved[2].entryName, "doc (2).txt")
     }
+
+    // MARK: - 一般ファイル削除UI・ダイアログ回帰テスト（Root / FolderDetail / Search）
+
+    @MainActor
+    func testZipPhaseF2_GeneralFileDeletion_RootScreen_SuccessAndCancel() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2_Delete_Root_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f2.delete.root.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 1. ルート画面の一般ファイル（archive.zip）を作成
+        let zipFile = downloadsDir.appendingPathComponent("bundle.zip")
+        let zipData = Data("PK_DUMMY_ZIP_DATA".utf8)
+        try zipData.write(to: zipFile)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let item = zipMgr.managedFiles(in: .uncategorized).first(where: { $0.title == "bundle" }) else {
+            XCTFail("Root managed file not found")
+            return
+        }
+
+        // 2. キャンセル時の検証（ファイル・インデックスが一切変更されないこと）
+        var pendingDeletion: ManagedFileItem? = item
+        // ユーザーがCancelを選択
+        pendingDeletion = nil
+        XCTAssertNil(pendingDeletion, "キャンセルで削除対象がクリアされること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: zipFile.path), "キャンセル時は実ファイルが維持されること")
+        XCTAssertTrue(zipMgr.managedFiles(in: .uncategorized).contains(where: { $0.id == item.id }), "キャンセル時は一覧にファイルが維持されること")
+
+        // 3. 削除確認の実行（ゴミ箱へ移動）
+        pendingDeletion = item
+        let result = await trashMgr.moveToTrash(managedFile: pendingDeletion!, zipManager: zipMgr)
+        pendingDeletion = nil
+        guard case .success(let trashItem) = result else {
+            XCTFail("moveToTrash failed for root managed file")
+            return
+        }
+
+        // 4. 検証: ルート一覧から消え、ゴミ箱に存在すること
+        XCTAssertFalse(zipMgr.managedFiles(in: .uncategorized).contains(where: { $0.id == item.id }), "削除後はルート一覧から除外されること")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: zipFile.path), "元の物理ファイルが移動していること")
+        XCTAssertTrue(trashMgr.items.contains(where: { $0.id == trashItem.id }), "ゴミ箱一覧に表示されること")
+        XCTAssertEqual(trashItem.payloadKind, .generalFile)
+
+        // 5. 復元できること
+        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        guard case .success = restoreRes else {
+            XCTFail("restoreItem failed for root managed file")
+            return
+        }
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        XCTAssertTrue(zipMgr.managedFiles(in: .uncategorized).contains(where: { $0.id == item.id }), "復元後はルート一覧に再表示されること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: zipFile.path), "実ファイルが復元されていること")
+    }
+
+    @MainActor
+    func testZipPhaseF2_GeneralFileDeletion_FolderDetail_SuccessAndCancel() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2_Delete_Folder_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f2.delete.folder.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // フォルダ内の一般ファイル（Documents/Downloads/Projects/data.json）を作成
+        let projectFolder = downloadsDir.appendingPathComponent("Projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectFolder, withIntermediateDirectories: true)
+        let jsonFile = projectFolder.appendingPathComponent("data.json")
+        let jsonData = Data("{\"status\":\"ok\"}".utf8)
+        try jsonData.write(to: jsonFile)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        guard let item = zipMgr.managedFiles(in: .folder("Projects")).first(where: { $0.title == "data" }) else {
+            XCTFail("Folder managed file not found")
+            return
+        }
+
+        // キャンセル検証
+        var pendingDeletion: ManagedFileItem? = item
+        pendingDeletion = nil
+        XCTAssertTrue(FileManager.default.fileExists(atPath: jsonFile.path), "キャンセル時はフォルダ内ファイルが維持されること")
+        XCTAssertTrue(zipMgr.managedFiles(in: .folder("Projects")).contains(where: { $0.id == item.id }))
+
+        // 削除確認・ゴミ箱移動
+        let res = await trashMgr.moveToTrash(managedFile: item, zipManager: zipMgr)
+        guard case .success(let trashItem) = res else {
+            XCTFail("moveToTrash failed for folder managed file")
+            return
+        }
+
+        // フォルダ詳細一覧から消え、ゴミ箱に元のフォルダ名付きで格納されること
+        XCTAssertFalse(zipMgr.managedFiles(in: .folder("Projects")).contains(where: { $0.id == item.id }), "フォルダ詳細一覧から除外されること")
+        XCTAssertEqual(trashItem.folderName, "Projects", "元フォルダ名がゴミ箱アイテムに記録されること")
+
+        // 復元検証（元のフォルダ内に復帰）
+        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        guard case .success = restoreRes else {
+            XCTFail("restoreItem failed")
+            return
+        }
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        XCTAssertTrue(zipMgr.managedFiles(in: .folder("Projects")).contains(where: { $0.id == item.id }), "復元後は元フォルダ内に再配置されること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: jsonFile.path))
+    }
+
+    @MainActor
+    func testZipPhaseF2_GeneralFileDeletion_SearchResults_SuccessAndCancel() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF2_Delete_Search_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        let trashDir = tempRoot.appendingPathComponent("TrashRoot", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f2.delete.search.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let dc = DownloadCenter()
+        let fm = VideoFolderManager(downloads: dc)
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+        let trashMgr = TrashManager(customTrashDirectoryURL: trashDir)
+
+        // 複数ファイルを作成
+        let reportFile = downloadsDir.appendingPathComponent("final_report.pdf")
+        try Data("%PDF-1.4 TEST REPORT".utf8).write(to: reportFile)
+        let logFile = downloadsDir.appendingPathComponent("system_log.txt")
+        try Data("LOG_INFO".utf8).write(to: logFile)
+
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+
+        // 検索クエリ "report" でヒット
+        let searchQuery = "report"
+        let matched = zipMgr.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }
+        XCTAssertEqual(matched.count, 1)
+        let targetItem = matched[0]
+        XCTAssertEqual(targetItem.title, "final_report")
+
+        // キャンセル検証
+        var pendingDeletion: ManagedFileItem? = targetItem
+        pendingDeletion = nil
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reportFile.path), "検索結果からのキャンセルでファイルが維持されること")
+        XCTAssertEqual(zipMgr.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }.count, 1)
+
+        // 削除実行
+        let res = await trashMgr.moveToTrash(managedFile: targetItem, zipManager: zipMgr)
+        guard case .success(let trashItem) = res else {
+            XCTFail("moveToTrash failed for searched managed file")
+            return
+        }
+
+        // 検索結果から除外され、検索外のファイルは一切影響を受けないこと
+        let matchedAfter = zipMgr.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }
+        XCTAssertTrue(matchedAfter.isEmpty, "削除されたファイルは検索結果から除外されること")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: logFile.path), "関係のないファイルは一切影響を受けないこと")
+        XCTAssertTrue(zipMgr.managedFiles(in: .all).contains(where: { $0.title == "system_log" }))
+
+        // 復元検証
+        let restoreRes = await trashMgr.restoreItem(trashItem, downloads: dc, folderManager: fm, zipManager: zipMgr)
+        guard case .success = restoreRes else {
+            XCTFail("restoreItem failed")
+            return
+        }
+        zipMgr.syncWithFileSystem(downloads: dc, folderManager: fm)
+        let matchedRestored = zipMgr.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }
+        XCTAssertEqual(matchedRestored.count, 1, "復元後は再度検索結果に現れること")
+    }
 }
