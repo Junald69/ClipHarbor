@@ -1,6 +1,8 @@
 import XCTest
 import CryptoKit
 import ZIPFoundation
+import MediaPlayer
+import AVFoundation
 @testable import ClipHarbor
 
 // MARK: - テスト用モック（本番データ・Keychain・UserDefaults・実ファイル完全隔離）
