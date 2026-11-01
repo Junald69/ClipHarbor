@@ -6891,9 +6891,10 @@ final class VaultFaultInjectionTests: XCTestCase {
         // 2. 進行中の容量不足判定
         manager.customAvailableCapacityProvider = { 200 * 1024 * 1024 } // 200MB利用可能
         let jobID = UUID()
+        let dummyTask = manager.session.downloadTask(with: url)
         let activeRecord = PendingBackgroundDownloadRecord(
             jobID: jobID,
-            taskIdentifier: 999,
+            taskIdentifier: dummyTask.taskIdentifier,
             originalURL: url,
             displayName: "LowDiskDuringProgress",
             host: "example.com",
@@ -6906,7 +6907,6 @@ final class VaultFaultInjectionTests: XCTestCase {
         manager.appendPendingRecordForTesting(activeRecord)
 
         // didWriteData の進捗通知シミュレーション
-        let dummyTask = manager.session.downloadTask(with: url)
         manager.urlSession(
             manager.session,
             downloadTask: dummyTask,

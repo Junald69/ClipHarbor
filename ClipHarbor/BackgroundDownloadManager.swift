@@ -132,11 +132,9 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         // 保存元WebページURLのサニタイズ（機密クエリパラメータ等の除去）
         let cleanSourcePageURL = sourcePageURL.flatMap { SourceURLPolicy.sanitize(URL(string: $0)) }
 
-        // 同一URLの重複ダウンロード防止（既にアクティブに実行中のタスクがある場合は二重起動しない）
-        if let existing = pendingRecords.values.first(where: { $0.originalURL == cleanURL }),
-           let activeTask = activeTasks[existing.jobID],
-           activeTask.state == .running || activeTask.state == .suspended {
-            return activeTask
+        // 同一URLの重複ダウンロード防止（既にアクティブに実行中または登録済みのタスクがある場合は二重起動しない）
+        if let existing = pendingRecords.values.first(where: { $0.originalURL == cleanURL && $0.taskIdentifier > 0 }) {
+            return activeTasks[existing.jobID]
         }
 
         // ストレージ容量チェック
