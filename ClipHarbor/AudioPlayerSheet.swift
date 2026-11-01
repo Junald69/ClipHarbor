@@ -40,11 +40,7 @@ final class AudioPlayerViewModel: NSObject, ObservableObject, AVAudioPlayerDeleg
             return
         }
 
-        guard let url = zipManager.resolveFileURL(for: item) else {
-            errorMessage = NSLocalizedString("Audio file not found.", comment: "")
-            return
-        }
-
+        let url = zipManager.resolveFileURL(for: item)
         guard FileManager.default.fileExists(atPath: url.path) else {
             errorMessage = NSLocalizedString("Audio file not found on disk.", comment: "")
             return

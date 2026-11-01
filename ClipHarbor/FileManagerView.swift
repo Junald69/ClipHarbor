@@ -2044,8 +2044,8 @@ let targetFolder = currentActiveFolderName
             )
             return
         }
-        guard let fileURL = zipManager.resolveFileURL(for: item),
-              FileManager.default.fileExists(atPath: fileURL.path) else {
+        let fileURL = zipManager.resolveFileURL(for: item)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
             errorMessage = NSLocalizedString("Audio file not found.", comment: "")
             return
         }
