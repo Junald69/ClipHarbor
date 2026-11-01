@@ -707,7 +707,8 @@ final class DownloadCenter: NSObject, ObservableObject, URLSessionDownloadDelega
         default:
             updateJob(id) { $0.state = state }
         }
-        if transfers[id] == nil { updateJob(id) { $0.canRetry = false } }
+        let isBackgroundJob = jobs.first(where: { $0.id == id })?.isBackground ?? false
+        if transfers[id] == nil && !isBackgroundJob { updateJob(id) { $0.canRetry = false } }
         updateBackgroundTask()
     }
 

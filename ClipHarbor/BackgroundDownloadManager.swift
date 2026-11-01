@@ -32,6 +32,8 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
     /// テスト容易性のためのUserDefaultsおよびダウンロード先ディレクトリ注入
     let userDefaults: UserDefaults
     let customDownloadsRootURL: URL?
+    /// テスト容易性のための空き容量プロバイダー
+    var customAvailableCapacityProvider: (() -> Int64?)? = nil
 
     /// 進行中タスクのメタデータ管理 [UUID: PendingBackgroundDownloadRecord]
     private(set) var pendingRecords: [UUID: PendingBackgroundDownloadRecord] = [:]
@@ -70,6 +72,10 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
     static func isEligible(candidate: MediaCandidate, context: RequestContext) -> Bool {
         // 1. HTTPS必須
         guard let scheme = candidate.url.scheme?.lowercased(), scheme == "https" else {
+            return false
+        }
+        // 機密認証情報の埋め込みURL（ユーザー名・パスワード）は除外
+        if candidate.url.user != nil || candidate.url.password != nil {
             return false
         }
         // 2. HLSは対象外（前景またはAVAssetDownload）
@@ -111,9 +117,26 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         lock.lock()
         defer { lock.unlock() }
 
-        // 同一URLの重複ダウンロード防止（既にアクティブなタスクがある場合は二重起動しない）
-        if let existing = pendingRecords.values.first(where: { $0.originalURL == url }) {
-            return activeTasks[existing.jobID]
+        // 機密URL保護：埋め込みクレデンシャルの除去
+        var cleanURL = url
+        if var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            if comps.user != nil || comps.password != nil {
+                comps.user = nil
+                comps.password = nil
+                if let stripped = comps.url {
+                    cleanURL = stripped
+                }
+            }
+        }
+
+        // 保存元WebページURLのサニタイズ（機密クエリパラメータ等の除去）
+        let cleanSourcePageURL = sourcePageURL.flatMap { SourceURLPolicy.sanitize(URL(string: $0)) }
+
+        // 同一URLの重複ダウンロード防止（既にアクティブに実行中のタスクがある場合は二重起動しない）
+        if let existing = pendingRecords.values.first(where: { $0.originalURL == cleanURL }),
+           let activeTask = activeTasks[existing.jobID],
+           activeTask.state == .running || activeTask.state == .suspended {
+            return activeTask
         }
 
         // ストレージ容量チェック
@@ -128,7 +151,7 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
             return nil
         }
 
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: cleanURL)
         request.httpMethod = "GET"
         request.timeoutInterval = 6 * 60 * 60
 
@@ -138,11 +161,11 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         let record = PendingBackgroundDownloadRecord(
             jobID: jobID,
             taskIdentifier: task.taskIdentifier,
-            originalURL: url,
+            originalURL: cleanURL,
             displayName: displayName,
             host: host,
             folderName: folderName,
-            sourcePageURL: sourcePageURL,
+            sourcePageURL: cleanSourcePageURL,
             createdAt: Date(),
             expectedBytes: 0,
             receivedBytes: 0
@@ -161,11 +184,26 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
     func cancel(jobID: UUID) {
         lock.lock()
         let task = activeTasks.removeValue(forKey: jobID)
-        let record = pendingRecords.removeValue(forKey: jobID)
-        if let tID = record?.taskIdentifier {
-            taskIDToJobMap.removeValue(forKey: tID)
+        var displayName = "Download"
+        if let record = pendingRecords[jobID] {
+            displayName = record.displayName
+            taskIDToJobMap.removeValue(forKey: record.taskIdentifier)
+            // 再試行のために record は pendingRecords に残し、taskIdentifier を無効化
+            let inactiveRecord = PendingBackgroundDownloadRecord(
+                jobID: record.jobID,
+                taskIdentifier: -1,
+                originalURL: record.originalURL,
+                displayName: record.displayName,
+                host: record.host,
+                folderName: record.folderName,
+                sourcePageURL: record.sourcePageURL,
+                createdAt: record.createdAt,
+                expectedBytes: record.expectedBytes,
+                receivedBytes: record.receivedBytes
+            )
+            pendingRecords[jobID] = inactiveRecord
+            persistPendingRecords()
         }
-        persistPendingRecords()
         lock.unlock()
 
         task?.cancel()
@@ -173,7 +211,7 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
             DownloadCenter.shared.finishBackgroundJob(
                 id: jobID,
                 state: .cancelled,
-                name: record?.displayName ?? "Download"
+                name: displayName
             )
         }
     }
@@ -185,16 +223,39 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
             lock.unlock()
             return
         }
-        lock.unlock()
+        // 既存のアクティブタスクがあれば破棄
+        if let existingTask = activeTasks.removeValue(forKey: jobID) {
+            taskIDToJobMap.removeValue(forKey: existingTask.taskIdentifier)
+            existingTask.cancel()
+        }
 
-        _ = startDownload(
+        var request = URLRequest(url: record.originalURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 6 * 60 * 60
+
+        let task = session.downloadTask(with: request)
+        task.taskDescription = jobID.uuidString
+
+        let targetFolder = folderName ?? record.folderName
+        let newRecord = PendingBackgroundDownloadRecord(
             jobID: jobID,
-            url: record.originalURL,
+            taskIdentifier: task.taskIdentifier,
+            originalURL: record.originalURL,
             displayName: record.displayName,
             host: record.host,
-            folderName: folderName ?? record.folderName,
-            sourcePageURL: record.sourcePageURL
+            folderName: targetFolder,
+            sourcePageURL: record.sourcePageURL,
+            createdAt: Date(),
+            expectedBytes: 0,
+            receivedBytes: 0
         )
+        pendingRecords[jobID] = newRecord
+        taskIDToJobMap[task.taskIdentifier] = jobID
+        activeTasks[jobID] = task
+        persistPendingRecords()
+        lock.unlock()
+
+        task.resume()
     }
 
     /// 履歴からの除外
@@ -226,17 +287,20 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         pendingRecords[jobID] = record
         lock.unlock()
 
-        // 容量監視
-        if expected > 0, let free = availableCapacity(), expected + Self.minimumFreeBytes > free {
-            downloadTask.cancel()
-            DispatchQueue.main.async {
-                DownloadCenter.shared.finishBackgroundJob(
-                    id: jobID,
-                    state: .failed(NSLocalizedString("Insufficient storage available on iPhone", comment: "")),
-                    name: record.displayName
-                )
+        // 容量監視：最低空き容量および残り書き込み所要容量の確認
+        let remainingBytes = max(expected - totalBytesWritten, 0)
+        if let free = availableCapacity() {
+            if free < Self.minimumFreeBytes || (expected > 0 && remainingBytes + Self.minimumFreeBytes > free) {
+                downloadTask.cancel()
+                DispatchQueue.main.async {
+                    DownloadCenter.shared.finishBackgroundJob(
+                        id: jobID,
+                        state: .failed(NSLocalizedString("Insufficient storage available on iPhone", comment: "")),
+                        name: record.displayName
+                    )
+                }
+                return
             }
-            return
         }
 
         let progressValue: Double? = expected > 0 ? min(Double(totalBytesWritten) / Double(expected), 1.0) : nil
@@ -278,6 +342,10 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         DispatchQueue.main.async { [weak self] in
             switch outcome {
             case .saved(let savedVideo, _):
+                if let subfolder = record.folderName, !subfolder.isEmpty {
+                    _ = VideoFolderManager.shared.createFolder(name: subfolder)
+                }
+                VideoFolderManager.shared.syncWithFileSystemAndSavedVideos()
                 if let video = savedVideo {
                     DownloadCenter.shared.addSavedVideoFromBackground(video)
                     DownloadCenter.shared.notifyVideoSaved(jobID: jobID, video: video)
@@ -314,9 +382,22 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
             return
         }
 
-        pendingRecords.removeValue(forKey: jobID)
         taskIDToJobMap.removeValue(forKey: task.taskIdentifier)
         activeTasks.removeValue(forKey: jobID)
+        // 再試行のために pendingRecords には保持し、taskIdentifier を -1 に無効化
+        let inactiveRecord = PendingBackgroundDownloadRecord(
+            jobID: record.jobID,
+            taskIdentifier: -1,
+            originalURL: record.originalURL,
+            displayName: record.displayName,
+            host: record.host,
+            folderName: record.folderName,
+            sourcePageURL: record.sourcePageURL,
+            createdAt: record.createdAt,
+            expectedBytes: record.expectedBytes,
+            receivedBytes: record.receivedBytes
+        )
+        pendingRecords[jobID] = inactiveRecord
         persistPendingRecords()
         lock.unlock()
 
@@ -563,8 +644,11 @@ final class BackgroundDownloadManager: NSObject, ObservableObject, URLSessionDow
         return folder
     }
 
-    private func availableCapacity() -> Int64? {
-        let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    func availableCapacity() -> Int64? {
+        if let custom = customAvailableCapacityProvider {
+            return custom()
+        }
+        let url = customDownloadsRootURL ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage
     }

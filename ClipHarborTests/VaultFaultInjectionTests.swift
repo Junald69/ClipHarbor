@@ -6869,4 +6869,206 @@ final class VaultFaultInjectionTests: XCTestCase {
 
         viewModel.stopAndCleanup()
     }
+
+    // MARK: - Phase F3 統合堅牢化テスト（容量判定・機密URLサニタイズ・再試行・保存先フォルダ復元）
+
+    func testBackgroundDownload_StorageCapacityGuard_StartAndProgress() {
+        let suiteName = "com.clipharbor.test.bgdl.cap.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+
+        // 1. 開始時の容量不足判定（50MB < 100MB 閾値）
+        manager.customAvailableCapacityProvider = { 50 * 1024 * 1024 }
+        let url = URL(string: "https://example.com/test_low_disk.mp4")!
+        let task = manager.startDownload(
+            jobID: UUID(),
+            url: url,
+            displayName: "LowDiskTest",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil
+        )
+        XCTAssertNil(task, "開始時に空き容量が最低ライン未満の場合はnilを返して即時失敗とすること")
+
+        // 2. 進行中の容量不足判定
+        manager.customAvailableCapacityProvider = { 200 * 1024 * 1024 } // 200MB利用可能
+        let jobID = UUID()
+        let activeRecord = PendingBackgroundDownloadRecord(
+            jobID: jobID,
+            taskIdentifier: 999,
+            originalURL: url,
+            displayName: "LowDiskDuringProgress",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: 500 * 1024 * 1024, // 500MB所要
+            receivedBytes: 10 * 1024 * 1024   // 10MB受信済み -> 残り490MB必要
+        )
+        manager.appendPendingRecordForTesting(activeRecord)
+
+        // didWriteData の進捗通知シミュレーション
+        let dummyTask = manager.session.downloadTask(with: url)
+        manager.urlSession(
+            manager.session,
+            downloadTask: dummyTask,
+            didWriteData: 10 * 1024 * 1024,
+            totalBytesWritten: 10 * 1024 * 1024,
+            totalBytesExpectedToWrite: 500 * 1024 * 1024
+        )
+        // 490MB + 100MB > 200MB 利用可能量のため中止判定が発火する
+        manager.dismiss(jobID: jobID)
+    }
+
+    func testBackgroundDownload_SensitiveURL_SanitizationAndCredentialExclusion() {
+        // 1. ユーザー名・パスワードを含むURLの適格性拒絶
+        let credentialURL = URL(string: "https://admin:secret123@example.com/secure.mp4")!
+        let credentialCandidate = MediaCandidate(
+            url: credentialURL,
+            kind: .file(.mp4),
+            videoTitle: "Credential Candidate",
+            pageTitle: "Page",
+            posterURL: nil,
+            videoID: nil
+        )
+        let context = RequestContext(cookies: [], userAgent: "ClipHarbor", pageURL: nil)
+        XCTAssertFalse(
+            BackgroundDownloadManager.isEligible(candidate: credentialCandidate, context: context),
+            "ユーザー名・パスワードが埋め込まれたURLはバックグラウンドDL対象外と判定すること"
+        )
+
+        // 2. startDownload でのクレデンシャル除去とsourcePageURLサニタイズ
+        let suiteName = "com.clipharbor.test.bgdl.sec.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+        let jobID = UUID()
+        let sensitivePage = "https://example.com/watch?v=123&token=super_secret_jwt&auth=session99"
+
+        _ = manager.startDownload(
+            jobID: jobID,
+            url: credentialURL,
+            displayName: "SanitizedURLDownload",
+            host: "example.com",
+            folderName: nil,
+            sourcePageURL: sensitivePage
+        )
+
+        if let record = manager.pendingRecords[jobID] {
+            // originalURL から認証情報が除去されていること
+            XCTAssertNil(record.originalURL.user, "URLからユーザー名が除去されていること")
+            XCTAssertNil(record.originalURL.password, "URLからパスワードが除去されていること")
+            // sourcePageURL から機密トークンが除去されていること
+            if let cleanPage = record.sourcePageURL {
+                XCTAssertFalse(cleanPage.contains("token="), "sourcePageURLからtokenパラメータが除去されていること")
+                XCTAssertFalse(cleanPage.contains("auth="), "sourcePageURLからauthパラメータが除去されていること")
+                XCTAssertTrue(cleanPage.contains("v=123"), "安全な動画IDパラメータは維持されていること")
+            } else {
+                XCTFail("sourcePageURLがサニタイズされて保存されていること")
+            }
+        }
+        manager.dismiss(jobID: jobID)
+    }
+
+    func testBackgroundDownload_RetryAndInactiveTaskHandling() {
+        let suiteName = "com.clipharbor.test.bgdl.retry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults)
+        let jobID = UUID()
+        let url = URL(string: "https://example.com/retryable.mp4")!
+
+        let task = manager.startDownload(
+            jobID: jobID,
+            url: url,
+            displayName: "RetryableLecture",
+            host: "example.com",
+            folderName: "Courses",
+            sourcePageURL: nil
+        )
+        XCTAssertNotNil(task)
+
+        // ダウンロードをキャンセル
+        manager.cancel(jobID: jobID)
+
+        // キャンセル後、pendingRecords にはタスクID=-1の非アクティブ状態で保持されていること
+        XCTAssertNotNil(manager.pendingRecords[jobID], "再試行のためにレコードが保持されていること")
+        XCTAssertEqual(manager.pendingRecords[jobID]?.taskIdentifier, -1, "非アクティブ状態としてマークされていること")
+
+        // 再試行を実行
+        manager.retry(jobID: jobID)
+        let retriedRecord = manager.pendingRecords[jobID]
+        XCTAssertNotNil(retriedRecord)
+        XCTAssertNotEqual(retriedRecord?.taskIdentifier, -1, "再試行により新しい有効なタスクIDが割り当てられていること")
+        XCTAssertEqual(retriedRecord?.folderName, "Courses", "保存先フォルダが維持されていること")
+
+        manager.dismiss(jobID: jobID)
+        XCTAssertNil(manager.pendingRecords[jobID], "dismissにより完全消去されること")
+    }
+
+    func testBackgroundDownload_DestinationFolderRestorationAndSync() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("BGDL_FolderSync_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.bgdl.folder.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = BackgroundDownloadManager(userDefaults: defaults, customDownloadsRootURL: downloadsDir)
+        let jobID = UUID()
+        let targetSubfolder = "Podcasts"
+
+        // ダウンロード元の一時ファイル（有効なMP4ヘッダー）
+        let tempDownloadFile = tempRoot.appendingPathComponent("temp_download.bin")
+        let mp4Header: [UInt8] = [
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70, // ftyp
+            0x6D, 0x70, 0x34, 0x32, // mp42
+            0x00, 0x00, 0x00, 0x00,
+            0x69, 0x73, 0x6F, 0x6D,
+            0x6D, 0x70, 0x34, 0x32
+        ]
+        try Data(mp4Header).write(to: tempDownloadFile)
+
+        let record = PendingBackgroundDownloadRecord(
+            jobID: jobID,
+            taskIdentifier: 888,
+            originalURL: URL(string: "https://example.com/ep01.mp4")!,
+            displayName: "Episode01",
+            host: "example.com",
+            folderName: targetSubfolder,
+            sourcePageURL: nil,
+            createdAt: Date(),
+            expectedBytes: Int64(mp4Header.count),
+            receivedBytes: Int64(mp4Header.count)
+        )
+
+        // processDownloadedFile を実行
+        let outcome = manager.processDownloadedFile(
+            at: tempDownloadFile,
+            response: HTTPURLResponse(url: record.originalURL, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "video/mp4"]),
+            record: record
+        )
+
+        guard case .saved(let video, let savedURL) = outcome else {
+            XCTFail("保存に成功すること")
+            return
+        }
+
+        // 保存先が Documents/Downloads/Podcasts/ 配下であること
+        let expectedSubfolderURL = downloadsDir.appendingPathComponent(targetSubfolder, isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedSubfolderURL.path), "サブフォルダPodcastsが自動生成されていること")
+        XCTAssertEqual(savedURL.deletingLastPathComponent().path, expectedSubfolderURL.path, "ファイルがPodcastsフォルダ直下に保存されていること")
+
+        // SavedVideoの相対パスがDownloads/Podcasts/...を含んでいること
+        XCTAssertNotNil(video)
+        XCTAssertTrue(video?.relativePath.contains("Downloads/Podcasts") == true, "相対パスにサブフォルダが反映されていること")
+    }
+
 }
