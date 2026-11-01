@@ -46,6 +46,13 @@ struct FileManagerView: View {
     private var totalSelectedCount: Int {
         selectedVideoIDs.count + selectedManagedFileIDs.count
     }
+
+    private var currentActiveFolderName: String {
+        if let last = navigationPath.last, case .folder(let name) = last {
+            return name
+        }
+        return ""
+    }
     @State private var showBatchMoveSheet = false
     @State private var showBatchDeleteAlert = false
 
@@ -1553,13 +1560,7 @@ struct FileManagerView: View {
 
         Task {
             do {
-                let targetFolder: String
-                switch filter {
-                case .folder(let name):
-                    targetFolder = name
-                default:
-                    targetFolder = ""
-                }
+let targetFolder = currentActiveFolderName
 
                 let created = try await zipManager.compressMultipleItems(
                     videos: videoTargets,

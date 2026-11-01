@@ -3012,7 +3012,7 @@ extension ZipArchiveManager {
     @discardableResult
     func compressMultipleItems(
         videos: [SavedVideo],
-        managedFiles: [ManagedFileItem],
+        managedFiles selectedFiles: [ManagedFileItem],
         targetFolderName: String = "",
         downloads: DownloadCenter,
         folderManager: VideoFolderManager
@@ -3038,7 +3038,7 @@ extension ZipArchiveManager {
         }
 
         // 2. 一般ファイルソースの解決・検証
-        for m in managedFiles {
+        for m in selectedFiles {
             let url = resolveFileURL(for: m)
             guard fm.fileExists(atPath: url.path) else {
                 throw ZipOperationError.fileNotFound
@@ -3234,8 +3234,10 @@ extension ZipArchiveManager {
             relativeSubpath: subfolderPrefix
         )
 
-        managedFiles.removeAll { $0.normalizedRelativePath == normRel }
-        managedFiles.insert(createdItem, at: 0)
+        var updatedItems = self.managedFiles
+        updatedItems.removeAll { $0.normalizedRelativePath == normRel }
+        updatedItems.insert(createdItem, at: 0)
+        self.managedFiles = updatedItems
         try persistManagedFilesThrowing()
         folderManager.syncWithFileSystemAndSavedVideos()
 
