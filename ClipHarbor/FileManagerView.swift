@@ -112,6 +112,7 @@ struct FileManagerView: View {
     @State private var renameManagedFileInput = ""
     @State private var movingManagedFile: ManagedFileItem?
     @State private var editingTextDocument: ManagedFileItem?
+    @State private var playingAudioItem: ManagedFileItem?
 
     // 画像インポート
     @State private var showPhotosPicker = false
@@ -533,6 +534,9 @@ struct FileManagerView: View {
             .sheet(item: $editingTextDocument) { item in
                 TextDocumentEditorSheet(item: item, zipManager: zipManager)
             }
+            .sheet(item: $playingAudioItem) { item in
+                AudioPlayerSheet(item: item, zipManager: zipManager)
+            }
             .sheet(isPresented: $showTrashSheet) {
                 TrashView(
                     trashManager: trashManager,
@@ -746,6 +750,9 @@ struct FileManagerView: View {
                         isOperating: zipManager.activeOperation != nil,
                         onOpenText: {
                             editingTextDocument = fileItem
+                        },
+                        onOpenAudio: {
+                            handleOpenAudio(fileItem)
                         },
                         onExtract: fileItem.isZip ? {
                             handleExtractZip(fileItem)
@@ -1049,6 +1056,9 @@ struct FileManagerView: View {
                                     onOpenText: {
                                         editingTextDocument = fileItem
                                     },
+                                    onOpenAudio: {
+                                        handleOpenAudio(fileItem)
+                                    },
                                     onExtract: fileItem.isZip ? {
                                         handleExtractZip(fileItem)
                                     } : nil,
@@ -1271,6 +1281,9 @@ struct FileManagerView: View {
                                     isOperating: zipManager.activeOperation != nil,
                                     onOpenText: {
                                         editingTextDocument = fileItem
+                                    },
+                                    onOpenAudio: {
+                                        handleOpenAudio(fileItem)
                                     },
                                     onExtract: fileItem.isZip ? {
                                         handleExtractZip(fileItem)
@@ -2021,6 +2034,28 @@ let targetFolder = currentActiveFolderName
 
     // MARK: - ゴミ箱移動とURLコピー通知
 
+    private func handleOpenAudio(_ item: ManagedFileItem) {
+        guard !isSelecting else { return }
+        guard item.isAudioFile else { return }
+        guard item.isSupportedAudio else {
+            errorMessage = String(
+                format: NSLocalizedString("Unsupported audio format: %@ is not supported.", comment: ""),
+                item.fileExtension.uppercased()
+            )
+            return
+        }
+        guard let fileURL = zipManager.resolveFileURL(for: item),
+              FileManager.default.fileExists(atPath: fileURL.path) else {
+            errorMessage = NSLocalizedString("Audio file not found.", comment: "")
+            return
+        }
+        if FileClassification.isInsideVaultOrTempArea(fileURL) {
+            errorMessage = NSLocalizedString("Cannot play files located in protected storage.", comment: "")
+            return
+        }
+        playingAudioItem = item
+    }
+
     private func executeDeletion(_ target: DeletionTarget) {
         switch target {
         case .video(let video):
@@ -2355,6 +2390,7 @@ private struct AlohaManagedFileCardView: View {
     var onToggleSelect: (() -> Void)? = nil
     var isOperating: Bool = false
     var onOpenText: (() -> Void)? = nil
+    var onOpenAudio: (() -> Void)? = nil
     var onExtract: (() -> Void)? = nil
     var onCompress: (() -> Void)? = nil
     var onRename: (() -> Void)? = nil
@@ -2382,6 +2418,12 @@ private struct AlohaManagedFileCardView: View {
                         .disabled(isOperating)
                     } else if let onOpenText = onOpenText, item.isTextDocument {
                         Button(action: onOpenText) {
+                            tileVisual
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isOperating)
+                    } else if let onOpenAudio = onOpenAudio, item.isAudioFile {
+                        Button(action: onOpenAudio) {
                             tileVisual
                         }
                         .buttonStyle(.plain)
@@ -2415,6 +2457,13 @@ private struct AlohaManagedFileCardView: View {
                 // 右上「…」メニュー（Phase F1 / F2-A 対応済みの機能を表示）
                 if !isSelecting {
                     Menu {
+                    if item.isAudioFile, let onOpenAudio = onOpenAudio, item.fileExists {
+                        Button(action: onOpenAudio) {
+                            Label(NSLocalizedString("Play Audio", comment: ""), systemImage: "play.circle")
+                        }
+                        .disabled(isOperating)
+                    }
+
                     if item.isTextDocument, let onOpenText = onOpenText, item.fileExists {
                         Button(action: onOpenText) {
                             Label("Edit Text", systemImage: "square.and.pencil")

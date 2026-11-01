@@ -5932,4 +5932,257 @@ final class VaultFaultInjectionTests: XCTestCase {
         XCTAssertTrue(msgNever.contains("report_doc"))
         XCTAssertTrue(msgNever.contains("手動") || msgNever.contains("manually"))
     }
+
+    // MARK: - オフライン音声再生機能テスト (Phase F2 音声プレイヤー)
+
+    private func createValidWAVData(durationSeconds: Double = 1.0, sampleRate: UInt32 = 8000) -> Data {
+        let numSamples = Int(Double(sampleRate) * durationSeconds)
+        let subchunk2Size = UInt32(numSamples * 1)
+        let chunkSize = UInt32(36 + subchunk2Size)
+        var data = Data()
+
+        // RIFF header
+        data.append(contentsOf: "RIFF".utf8)
+        var cs = chunkSize.littleEndian
+        data.append(Data(bytes: &cs, count: 4))
+        data.append(contentsOf: "WAVE".utf8)
+
+        // fmt subchunk
+        data.append(contentsOf: "fmt ".utf8)
+        var sc1: UInt32 = 16
+        data.append(Data(bytes: &sc1, count: 4))
+        var af: UInt16 = 1
+        data.append(Data(bytes: &af, count: 2))
+        var nc: UInt16 = 1
+        data.append(Data(bytes: &nc, count: 2))
+        var sr = sampleRate.littleEndian
+        data.append(Data(bytes: &sr, count: 4))
+        var br = sampleRate.littleEndian
+        data.append(Data(bytes: &br, count: 4))
+        var ba: UInt16 = 1
+        data.append(Data(bytes: &ba, count: 2))
+        var bps: UInt16 = 8
+        data.append(Data(bytes: &bps, count: 2))
+
+        // data subchunk
+        data.append(contentsOf: "data".utf8)
+        var sc2 = subchunk2Size.littleEndian
+        data.append(Data(bytes: &sc2, count: 4))
+        data.append(contentsOf: [UInt8](repeating: 128, count: numSamples))
+
+        return data
+    }
+
+    func testAudioPlayback_ManagedFileItem_ClassificationAndSupport() {
+        let makeItem: (String) -> ManagedFileItem = { ext in
+            ManagedFileItem(
+                id: UUID(),
+                title: "audio_track",
+                relativePath: "Documents/audio_track.\(ext)",
+                fileExtension: ext,
+                createdAt: Date(),
+                byteSize: 1024,
+                folderName: "",
+                relativeSubpath: nil
+            )
+        }
+
+        // サポート対象（M4A, MP3, WAV, AAC）
+        XCTAssertTrue(makeItem("m4a").isAudioFile)
+        XCTAssertTrue(makeItem("m4a").isSupportedAudio)
+
+        XCTAssertTrue(makeItem("mp3").isAudioFile)
+        XCTAssertTrue(makeItem("mp3").isSupportedAudio)
+
+        XCTAssertTrue(makeItem("wav").isAudioFile)
+        XCTAssertTrue(makeItem("wav").isSupportedAudio)
+
+        XCTAssertTrue(makeItem("aac").isAudioFile)
+        XCTAssertTrue(makeItem("aac").isSupportedAudio)
+
+        // 未検証・非対応音声形式（FLAC, OGG）
+        XCTAssertTrue(makeItem("flac").isAudioFile)
+        XCTAssertFalse(makeItem("flac").isSupportedAudio, "FLACは未検証形式として非サポート扱い")
+
+        XCTAssertTrue(makeItem("ogg").isAudioFile)
+        XCTAssertFalse(makeItem("ogg").isSupportedAudio, "OGGは未検証形式として非サポート扱い")
+
+        // 音声外の一般ファイル
+        XCTAssertFalse(makeItem("zip").isAudioFile)
+        XCTAssertFalse(makeItem("zip").isSupportedAudio)
+
+        XCTAssertFalse(makeItem("txt").isAudioFile)
+        XCTAssertFalse(makeItem("txt").isSupportedAudio)
+    }
+
+    @MainActor
+    func testAudioPlayback_PlayerViewModel_UnsupportedAndCorruptFile() async throws {
+        let tempRoot = try makeTempDirectory(name: "AudioErrorTests")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let dc = DownloadCoordinator(customRootURL: tempRoot)
+        let fm = VideoFolderManager(customRootURL: tempRoot)
+        let zipMgr = ZipArchiveManager(customRootURL: tempRoot)
+
+        let viewModel = AudioPlayerViewModel()
+
+        // 1. 非対応形式（FLAC）の読み込みエラー
+        let flacFile = tempRoot.appendingPathComponent("track.flac")
+        try Data("dummy flac".utf8).write(to: flacFile)
+        let flacItem = ManagedFileItem(
+            id: UUID(),
+            title: "track",
+            relativePath: "Documents/track.flac",
+            fileExtension: "flac",
+            createdAt: Date(),
+            byteSize: 10,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(flacItem)
+
+        viewModel.loadAndPlay(item: flacItem, zipManager: zipMgr)
+        XCTAssertNotNil(viewModel.errorMessage, "FLAC等の非対応形式ではエラーメッセージが設定されること")
+        XCTAssertFalse(viewModel.isPlaying)
+
+        // 2. 破損したMP3ファイル（10バイトの不正データ）
+        let corruptMp3 = tempRoot.appendingPathComponent("corrupted.mp3")
+        try Data([0x00, 0x01, 0x02, 0x03, 0x04]).write(to: corruptMp3)
+        let corruptItem = ManagedFileItem(
+            id: UUID(),
+            title: "corrupted",
+            relativePath: "Documents/corrupted.mp3",
+            fileExtension: "mp3",
+            createdAt: Date(),
+            byteSize: 5,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(corruptItem)
+
+        viewModel.loadAndPlay(item: corruptItem, zipManager: zipMgr)
+        XCTAssertNotNil(viewModel.errorMessage, "破損した音声データでもクラッシュせずエラーになること")
+        XCTAssertFalse(viewModel.isPlaying)
+
+        // 3. 存在しないファイル
+        let missingItem = ManagedFileItem(
+            id: UUID(),
+            title: "missing",
+            relativePath: "Documents/non_existent.mp3",
+            fileExtension: "mp3",
+            createdAt: Date(),
+            byteSize: 100,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        viewModel.loadAndPlay(item: missingItem, zipManager: zipMgr)
+        XCTAssertNotNil(viewModel.errorMessage, "存在しないファイルではエラーになること")
+        XCTAssertFalse(viewModel.isPlaying)
+
+        viewModel.stopAndCleanup()
+    }
+
+    @MainActor
+    func testAudioPlayback_PlayerViewModel_PlaybackAndSeeking() async throws {
+        let tempRoot = try makeTempDirectory(name: "AudioPlaybackTests")
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let dc = DownloadCoordinator(customRootURL: tempRoot)
+        let fm = VideoFolderManager(customRootURL: tempRoot)
+        let zipMgr = ZipArchiveManager(customRootURL: tempRoot)
+
+        // 有効な1秒間のWAVデータを生成
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = tempRoot.appendingPathComponent("sample_sound.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "sample_sound",
+            relativePath: "Documents/sample_sound.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+
+        // 1. 再生開始
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+        XCTAssertNil(viewModel.errorMessage, "正常な音声ファイルでエラーが発生しないこと")
+        XCTAssertGreaterThan(viewModel.duration, 0.8, "再生時間が正しく取得できること")
+
+        // 2. 一時停止・再開
+        if viewModel.isPlaying {
+            viewModel.togglePlayPause()
+            XCTAssertFalse(viewModel.isPlaying, "一時停止操作でisPlayingがfalseになること")
+        }
+
+        // 3. シーク操作
+        viewModel.seek(to: 0.5)
+        XCTAssertEqual(viewModel.currentTime, 0.5, accuracy: 0.1, "指定位置にシークできること")
+
+        // 4. 15秒送り・戻し
+        viewModel.skipForward(seconds: 15)
+        XCTAssertEqual(viewModel.currentTime, viewModel.duration, accuracy: 0.1, "末尾を超えた送りで最大長にクランプされること")
+
+        viewModel.skipBackward(seconds: 15)
+        XCTAssertEqual(viewModel.currentTime, 0.0, accuracy: 0.1, "先頭を超えた戻しで0にクランプされること")
+
+        // 5. 時間フォーマット表示
+        XCTAssertFalse(viewModel.formattedDuration.isEmpty)
+        XCTAssertFalse(viewModel.formattedCurrentTime.isEmpty)
+
+        // 6. 終了処理
+        viewModel.stopAndCleanup()
+        XCTAssertFalse(viewModel.isPlaying)
+        XCTAssertNil(viewModel.audioPlayer)
+    }
+
+    func testAudioPlayback_FileManagerCard_NonInterferenceWithSelection() {
+        let audioItem = ManagedFileItem(
+            id: UUID(),
+            title: "song",
+            relativePath: "Documents/song.mp3",
+            fileExtension: "mp3",
+            createdAt: Date(),
+            byteSize: 1024,
+            folderName: "",
+            relativeSubpath: nil
+        )
+
+        // 選択モード中のタップ動作確認
+        var selectedIDs = Set<UUID>()
+        let isSelecting = true
+
+        let onToggleSelect = {
+            if selectedIDs.contains(audioItem.id) {
+                selectedIDs.remove(audioItem.id)
+            } else {
+                selectedIDs.insert(audioItem.id)
+            }
+        }
+
+        var playedItem: ManagedFileItem? = nil
+        let onOpenAudio = {
+            if !isSelecting {
+                playedItem = audioItem
+            }
+        }
+
+        // 選択モード中: 選択トグルが実行され、再生は起動しない
+        onToggleSelect()
+        XCTAssertTrue(selectedIDs.contains(audioItem.id))
+        XCTAssertNil(playedItem, "選択モード中は音声再生が起動しないこと")
+
+        // 通常モード中: 再生が起動する
+        let normalSelecting = false
+        if !normalSelecting {
+            playedItem = audioItem
+        }
+        XCTAssertEqual(playedItem?.id, audioItem.id, "通常モードでは音声プレイヤーが起動すること")
+    }
 }

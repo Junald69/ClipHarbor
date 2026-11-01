@@ -50,6 +50,7 @@
 		15E21C5170322F8E99FC2AE7 /* build ZipArchiveManager.swift */ = {isa = PBXBuildFile; fileRef = 51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */; };
 		13782DC5517DF3AC8B8C7E88 /* build TextDocumentCodec.swift */ = {isa = PBXBuildFile; fileRef = 8BB49DDDBF0982734139D83A /* file TextDocumentCodec.swift */; };
 		368CEFE055E23D98C1A1715C /* build TextDocumentEditorSheet.swift */ = {isa = PBXBuildFile; fileRef = 247406A8DBC6A75AFBEFF8AC /* file TextDocumentEditorSheet.swift */; };
+		0C5A44B818ABEC551CBF8E31 /* build AudioPlayerSheet.swift */ = {isa = PBXBuildFile; fileRef = 794C67EE5D9835F811B59618 /* file AudioPlayerSheet.swift */; };
 		EBAAC2BCA023110D976A4EBE /* build Assets.xcassets */ = {isa = PBXBuildFile; fileRef = 768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */; };
 		17BF3D4D6443CA860CF92810 /* build Localizable.xcstrings */ = {isa = PBXBuildFile; fileRef = A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */; };
 		2D4E455C75B185A9C5198616 /* build InfoPlist.xcstrings */ = {isa = PBXBuildFile; fileRef = 4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */; };
@@ -115,6 +116,7 @@
 		51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipArchiveManager.swift; sourceTree = "<group>"; };
 		8BB49DDDBF0982734139D83A /* file TextDocumentCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDocumentCodec.swift; sourceTree = "<group>"; };
 		247406A8DBC6A75AFBEFF8AC /* file TextDocumentEditorSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextDocumentEditorSheet.swift; sourceTree = "<group>"; };
+		794C67EE5D9835F811B59618 /* file AudioPlayerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerSheet.swift; sourceTree = "<group>"; };
 		768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
@@ -179,6 +181,7 @@
 				51D179F1A5EECC0CC8EF11EC /* file ZipArchiveManager.swift */,
 				8BB49DDDBF0982734139D83A /* file TextDocumentCodec.swift */,
 				247406A8DBC6A75AFBEFF8AC /* file TextDocumentEditorSheet.swift */,
+				794C67EE5D9835F811B59618 /* file AudioPlayerSheet.swift */,
 				768DDFEB17B9E6DDD9209801 /* file Assets.xcassets */,
 				A11F2505A1C37F1B219D163F /* file Localizable.xcstrings */,
 				4A23C967967BC65C3F143A5F /* file InfoPlist.xcstrings */,
@@ -312,6 +315,7 @@
 				15E21C5170322F8E99FC2AE7 /* build ZipArchiveManager.swift */,
 				13782DC5517DF3AC8B8C7E88 /* build TextDocumentCodec.swift */,
 				368CEFE055E23D98C1A1715C /* build TextDocumentEditorSheet.swift */,
+				0C5A44B818ABEC551CBF8E31 /* build AudioPlayerSheet.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

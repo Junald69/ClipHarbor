@@ -178,6 +178,18 @@ struct ManagedFileItem: Identifiable, Codable, Equatable, Hashable {
         return ["md", "markdown"].contains(ext)
     }
 
+    /// 音声ファイルであるかどうか（拡張子ベース：対応・非対応含む全音声）
+    var isAudioFile: Bool {
+        let ext = fileExtension.lowercased()
+        return ["m4a", "mp3", "wav", "aac", "flac", "ogg", "caf", "aiff", "wma"].contains(ext)
+    }
+
+    /// アプリ内でオフライン再生をサポートする音声形式（M4A, MP3, WAV, AAC）
+    var isSupportedAudio: Bool {
+        let ext = fileExtension.lowercased()
+        return ["m4a", "mp3", "wav", "aac"].contains(ext)
+    }
+
     var formatLabel: String {
         let clean = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines)
         return clean.isEmpty ? "FILE" : clean.uppercased()

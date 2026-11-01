@@ -50,6 +50,7 @@ files = [
     'ZipArchiveManager.swift',
     'TextDocumentCodec.swift',
     'TextDocumentEditorSheet.swift',
+    'AudioPlayerSheet.swift',
 ]
 
 test_files = [
