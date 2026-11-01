@@ -55,6 +55,7 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
         // 先行する別セッション（PiP含む）を安全に停止
         stopAndReleaseCurrentSession()
         setupAudioSession()
+        NotificationCenter.default.post(name: .videoPlaybackDidStart, object: nil)
 
         let sessionID = UUID()
         self.currentSessionID = sessionID
@@ -249,4 +250,8 @@ final class VideoPlaybackCoordinator: NSObject, ObservableObject, AVPictureInPic
             completion(true)
         }
     }
+}
+
+extension Notification.Name {
+    static let videoPlaybackDidStart = Notification.Name("ClipHarbor.VideoPlayback.DidStart")
 }

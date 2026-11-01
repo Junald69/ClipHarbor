@@ -6202,4 +6202,240 @@ final class VaultFaultInjectionTests: XCTestCase {
         onOpenAudio()
         XCTAssertEqual(playedItem?.id, audioItem.id, "通常モードでは音声プレイヤーが起動すること")
     }
+
+    // MARK: - Phase F3-A: 音声プレイヤー拡張テスト (NowPlaying, RemoteCommand, 割り込み, ルート変更)
+
+    @MainActor
+    func testAudioPlayback_PhaseF3A_NowPlayingInfo_Synchronization() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3A_NowPlaying_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3a.nowplaying.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("f3a_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "f3a_track",
+            relativePath: "Documents/Downloads/f3a_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+
+        // 1. 再生開始時の NowPlaying 同期検証
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertNotNil(info, "NowPlayingInfoが設定されていること")
+        XCTAssertEqual(info?[MPMediaItemPropertyTitle] as? String, "f3a_track")
+        XCTAssertEqual(info?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1.0)
+        XCTAssertNotNil(info?[MPMediaItemPropertyArtwork], "アートワーク（または代替波形画像）が設定されていること")
+
+        // 2. 一時停止時の再生速度 0.0 反映
+        viewModel.pause()
+        let pausedInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertEqual(pausedInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 0.0)
+
+        // 3. シーク時の再生位置反映
+        viewModel.seek(to: 0.6)
+        let seekInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertEqual((seekInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double) ?? 0.0, 0.6, accuracy: 0.1)
+
+        // 4. 終了処理時の NowPlayingInfo 完全クリア
+        viewModel.stopAndCleanup()
+        XCTAssertNil(MPNowPlayingInfoCenter.default().nowPlayingInfo, "プレイヤー終了時にNowPlayingInfoがnilにクリアされること")
+    }
+
+    @MainActor
+    func testAudioPlayback_PhaseF3A_RemoteCommands_RegistrationAndTeardown() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3A_Remote_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3a.remote.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("remote_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "remote_track",
+            relativePath: "Documents/Downloads/remote_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+
+        let center = MPRemoteCommandCenter.shared()
+        XCTAssertTrue(center.playCommand.isEnabled)
+        XCTAssertTrue(center.pauseCommand.isEnabled)
+        XCTAssertTrue(center.togglePlayPauseCommand.isEnabled)
+        XCTAssertTrue(center.skipBackwardCommand.isEnabled)
+        XCTAssertEqual(center.skipBackwardCommand.preferredIntervals, [15])
+        XCTAssertTrue(center.skipForwardCommand.isEnabled)
+        XCTAssertEqual(center.skipForwardCommand.preferredIntervals, [15])
+        XCTAssertTrue(center.changePlaybackPositionCommand.isEnabled)
+
+        // クリーンアップ後のコマンド無効化とターゲット解除
+        viewModel.stopAndCleanup()
+        XCTAssertFalse(center.playCommand.isEnabled)
+        XCTAssertFalse(center.pauseCommand.isEnabled)
+        XCTAssertFalse(center.togglePlayPauseCommand.isEnabled)
+        XCTAssertFalse(center.skipBackwardCommand.isEnabled)
+        XCTAssertFalse(center.skipForwardCommand.isEnabled)
+        XCTAssertFalse(center.changePlaybackPositionCommand.isEnabled)
+    }
+
+    @MainActor
+    func testAudioPlayback_PhaseF3A_InterruptionAndRouteChange() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3A_Interrupt_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3a.interrupt.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("interrupt_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "interrupt_track",
+            relativePath: "Documents/Downloads/interrupt_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+        XCTAssertTrue(viewModel.isPlaying)
+
+        // 1. 電話着信等の割り込み開始通知（.began）
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        // メインアクターでの反映を待機
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(viewModel.isPlaying, "割り込み開始時に自動一時停止すること")
+
+        // 2. 割り込み終了（.ended + shouldResume）
+        NotificationCenter.default.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue
+            ]
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(viewModel.isPlaying, "割り込み終了・再開推奨時に自動再開すること")
+
+        // 3. 有線・Bluetoothイヤホン切断（.oldDeviceUnavailable）
+        NotificationCenter.default.post(
+            name: AVAudioSession.routeChangeNotification,
+            object: nil,
+            userInfo: [AVAudioSessionRouteChangeReasonKey: AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue]
+        )
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(viewModel.isPlaying, "イヤホン切断時にスピーカー誤爆防止のため即時一時停止すること")
+
+        viewModel.stopAndCleanup()
+    }
+
+    @MainActor
+    func testAudioPlayback_PhaseF3A_VideoCoexistence() async throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("ZipF3A_Coexist_\(UUID().uuidString)", isDirectory: true)
+        let downloadsDir = tempRoot.appendingPathComponent("Downloads", isDirectory: true)
+        let stagingDir = tempRoot.appendingPathComponent("Staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let suiteName = "com.clipharbor.test.f3a.coexist.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let zipMgr = ZipArchiveManager(
+            userDefaults: defaults,
+            customDownloadsRootURL: downloadsDir,
+            customStagingRootURL: stagingDir
+        )
+
+        let wavData = createValidWAVData(durationSeconds: 1.0, sampleRate: 8000)
+        let wavFile = downloadsDir.appendingPathComponent("coexist_track.wav")
+        try wavData.write(to: wavFile)
+
+        let wavItem = ManagedFileItem(
+            id: UUID(),
+            title: "coexist_track",
+            relativePath: "Documents/Downloads/coexist_track.wav",
+            fileExtension: "wav",
+            createdAt: Date(),
+            byteSize: Int64(wavData.count),
+            folderName: "",
+            relativeSubpath: nil
+        )
+        zipMgr.appendManagedFileForTesting(wavItem)
+
+        let viewModel = AudioPlayerViewModel()
+        viewModel.loadAndPlay(item: wavItem, zipManager: zipMgr)
+        XCTAssertTrue(viewModel.isPlaying)
+
+        // 動画再生開始通知を受けた場合
+        NotificationCenter.default.post(name: .videoPlaybackDidStart, object: nil)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(viewModel.isPlaying, "動画再生開始時に音声プレイヤーが自動一時停止すること")
+
+        viewModel.stopAndCleanup()
+    }
 }
