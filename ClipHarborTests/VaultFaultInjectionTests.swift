@@ -5822,4 +5822,114 @@ final class VaultFaultInjectionTests: XCTestCase {
         let matchedRestored = zipMgr.managedFiles(in: .all).filter { $0.title.localizedCaseInsensitiveContains(searchQuery) }
         XCTAssertEqual(matchedRestored.count, 1, "復元後は再度検索結果に現れること")
     }
+
+    // MARK: - ゴミ箱削除確認ダイアログの動的保持期間表示テスト (Phase F2-E)
+
+    func testTrashRetentionPeriod_DynamicDeletionNotice_AllCases() {
+        // 1. 各保持期間の文言が正しく返されることを検証
+        let oneDayNotice = TrashRetentionPeriod.oneDay.deletionNotice
+        XCTAssertTrue(oneDayNotice.contains("1") && (oneDayNotice.contains("日") || oneDayNotice.contains("day")), "1日の保持期間通知に1日/1 dayが含まれること: \(oneDayNotice)")
+
+        let threeDaysNotice = TrashRetentionPeriod.threeDays.deletionNotice
+        XCTAssertTrue(threeDaysNotice.contains("3") && (threeDaysNotice.contains("日") || threeDaysNotice.contains("day")), "3日の保持期間通知に3日/3 daysが含まれること: \(threeDaysNotice)")
+
+        let sevenDaysNotice = TrashRetentionPeriod.sevenDays.deletionNotice
+        XCTAssertTrue(sevenDaysNotice.contains("7") && (sevenDaysNotice.contains("日") || sevenDaysNotice.contains("day")), "7日の保持期間通知に7日/7 daysが含まれること: \(sevenDaysNotice)")
+
+        let thirtyDaysNotice = TrashRetentionPeriod.thirtyDays.deletionNotice
+        XCTAssertTrue(thirtyDaysNotice.contains("30") && (thirtyDaysNotice.contains("日") || thirtyDaysNotice.contains("day")), "30日の保持期間通知に30日/30 daysが含まれること: \(thirtyDaysNotice)")
+
+        let neverNotice = TrashRetentionPeriod.never.deletionNotice
+        XCTAssertTrue(neverNotice.contains("手動") || neverNotice.contains("manually"), "自動削除しない場合の通知に手動/manuallyが含まれること: \(neverNotice)")
+    }
+
+    func testTrashRetentionPeriod_ItemDeletionMessage_VideoAndGeneralFile() {
+        let testVideo = SavedVideo(
+            id: UUID(),
+            title: "sample_video",
+            relativePath: "IsolatedDownloads/sample_video.mp4",
+            format: .mp4,
+            sourceHost: "example.com",
+            createdAt: Date(),
+            byteSize: 1024
+        )
+        let videoTarget = FileManagerView.DeletionTarget.video(testVideo)
+
+        let testFile = ManagedFileItem(
+            id: UUID(),
+            title: "archive_bundle",
+            relativePath: "Documents/archive_bundle.zip",
+            fileExtension: "zip",
+            createdAt: Date(),
+            byteSize: 2048,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        let fileTarget = FileManagerView.DeletionTarget.managedFile(testFile)
+
+        // 30日設定時の単一削除メッセージ検証（動画および一般ファイル）
+        let videoMsg30 = videoTarget.dialogMessage(retentionPeriod: .thirtyDays)
+        XCTAssertTrue(videoMsg30.contains("sample_video"))
+        XCTAssertTrue(videoMsg30.contains("30"))
+
+        let fileMsg30 = fileTarget.dialogMessage(retentionPeriod: .thirtyDays)
+        XCTAssertTrue(fileMsg30.contains("archive_bundle"))
+        XCTAssertTrue(fileMsg30.contains("30"))
+
+        // 自動削除なし（never）設定時の単一削除メッセージ検証
+        let videoMsgNever = videoTarget.dialogMessage(retentionPeriod: .never)
+        XCTAssertTrue(videoMsgNever.contains("sample_video"))
+        XCTAssertTrue(videoMsgNever.contains("手動") || videoMsgNever.contains("manually"))
+
+        let fileMsgNever = fileTarget.dialogMessage(retentionPeriod: .never)
+        XCTAssertTrue(fileMsgNever.contains("archive_bundle"))
+        XCTAssertTrue(fileMsgNever.contains("手動") || fileMsgNever.contains("manually"))
+    }
+
+    func testTrashRetentionPeriod_BatchDeletionMessage() {
+        // 複数アイテム一括削除時のメッセージ検証
+        let batchMsg1d = TrashRetentionPeriod.oneDay.batchDeletionMessage(count: 3)
+        XCTAssertTrue(batchMsg1d.contains("3"))
+        XCTAssertTrue(batchMsg1d.contains("1") && (batchMsg1d.contains("日") || batchMsg1d.contains("day")))
+
+        let batchMsg30d = TrashRetentionPeriod.thirtyDays.batchDeletionMessage(count: 7)
+        XCTAssertTrue(batchMsg30d.contains("7"))
+        XCTAssertTrue(batchMsg30d.contains("30"))
+
+        let batchMsgNever = TrashRetentionPeriod.never.batchDeletionMessage(count: 12)
+        XCTAssertTrue(batchMsgNever.contains("12"))
+        XCTAssertTrue(batchMsgNever.contains("手動") || batchMsgNever.contains("manually"))
+    }
+
+    @MainActor
+    func testTrashRetentionPeriod_AppSettingsIntegration() {
+        let initialPeriod = AppSettingsManager.shared.trashRetentionPeriod
+        defer {
+            AppSettingsManager.shared.trashRetentionPeriod = initialPeriod
+        }
+
+        let testFile = ManagedFileItem(
+            id: UUID(),
+            title: "report_doc",
+            relativePath: "Documents/report_doc.pdf",
+            fileExtension: "pdf",
+            createdAt: Date(),
+            byteSize: 512,
+            folderName: "",
+            relativeSubpath: nil
+        )
+        let fileTarget = FileManagerView.DeletionTarget.managedFile(testFile)
+
+        // 30日に変更した場合、dialogMessageが30日を反映すること
+        AppSettingsManager.shared.trashRetentionPeriod = .thirtyDays
+        let msg30 = fileTarget.dialogMessage
+        XCTAssertTrue(msg30.contains("report_doc"))
+        XCTAssertTrue(msg30.contains("30"))
+
+        // 自動削除なしに変更した場合、dialogMessageが手動削除を反映すること
+        AppSettingsManager.shared.trashRetentionPeriod = .never
+        let msgNever = fileTarget.dialogMessage
+        XCTAssertTrue(msgNever.contains("report_doc"))
+        XCTAssertTrue(msgNever.contains("手動") || msgNever.contains("manually"))
+    }
 }

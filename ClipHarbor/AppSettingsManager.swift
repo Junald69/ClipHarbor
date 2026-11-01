@@ -97,6 +97,40 @@ enum TrashRetentionPeriod: Int, CaseIterable, Identifiable, Codable {
         case .never: return nil
         }
     }
+
+    /// 削除確認ダイアログ等で表示する保持期間の説明文
+    var deletionNotice: String {
+        switch self {
+        case .oneDay:
+            return NSLocalizedString("Automatically permanently deleted after 1 day.", comment: "")
+        case .threeDays:
+            return NSLocalizedString("Automatically permanently deleted after 3 days.", comment: "")
+        case .sevenDays:
+            return NSLocalizedString("Automatically permanently deleted after 7 days.", comment: "")
+        case .thirtyDays:
+            return NSLocalizedString("Automatically permanently deleted after 30 days.", comment: "")
+        case .never:
+            return NSLocalizedString("Kept in Trash until manually deleted.", comment: "")
+        }
+    }
+
+    /// 単一アイテム移動時の確認メッセージ
+    func itemDeletionMessage(title: String) -> String {
+        String(
+            format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n%@", comment: ""),
+            title,
+            deletionNotice
+        )
+    }
+
+    /// 複数アイテム移動時の確認メッセージ
+    func batchDeletionMessage(count: Int) -> String {
+        String(
+            format: NSLocalizedString("Are you sure you want to move %lld selected items to Trash?\n%@", comment: ""),
+            count,
+            deletionNotice
+        )
+    }
 }
 
 /// アプリ全体の設定マネージャー

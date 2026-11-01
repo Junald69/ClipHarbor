@@ -78,7 +78,7 @@ struct FileManagerSettingsView: View {
                 } header: {
                     Text(NSLocalizedString("Trash Auto-Deletion Settings", comment: ""))
                 } footer: {
-                    Text(NSLocalizedString("Changes will apply to videos moved to trash in the future. The expiration date of videos currently in trash will not change. If 'Do Not Auto-Delete' is selected, files will continue to consume device storage until manually deleted.", comment: ""))
+                    Text(NSLocalizedString("Changes will apply to files moved to trash in the future. The expiration date of files currently in trash will not change. If 'Do Not Auto-Delete' is selected, files will continue to consume device storage until manually deleted.", comment: ""))
                         .font(.caption2)
                 }
 
@@ -91,7 +91,7 @@ struct FileManagerSettingsView: View {
                             .foregroundStyle(.green)
                     }
 
-                    Text(NSLocalizedString("Videos in 'Downloads' can be viewed and shared via the iOS Files app. Files in Trash are securely isolated in a private directory.", comment: ""))
+                    Text(NSLocalizedString("Files in 'Downloads' can be viewed and shared via the iOS Files app. Files in Trash are securely isolated in a private directory.", comment: ""))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

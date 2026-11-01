@@ -91,13 +91,13 @@ struct FileManagerView: View {
             }
         }
 
+        @MainActor
         var dialogMessage: String {
-            switch self {
-            case .video(let v):
-                return String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after 3 days)", comment: ""), v.title)
-            case .managedFile(let m):
-                return String(format: NSLocalizedString("Are you sure you want to move \"%@\" to Trash?\n(Permanently deleted after the configured retention period)", comment: ""), m.title)
-            }
+            dialogMessage(retentionPeriod: AppSettingsManager.shared.trashRetentionPeriod)
+        }
+
+        func dialogMessage(retentionPeriod: TrashRetentionPeriod) -> String {
+            retentionPeriod.itemDeletionMessage(title: title)
         }
     }
 
@@ -311,7 +311,7 @@ struct FileManagerView: View {
                 }
             } message: {
                 if let target = itemPendingDeletion {
-                    Text(target.dialogMessage)
+                    Text(target.dialogMessage(retentionPeriod: settingsManager.trashRetentionPeriod))
                 }
             }
             .navigationDestination(for: VideoFolderManager.FolderFilter.self) { filter in
@@ -570,13 +570,13 @@ struct FileManagerView: View {
     @ViewBuilder
     private func applyAlerts(to content: some View) -> some View {
         content
-            .alert(NSLocalizedString("Move Selected Videos to Trash", comment: ""), isPresented: $showBatchDeleteAlert) {
+            .alert(NSLocalizedString("Move Selected Items to Trash", comment: ""), isPresented: $showBatchDeleteAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Move to Trash", role: .destructive) {
                     handleBatchMoveToTrash(videos: downloads.saved)
                 }
             } message: {
-                Text(String(format: NSLocalizedString("Are you sure you want to move %lld selected items to Trash?\n(Permanently deleted after 3 days)", comment: ""), totalSelectedCount))
+                Text(settingsManager.trashRetentionPeriod.batchDeletionMessage(count: totalSelectedCount))
             }
             .alert(NSLocalizedString("New Folder", comment: ""), isPresented: $showNewFolderAlert) {
                 TextField("Folder Name", text: $newFolderName)
@@ -1169,7 +1169,7 @@ struct FileManagerView: View {
             }
         } message: {
             if let target = itemPendingDeletion {
-                Text(target.dialogMessage)
+                Text(target.dialogMessage(retentionPeriod: settingsManager.trashRetentionPeriod))
             }
         }
     }

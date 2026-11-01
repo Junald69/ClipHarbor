@@ -12150,6 +12150,176 @@
           }
         }
       }
+    },
+    "Automatically permanently deleted after 1 day.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically permanently deleted after 1 day."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1日後に自動的に完全削除されます。"
+          }
+        }
+      }
+    },
+    "Automatically permanently deleted after 3 days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically permanently deleted after 3 days."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3日後に自動的に完全削除されます。"
+          }
+        }
+      }
+    },
+    "Automatically permanently deleted after 7 days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically permanently deleted after 7 days."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "7日後に自動的に完全削除されます。"
+          }
+        }
+      }
+    },
+    "Automatically permanently deleted after 30 days.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically permanently deleted after 30 days."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30日後に自動的に完全削除されます。"
+          }
+        }
+      }
+    },
+    "Kept in Trash until manually deleted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept in Trash until manually deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で削除するまでゴミ箱に保持されます。"
+          }
+        }
+      }
+    },
+    "Are you sure you want to move \"%@\" to Trash?\n%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to move \"%@\" to Trash?\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」をゴミ箱へ移動しますか？\n%@"
+          }
+        }
+      }
+    },
+    "Are you sure you want to move %lld selected items to Trash?\n%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you sure you want to move %lld selected items to Trash?\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した%lld件の項目をゴミ箱へ移動しますか？\n%@"
+          }
+        }
+      }
+    },
+    "Move Selected Items to Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Selected Items to Trash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目をゴミ箱へ移動"
+          }
+        }
+      }
+    },
+    "Changes will apply to files moved to trash in the future. The expiration date of files currently in trash will not change. If 'Do Not Auto-Delete' is selected, files will continue to consume device storage until manually deleted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes will apply to files moved to trash in the future. The expiration date of files currently in trash will not change. If 'Do Not Auto-Delete' is selected, files will continue to consume device storage until manually deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定を変更すると、今後ゴミ箱に移動したファイルから適用されます。既にゴミ箱にあるファイルの期限は変更されません。「自動削除しない」を選択した場合、手動で削除するまで端末の容量を消費し続けます。"
+          }
+        }
+      }
+    },
+    "Files in 'Downloads' can be viewed and shared via the iOS Files app. Files in Trash are securely isolated in a private directory.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files in 'Downloads' can be viewed and shared via the iOS Files app. Files in Trash are securely isolated in a private directory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Downloads」配下のファイルはiOS標準の「ファイル」アプリから閲覧・共有できます。ゴミ箱内のファイルは非公開領域に安全に隔離されます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
