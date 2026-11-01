@@ -172,6 +172,16 @@ struct FileManagerView: View {
         }
     }
 
+    private func setupNavigationBarAppearance() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .systemBackground
+        appearance.shadowColor = .separator
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+    }
+
     private var toastOverlay: some View {
         Group {
             if let notice = copyNotice {
@@ -242,10 +252,13 @@ struct FileManagerView: View {
             .toolbar {
                 rootToolbarContent
             }
+            .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .navigationDestination(for: VideoFolderManager.FolderFilter.self) { filter in
                 folderDetailView(for: filter)
             }
             .onAppear {
+                setupNavigationBarAppearance()
                 folderManager.syncWithFileSystemAndSavedVideos()
                 trashManager.purgeExpiredItems()
                 if let notice = zipManager.unresolvedRecoveryNotice {
@@ -1096,6 +1109,8 @@ struct FileManagerView: View {
                 }
             }
         }
+        .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         // 遷移先画面自身に確認ダイアログを接続することで確実に表示されるよう修正
         .confirmationDialog(
             NSLocalizedString("Move Video to Trash", comment: ""),
@@ -2856,6 +2871,8 @@ struct MoveToFolderSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
     }
@@ -2926,6 +2943,8 @@ private struct MoveManagedFileToFolderSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
     }
@@ -2981,6 +3000,8 @@ private struct BatchMoveToFolderSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .toolbarBackground(Color(.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
     }
