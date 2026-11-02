@@ -87,6 +87,16 @@ jobs:
                   sys.exit(f"ERROR: {key} must be Boolean True in Info.plist, got {val!r}")
           if "UILaunchScreen" not in info:
               sys.exit("ERROR: UILaunchScreen is missing from Info.plist")
+          expected_values = {
+              "CFBundleIdentifier": "com.junald69.clipharbor",
+              "CFBundleShortVersionString": "1.0.0",
+              "CFBundleVersion": "1",
+          }
+          for key, expected in expected_values.items():
+              val = info.get(key)
+              print(f"Verified {key} = {val!r}")
+              if val != expected:
+                  sys.exit(f"ERROR: {key} expected {expected!r}, got {val!r}")
           print("Info.plist verification passed successfully.")
           EOF
           echo "=== Inspecting PrivacyInfo.xcprivacy ==="

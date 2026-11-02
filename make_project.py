@@ -273,8 +273,8 @@ for kind in ['Debug', 'Release']:
     o = 'target ' + kind
     settings = {
         'CODE_SIGN_STYLE': 'Automatic',
-        'CURRENT_PROJECT_VERSION': '2',
-        'MARKETING_VERSION': '2.8',
+        'CURRENT_PROJECT_VERSION': '1',
+        'MARKETING_VERSION': '1.0.0',
         'GENERATE_INFOPLIST_FILE': 'YES',
         'INFOPLIST_FILE': 'ClipHarbor/Info.plist',
         'INFOPLIST_KEY_CFBundleDisplayName': 'ClipHarbor',
@@ -285,7 +285,7 @@ for kind in ['Debug', 'Release']:
         'IPHONEOS_DEPLOYMENT_TARGET': '17.0',
         'SWIFT_VERSION': '5.0',
         'TARGETED_DEVICE_FAMILY': '"1"',
-        'PRODUCT_BUNDLE_IDENTIFIER': 'com.example.ClipHarbor',
+        'PRODUCT_BUNDLE_IDENTIFIER': 'com.junald69.clipharbor',
         'PRODUCT_NAME': '"$(TARGET_NAME)"',
         'SWIFT_EMIT_LOC_STRINGS': 'YES',
         'ASSETCATALOG_COMPILER_APPICON_NAME': 'AppIcon',
@@ -302,7 +302,7 @@ for kind in ['Debug', 'Release']:
     settings = {
         'BUNDLE_LOADER': '"$(TEST_HOST)"',
         'TEST_HOST': '"$(BUILT_PRODUCTS_DIR)/ClipHarbor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ClipHarbor"',
-        'PRODUCT_BUNDLE_IDENTIFIER': 'com.example.ClipHarborTests',
+        'PRODUCT_BUNDLE_IDENTIFIER': 'com.junald69.clipharborTests',
         'PRODUCT_NAME': '"$(TARGET_NAME)"',
         'IPHONEOS_DEPLOYMENT_TARGET': '17.0',
         'SWIFT_VERSION': '5.0',
