@@ -104,17 +104,18 @@ jobs:
           if privacy.get("NSPrivacyCollectedDataTypes") != []:
               sys.exit(f"ERROR: NSPrivacyCollectedDataTypes must be empty, got {privacy.get('NSPrivacyCollectedDataTypes')!r}")
           accessed_types = {item.get("NSPrivacyAccessedAPIType"): item.get("NSPrivacyAccessedAPITypeReasons") for item in privacy.get("NSPrivacyAccessedAPITypes", [])}
-          required_categories = [
-              "NSPrivacyAccessedAPICategoryUserDefaults",
-              "NSPrivacyAccessedAPICategoryFileTimestamp",
-              "NSPrivacyAccessedAPICategoryDiskSpace",
-              "NSPrivacyAccessedAPICategorySystemBootTime"
-          ]
-          for cat in required_categories:
+          expected_reasons = {
+              "NSPrivacyAccessedAPICategoryUserDefaults": ["CA92.1"],
+              "NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1", "DDA9.1"],
+              "NSPrivacyAccessedAPICategoryDiskSpace": ["E174.1", "85F4.1"],
+              "NSPrivacyAccessedAPICategorySystemBootTime": ["35F9.1"]
+          }
+          for cat, reasons in expected_reasons.items():
               if cat not in accessed_types:
                   sys.exit(f"ERROR: Missing Required Reason API category {cat} in PrivacyInfo.xcprivacy")
-              if not accessed_types[cat]:
-                  sys.exit(f"ERROR: Category {cat} has no declared reasons in PrivacyInfo.xcprivacy")
+              for r in reasons:
+                  if r not in accessed_types[cat]:
+                      sys.exit(f"ERROR: Missing reason code {r} in {cat}")
               print(f"Verified {cat} -> {accessed_types[cat]}")
           print("PrivacyInfo.xcprivacy verification passed successfully.")
           EOF
