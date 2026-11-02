@@ -198,26 +198,26 @@ jobs:
 
           # method 'app-store' is canonical and fully supported across Xcode versions for App Store / TestFlight distribution
           cat <<EOF > "$EXPORT_OPTIONS"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>method</key>
-  <string>app-store</string>
-  <key>signingStyle</key>
-  <string>manual</string>
-  <key>stripSwiftSymbols</key>
-  <true/>
-  <key>teamID</key>
-  <string>$TEAM_ID</string>
-  <key>provisioningProfiles</key>
-  <dict>
-    <key>com.junald69.clipharbor</key>
-    <string>$PROFILE_UUID</string>
-  </dict>
-</dict>
-</plist>
-EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.junald69.clipharbor</key>
+              <string>$PROFILE_UUID</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
 
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/ClipHarbor.xcarchive" \
@@ -238,16 +238,16 @@ EOF
           plutil -p "$RUNNER_TEMP/Payload_Info.plist"
 
           python3 - "$RUNNER_TEMP/Payload_Info.plist" << 'EOF'
-import plistlib, sys
-with open(sys.argv[1], "rb") as f:
-    info = plistlib.load(f)
-assert info.get("CFBundleIdentifier") == "com.junald69.clipharbor", f"Unexpected Bundle ID: {info.get('CFBundleIdentifier')}"
-assert info.get("CFBundleShortVersionString") == "1.0.0", f"Unexpected Version: {info.get('CFBundleShortVersionString')}"
-assert info.get("CFBundleVersion") == "1", f"Unexpected Build: {info.get('CFBundleVersion')}"
-assert info.get("UIFileSharingEnabled") is True, "UIFileSharingEnabled must be True"
-assert info.get("LSSupportsOpeningDocumentsInPlace") is True, "LSSupportsOpeningDocumentsInPlace must be True"
-print("Signed IPA metadata validated successfully.")
-EOF
+          import plistlib, sys
+          with open(sys.argv[1], "rb") as f:
+              info = plistlib.load(f)
+          assert info.get("CFBundleIdentifier") == "com.junald69.clipharbor", f"Unexpected Bundle ID: {info.get('CFBundleIdentifier')}"
+          assert info.get("CFBundleShortVersionString") == "1.0.0", f"Unexpected Version: {info.get('CFBundleShortVersionString')}"
+          assert info.get("CFBundleVersion") == "1", f"Unexpected Build: {info.get('CFBundleVersion')}"
+          assert info.get("UIFileSharingEnabled") is True, "UIFileSharingEnabled must be True"
+          assert info.get("LSSupportsOpeningDocumentsInPlace") is True, "LSSupportsOpeningDocumentsInPlace must be True"
+          print("Signed IPA metadata validated successfully.")
+          EOF
 
           echo "=== Verifying PrivacyInfo.xcprivacy in signed IPA ==="
           unzip -l "$IPA_PATH" | grep -F "PrivacyInfo.xcprivacy"
@@ -340,58 +340,57 @@ EOF
         run: |
           if [ "${DRY_RUN:-false}" = "true" ]; then
             cat <<'EOF'
-======================================================================
-🏁 ClipHarbor TestFlight Deployment — DRY RUN COMPLETED
-======================================================================
-Mode              : Dry Run (No package uploaded to App Store Connect)
-Bundle Identifier : com.junald69.clipharbor
-Version           : 1.0.0
-Build             : 1
+          ======================================================================
+          ClipHarbor TestFlight Deployment - DRY RUN COMPLETED
+          ======================================================================
+          Mode              : Dry Run (No package uploaded to App Store Connect)
+          Bundle Identifier : com.junald69.clipharbor
+          Version           : 1.0.0
+          Build             : 1
 
-Verification Results:
-・139件のXCTest単体テスト実行 : PASS
-・Apple Distribution証明書・プロビジョニングプロファイル検証 : PASS
-・Release Archive生成および手動署名IPAエクスポート : PASS
-・Info.plistメタデータ（Bundle ID / Version / Build / ドキュメント共有設定） : PASS
-・PrivacyInfo.xcprivacyバンドル確認 : PASS
-・App Store Connect APIキー認証および pre-upload validation (--validate-app) : PASS
+          Verification Results:
+          * 139 XCTest unit tests: PASS
+          * Apple Distribution certificate & profile validation: PASS
+          * Release archive creation & manual code sign: PASS
+          * Info.plist metadata (Bundle ID / Version / File Sharing): PASS
+          * PrivacyInfo.xcprivacy bundle inclusion: PASS
+          * App Store Connect API pre-upload validation (--validate-app): PASS
 
-【留意事項】
-・Dry runのため、App Store Connectへのバイナリアップロードは実施されていません。
-・Appleサーバーによる受付検証（validate-app）の成功は、バンドル構造・署名・権限設定（Entitlements）がApp Store Connect受付基準を満たしていることを確認したものです。
-・Appleの「App Store審査（Guideline Review）」の承認を保証するものではありません（実機・コンテンツ・ガイドライン審査は別途審査提出時に行われます）。
-======================================================================
-EOF
+          [Notice]
+          * In Dry Run mode, no binary was uploaded to App Store Connect.
+          * Passing validation confirms bundle structure and entitlements meet App Store Connect criteria.
+          * It does not guarantee approval in App Store Review.
+          ======================================================================
+          EOF
           else
             cat <<'EOF'
-======================================================================
-🚀 ClipHarbor TestFlight Deployment — UPLOAD COMPLETED
-======================================================================
-Mode              : Production Upload to TestFlight
-Bundle Identifier : com.junald69.clipharbor
-Version           : 1.0.0
-Build             : 1
+          ======================================================================
+          ClipHarbor TestFlight Deployment - UPLOAD COMPLETED
+          ======================================================================
+          Mode              : Production Upload to TestFlight
+          Bundle Identifier : com.junald69.clipharbor
+          Version           : 1.0.0
+          Build             : 1
 
-Status:
-・App Store ConnectへのIPAバイナリアップロードが完了しました。
-・現在、Appleのサーバー側で「処理中（Processing）」の状態です。
-  通常5分〜15分程度で処理が完了し、TestFlightで利用可能になります。
-・Appleによる自動処理（シンボル解析、アセット検証、暗号化コンプライアンス確認）が実行されます。
+          Status:
+          * IPA binary successfully uploaded to App Store Connect.
+          * Currently in "Processing" state on Apple servers (typically 5-15 min).
+          * Automated symbol verification and encryption compliance checks are underway.
 
-【留意事項】
-・TestFlightへのアップロード完了は、アプリがApple審査に合格したことを意味するものではありません。
-・内部テスト（Internal Testing）は処理完了後すぐに配布可能ですが、外部テスト（External Testing）やApp Store本番公開にはAppleの審査提出・承認が必要です。
+          [Notice]
+          * TestFlight ingestion does not constitute App Store Review approval.
+          * Internal testing is available after processing completes.
+          * External testing and App Store distribution require review submission.
 
-Direct Access Links:
-・App Store Connect App: https://appstoreconnect.apple.com/apps
-・TestFlight Builds:      https://appstoreconnect.apple.com/apps/com.junald69.clipharbor/testflight/ios
+          Dashboard:
+          * https://appstoreconnect.apple.com/apps/com.junald69.clipharbor/testflight/ios
 
-Next Steps in App Store Connect:
-1. メール通知「App Store Connect: Version 1.0 (1) has completed processing」をお待ちください。
-2. 輸出コンプライアンス情報（Export Compliance）を設定してください（標準暗号化のみ使用の場合は「いいえ」を選択）。
-3. 内部テストグループ（Internal Testing）に対象ビルドを追加し、実機テストを開始してください。
-======================================================================
-EOF
+          Next Steps in App Store Connect:
+          1. Wait for email: "App Store Connect: Version 1.0 (1) has completed processing".
+          2. Complete Export Compliance (select "No" if using standard exemptions).
+          3. Add Internal Testing group to test on devices.
+          ======================================================================
+          EOF
           fi
 
       - name: Report deployment failure
@@ -399,24 +398,19 @@ EOF
         shell: bash
         run: |
           cat <<'EOF'
-======================================================================
-❌ ClipHarbor TestFlight Deployment — FAILED
-======================================================================
-ワークフローの実行中にエラーが発生しました。
-バイナリのアップロードは完了していません（または中断されました）。
+          ======================================================================
+          ClipHarbor TestFlight Deployment - FAILED
+          ======================================================================
+          An error occurred during workflow execution.
+          No binary was uploaded or upload was aborted.
 
-確認推奨事項:
-1. 直前の失敗ステップのログを確認してください。
-2. 署名エラー（Code signing）の場合:
-   - BUILD_CERTIFICATE_BASE64 (Apple Distribution) と P12_PASSWORD が有効か
-   - BUILD_PROVISION_PROFILE_BASE64 のBundle IDが com.junald69.clipharbor と一致しているか
-   - APPLE_TEAM_ID がProfileのTeam IDと一致しているか
-3. App Store Connect APIエラーの場合:
-   - APPSTORE_KEY_ID, APPSTORE_ISSUER_ID, APPSTORE_API_KEY_BASE64 の有効性
-   - APIキーの権限（Developer または Admin / App Manager）
-4. 一時キーチェーンおよびプロビジョニングプロファイルは後続のcleanupステップで安全に削除されます。
-======================================================================
-EOF
+          Troubleshooting:
+          1. Review failed step logs.
+          2. For code signing issues, check BUILD_CERTIFICATE_BASE64, P12_PASSWORD, and BUILD_PROVISION_PROFILE_BASE64.
+          3. For API issues, check APPSTORE_KEY_ID, APPSTORE_ISSUER_ID, and APPSTORE_API_KEY_BASE64.
+          4. Temporary keychain and profile are safely removed by subsequent cleanup step.
+          ======================================================================
+          EOF
 
       - name: Clean up temporary keychain and credentials
         if: always()
