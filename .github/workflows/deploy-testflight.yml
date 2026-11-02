@@ -1,0 +1,311 @@
+name: Deploy to TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (validate archive and metadata with Apple, but do not upload)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Show Xcode and SDK information
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Run unit tests before archiving
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIM_NAME=$(xcrun simctl list devices available -j | python3 -c "import json, sys; d=json.load(sys.stdin)['devices']; print([dev['name'] for devs in d.values() for dev in devs if 'iPhone' in dev['name']][0])")
+          echo "Running pre-flight test suite on simulator: $SIM_NAME"
+          xcodebuild test \
+            -project ClipHarbor.xcodeproj \
+            -scheme ClipHarbor \
+            -destination "platform=iOS Simulator,name=$SIM_NAME" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Setup signing keychain and provisioning profile
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD_INPUT: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$BUILD_CERTIFICATE_BASE64" ]; then
+            echo "::error::Secret BUILD_CERTIFICATE_BASE64 is empty or missing."
+            exit 1
+          fi
+          if [ -z "$BUILD_PROVISION_PROFILE_BASE64" ]; then
+            echo "::error::Secret BUILD_PROVISION_PROFILE_BASE64 is empty or missing."
+            exit 1
+          fi
+
+          KEYCHAIN_PASSWORD="${KEYCHAIN_PASSWORD_INPUT:-$(uuidgen)}"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build_signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/distribution.p12"
+          PP_PATH="$RUNNER_TEMP/embedded.mobileprovision"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | tr -d '\r\n ' | base64 --decode > "$CERT_PATH"
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | tr -d '\r\n ' | base64 --decode > "$PP_PATH"
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import p12 certificate (OpenSSL 1.1 / OpenSSL 3.x dual compatibility handling)
+          if security import "$CERT_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" 2>/dev/null; then
+            echo "Apple Distribution certificate imported successfully (direct standard/OpenSSL 1.1 import)."
+          else
+            echo "Direct security import failed. Converting OpenSSL 3.x PKCS#12 to OpenSSL 1.1 legacy format..."
+            openssl pkcs12 -in "$CERT_PATH" -passin "pass:$P12_PASSWORD" -nodes -out "$RUNNER_TEMP/cert_temp.pem"
+            openssl pkcs12 -export -legacy -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
+              -in "$RUNNER_TEMP/cert_temp.pem" -passout "pass:$P12_PASSWORD" -out "$RUNNER_TEMP/cert_legacy.p12"
+            rm -f "$RUNNER_TEMP/cert_temp.pem"
+            security import "$RUNNER_TEMP/cert_legacy.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+            rm -f "$RUNNER_TEMP/cert_legacy.p12"
+            echo "Apple Distribution certificate imported successfully via legacy compatibility conversion."
+          fi
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          # Parse provisioning profile metadata using PlistBuddy and security cms
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /dev/stdin <<< $(security cms -D -i "$PP_PATH"))
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" /dev/stdin <<< $(security cms -D -i "$PP_PATH"))
+          PROFILE_TEAM=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" /dev/stdin <<< $(security cms -D -i "$PP_PATH"))
+
+          echo "Provisioning Profile verified:"
+          echo "  Name: $PROFILE_NAME"
+          echo "  UUID: $PROFILE_UUID"
+          echo "  TeamID: $PROFILE_TEAM"
+
+          # Install provisioning profile
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          # Export variables for subsequent steps
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "DETECTED_TEAM_ID=$PROFILE_TEAM" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build Release Archive
+        shell: bash
+        env:
+          INPUT_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          TEAM_ID="${INPUT_TEAM_ID:-$DETECTED_TEAM_ID}"
+          ARCHIVE_PATH="$RUNNER_TEMP/ClipHarbor.xcarchive"
+
+          echo "Archiving ClipHarbor with Team ID: $TEAM_ID, Profile UUID: $PROFILE_UUID"
+          xcodebuild archive \
+            -project ClipHarbor.xcodeproj \
+            -scheme ClipHarbor \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID"
+
+          test -d "$ARCHIVE_PATH"
+          echo "Release archive created successfully at $ARCHIVE_PATH"
+
+      - name: Export signed App Store IPA
+        shell: bash
+        env:
+          INPUT_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          TEAM_ID="${INPUT_TEAM_ID:-$DETECTED_TEAM_ID}"
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          EXPORT_DIR="$RUNNER_TEMP/Export"
+
+          cat <<EOF > "$EXPORT_OPTIONS"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>$TEAM_ID</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.junald69.clipharbor</key>
+              <string>$PROFILE_UUID</string>
+            </dict>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/ClipHarbor.xcarchive" \
+            -exportOptionsPlist "$EXPORT_OPTIONS" \
+            -exportPath "$EXPORT_DIR"
+
+          IPA_PATH="$EXPORT_DIR/ClipHarbor.ipa"
+          test -f "$IPA_PATH"
+          echo "Signed IPA exported successfully: $(ls -lh "$IPA_PATH")"
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+
+      - name: Validate exported package metadata and signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Inspecting embedded Info.plist in signed IPA ==="
+          unzip -q -c "$IPA_PATH" "Payload/ClipHarbor.app/Info.plist" > "$RUNNER_TEMP/Payload_Info.plist"
+          plutil -p "$RUNNER_TEMP/Payload_Info.plist"
+          
+          python3 - "$RUNNER_TEMP/Payload_Info.plist" << 'EOF'
+          import plistlib, sys
+          with open(sys.argv[1], "rb") as f:
+              info = plistlib.load(f)
+          assert info.get("CFBundleIdentifier") == "com.junald69.clipharbor", f"Unexpected Bundle ID: {info.get('CFBundleIdentifier')}"
+          assert info.get("CFBundleShortVersionString") == "1.0.0", f"Unexpected Version: {info.get('CFBundleShortVersionString')}"
+          assert info.get("CFBundleVersion") == "1", f"Unexpected Build: {info.get('CFBundleVersion')}"
+          assert info.get("UIFileSharingEnabled") is True, "UIFileSharingEnabled must be True"
+          assert info.get("LSSupportsOpeningDocumentsInPlace") is True, "LSSupportsOpeningDocumentsInPlace must be True"
+          print("Signed IPA metadata validated successfully.")
+          EOF
+
+          echo "=== Verifying PrivacyInfo.xcprivacy in signed IPA ==="
+          unzip -l "$IPA_PATH" | grep -F "PrivacyInfo.xcprivacy"
+
+      - name: Setup App Store Connect API Key
+        shell: bash
+        env:
+          APPSTORE_API_KEY_INPUT: ${{ secrets.APPSTORE_API_KEY_BASE64 }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPSTORE_API_KEY_INPUT" ] || [ -z "$APPSTORE_KEY_ID" ] || [ -z "$APPSTORE_ISSUER_ID" ]; then
+            echo "::error::App Store Connect API Key secrets are missing or incomplete."
+            exit 1
+          fi
+
+          mkdir -p ./private_keys ~/.appstoreconnect/private_keys ~/.private_keys
+          KEY_FILE="./private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+
+          if [[ "$APPSTORE_API_KEY_INPUT" == *"BEGIN PRIVATE KEY"* ]]; then
+            echo "$APPSTORE_API_KEY_INPUT" > "$KEY_FILE"
+          else
+            echo "$APPSTORE_API_KEY_INPUT" | tr -d '\r\n ' | base64 --decode > "$KEY_FILE"
+          fi
+
+          cp "$KEY_FILE" ~/.appstoreconnect/private_keys/
+          cp "$KEY_FILE" ~/.private_keys/
+          chmod 600 "$KEY_FILE" ~/.appstoreconnect/private_keys/* ~/.private_keys/*
+          echo "App Store Connect API key registered for Key ID: $APPSTORE_KEY_ID"
+
+      - name: Pre-upload validation with App Store Connect
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "Validating IPA with App Store Connect..."
+          xcrun altool --validate-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+          echo "App Store Connect validation passed."
+
+      - name: Upload to App Store Connect (TestFlight)
+        if: ${{ !inputs.dry_run }}
+        shell: bash
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "Uploading IPA to TestFlight..."
+          UPLOAD_OUTPUT=$(xcrun altool --upload-app \
+            -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID" 2>&1)
+          
+          echo "$UPLOAD_OUTPUT"
+          
+          if echo "$UPLOAD_OUTPUT" | grep -iq "No errors uploading"; then
+            echo "Upload to TestFlight finished successfully!"
+          else
+            echo "::error::Upload to TestFlight did not confirm successful receipt."
+            exit 1
+          fi
+
+      - name: Report TestFlight processing status and dashboard access
+        if: always()
+        shell: bash
+        run: |
+          cat <<'EOF'
+          ======================================================================
+          ⚓️ ClipHarbor TestFlight Deployment Summary
+          ======================================================================
+          Bundle Identifier : com.junald69.clipharbor
+          Version           : 1.0.0
+          Build             : 1
+          
+          App Store Connect TestFlight Status:
+          ・Uploads typically take 5-15 minutes to transition from "Processing" to "Ready to Submit / Test".
+          ・Apple automatically performs automated compliance, symbol verification, and asset checks.
+          
+          Direct Access:
+          ・App Store Connect Apps: https://appstoreconnect.apple.com/apps
+          ・TestFlight Builds:      https://appstoreconnect.apple.com/apps/com.junald69.clipharbor/testflight/ios
+          
+          Next Steps in App Store Connect:
+          1. Wait for email notification: "App Store Connect: Version 1.0 (1) has completed processing."
+          2. Complete Export Compliance (select "No" if using standard encryption exemptions).
+          3. Add Internal Testing group to start testing immediately on your devices.
+          ======================================================================
+          EOF
+
+      - name: Clean up temporary keychain and secrets
+        if: always()
+        shell: bash
+        run: |
+          echo "=== Securely removing temporary keychain, credentials, and artifacts ==="
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          rm -rf "$RUNNER_TEMP"/*.p12 "$RUNNER_TEMP"/*.p8 "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/*.plist "$RUNNER_TEMP"/*.pem 2>/dev/null || true
+          rm -rf ./private_keys ~/.appstoreconnect ~/.private_keys 2>/dev/null || true
+          rm -rf "$HOME/Library/MobileDevice/Provisioning Profiles"/* 2>/dev/null || true
+          echo "Cleanup completed successfully."

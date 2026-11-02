@@ -11,7 +11,7 @@ on:
       - 'ClipHarbor/**'
       - 'ClipHarborTests/**'
       - 'ClipHarbor.xcodeproj/**'
-      - '.github/workflows/build-ios-unsigned.yml'
+      - '.github/workflows/**'
       - 'make_project.py'
 
 concurrency:
