@@ -67,7 +67,7 @@ enum FileClassification: Equatable {
         if components.contains(".playback_temp") || components.contains("ZipWorkStaging") {
             return true
         }
-        if components.contains(where: { $0 == "Vault" || $0.hasPrefix(".PrivateVault") }) {
+        if components.contains(where: { $0 == "Vault" || $0.hasPrefix(".PrivateVault") || $0.hasPrefix("PrivateVault") }) {
             return true
         }
         if let appSupportIdx = components.firstIndex(of: "Application Support"),

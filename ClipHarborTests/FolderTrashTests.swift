@@ -613,16 +613,20 @@ final class FolderTrashTests: XCTestCase {
 
         // Documents/PrivateVault/ 配下のフォルダ作成
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let vaultFolder = docs.appendingPathComponent("PrivateVault", isDirectory: true).appendingPathComponent("SecretFolder", isDirectory: true)
+        let vaultBase = docs.appendingPathComponent("PrivateVault", isDirectory: true)
+        let vaultFolder = vaultBase.appendingPathComponent("SecretFolder", isDirectory: true)
         try? FileManager.default.createDirectory(at: vaultFolder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vaultFolder) }
+        defer {
+            try? FileManager.default.removeItem(at: vaultFolder)
+            try? FileManager.default.removeItem(at: vaultBase)
+        }
 
         let res = await trashMgr.moveToTrash(
             folderName: "SecretFolder",
             downloads: dc,
             folderManager: fm,
             zipManager: zipMgr,
-            customRootURL: docs.appendingPathComponent("PrivateVault", isDirectory: true)
+            customRootURL: vaultBase
         )
 
         guard case .failure(let err) = res else {
