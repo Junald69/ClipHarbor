@@ -14,6 +14,7 @@ files = [
     'VideoThumbnailManager.swift',
     'TrashManager.swift',
     'TrashView.swift',
+    'TrashFolderDetailView.swift',
     'FileManagerSettingsView.swift',
     'VideoExportManager.swift',
     'BrowserModel.swift',
@@ -56,6 +57,7 @@ files = [
 
 test_files = [
     'VaultFaultInjectionTests.swift',
+    'FolderTrashTests.swift',
 ]
 
 resources = [

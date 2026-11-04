@@ -640,20 +640,16 @@ struct FileManagerView: View {
                 )
             ) {
                 Button("Cancel", role: .cancel) { deletingFolder = nil }
-                Button(NSLocalizedString("Delete Folder", comment: ""), role: .destructive) {
+                Button(NSLocalizedString("Move to Trash", comment: ""), role: .destructive) {
                     if let target = deletingFolder {
-                        switch folderManager.deleteFolder(name: target) {
-                        case .success:
-                            navigationPath.removeAll { $0 == .folder(target) }
-                        case .failure(let err):
-                            errorMessage = err.localizedDescription
-                        }
+                        handleMoveFolderToTrash(folderName: target)
                     }
                     deletingFolder = nil
                 }
             } message: {
                 if let target = deletingFolder {
-                    Text(String(format: NSLocalizedString("Are you sure you want to delete folder \"%@\"?\nVideos inside will not be deleted and will return to Downloads.", comment: ""), target))
+                    let count = countItemsInFolder(target)
+                    Text(String(format: NSLocalizedString("Are you sure you want to move folder \"%@\" and its contents (%lld items) to Trash?\nYou can restore it from Trash within the retention period.", comment: ""), target, count))
                 }
             }
             .alert(
@@ -2133,6 +2129,42 @@ let targetFolder = currentActiveFolderName
                     showToast(String(format: NSLocalizedString("Moved \"%@\" to Trash", comment: ""), managedFile.title))
                 case .failure(let err):
                     errorMessage = String(format: NSLocalizedString("Failed to move to Trash: %@", comment: ""), err.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func countItemsInFolder(_ folderName: String) -> Int {
+        let clean = VideoFolderManager.sanitizedFolderName(folderName)
+        let vCount = downloads.saved.filter { folderManager.folderName(for: $0) == clean }.count
+        let fCount = zipManager.managedFiles.filter { $0.folderName == clean || $0.normalizedRelativePath.hasPrefix("Documents/Downloads/\(clean)/") }.count
+        let folderURL = zipManager.downloadsRootURL.appendingPathComponent(clean, isDirectory: true)
+        var physicalCount = 0
+        if let enumerator = FileManager.default.enumerator(at: folderURL, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]) {
+            for case let fileURL as URL in enumerator {
+                if (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+                    physicalCount += 1
+                }
+            }
+        }
+        return max(vCount + fCount, physicalCount)
+    }
+
+    private func handleMoveFolderToTrash(folderName: String) {
+        Task {
+            let res = await trashManager.moveToTrash(
+                folderName: folderName,
+                downloads: downloads,
+                folderManager: folderManager,
+                zipManager: zipManager
+            )
+            await MainActor.run {
+                switch res {
+                case .success:
+                    navigationPath.removeAll { $0 == .folder(folderName) }
+                    showToast(String(format: NSLocalizedString("Moved folder \"%@\" to Trash", comment: ""), folderName))
+                case .failure(let err):
+                    errorMessage = err.localizedDescription
                 }
             }
         }

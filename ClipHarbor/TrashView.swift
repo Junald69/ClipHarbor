@@ -15,6 +15,8 @@ struct TrashView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var deletingItem: TrashItem?
+    @State private var selectedFolderForDetail: TrashItem?
+    @State private var conflictFolderItem: TrashItem?
     @State private var showEmptyTrashAlert = false
     @State private var noticeMessage: String?
     @State private var errorMessage: String?
@@ -43,6 +45,9 @@ struct TrashView: View {
                                     AlohaTrashCardView(
                                         item: item,
                                         isProcessing: trashManager.processingItemIDs.contains(item.id) || isOperating,
+                                        onTap: item.isFolder ? {
+                                            selectedFolderForDetail = item
+                                        } : nil,
                                         onRestore: {
                                             restoreItem(item)
                                         },
@@ -99,6 +104,39 @@ struct TrashView: View {
             }
             .onAppear {
                 trashManager.purgeExpiredItems()
+            }
+            .sheet(item: $selectedFolderForDetail) { folderItem in
+                TrashFolderDetailView(
+                    item: folderItem,
+                    downloads: downloads,
+                    folderManager: folderManager,
+                    zipManager: zipManager,
+                    onRestored: { restoredName in
+                        showToast(String(format: NSLocalizedString("Restored folder \"%@\"", comment: ""), restoredName))
+                    },
+                    onDeleted: {
+                        showToast(NSLocalizedString("Permanently deleted folder", comment: ""))
+                    }
+                )
+            }
+            .alert(
+                NSLocalizedString("Folder Already Exists", comment: ""),
+                isPresented: Binding(
+                    get: { conflictFolderItem != nil },
+                    set: { if !$0 { conflictFolderItem = nil } }
+                )
+            ) {
+                Button(NSLocalizedString("Restore with Different Name", comment: "")) {
+                    if let folder = conflictFolderItem {
+                        performRestoreFolder(item: folder, resolution: .rename)
+                    }
+                    conflictFolderItem = nil
+                }
+                Button("Cancel", role: .cancel) { conflictFolderItem = nil }
+            } message: {
+                if let folder = conflictFolderItem {
+                    Text(String(format: NSLocalizedString("A folder named \"%@\" already exists in Downloads. Would you like to restore it with a different name?", comment: ""), folder.originalTitle))
+                }
             }
             .alert(
                 NSLocalizedString("Delete Item Permanently", comment: ""),
@@ -183,6 +221,18 @@ struct TrashView: View {
 
     private func restoreItem(_ item: TrashItem) {
         guard !isOperating else { return }
+        if item.isFolder {
+            let cleanName = VideoFolderManager.sanitizedFolderName(item.fileName)
+            let downloadsDir = zipManager.downloadsRootURL
+            let targetDir = downloadsDir.appendingPathComponent(cleanName, isDirectory: true)
+            if FileManager.default.fileExists(atPath: targetDir.path) {
+                conflictFolderItem = item
+                return
+            }
+            performRestoreFolder(item: item, resolution: .rename)
+            return
+        }
+
         isOperating = true
         Task {
             let result = await trashManager.restore(item: item, downloads: downloads, folderManager: folderManager, zipManager: zipManager)
@@ -194,8 +244,32 @@ struct TrashView: View {
                     switch restored {
                     case .video(let v): title = v.title
                     case .generalFile(let f): title = f.title
+                    case .folder(let folderName): title = folderName
                     }
                     showToast(String(format: NSLocalizedString("Restored \"%@\"", comment: ""), title))
+                case .failure(let err):
+                    errorMessage = String(format: NSLocalizedString("Failed to restore: %@", comment: ""), err.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func performRestoreFolder(item: TrashItem, resolution: FolderRestoreConflictResolution) {
+        guard !isOperating else { return }
+        isOperating = true
+        Task {
+            let result = await trashManager.restoreFolder(
+                item: item,
+                downloads: downloads,
+                folderManager: folderManager,
+                zipManager: zipManager,
+                resolution: resolution
+            )
+            await MainActor.run {
+                isOperating = false
+                switch result {
+                case .success(let restoredName):
+                    showToast(String(format: NSLocalizedString("Restored folder \"%@\"", comment: ""), restoredName))
                 case .failure(let err):
                     errorMessage = String(format: NSLocalizedString("Failed to restore: %@", comment: ""), err.localizedDescription)
                 }
@@ -255,6 +329,7 @@ struct TrashView: View {
 private struct AlohaTrashCardView: View {
     let item: TrashItem
     let isProcessing: Bool
+    var onTap: (() -> Void)? = nil
     let onRestore: () -> Void
     let onDeletePermanently: () -> Void
 
@@ -273,6 +348,23 @@ private struct AlohaTrashCardView: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                // 左上: フォルダ内アイテム数バッジ
+                if item.isFolder, let count = item.folderItemCount {
+                    HStack(spacing: 3) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 9))
+                        Text("\(count)")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.92), in: Capsule())
+                    .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
 
                 // 右上: 「…」メニューボタン（個別ファイル操作用: 復元・完全削除）
                 Menu {
@@ -323,7 +415,7 @@ private struct AlohaTrashCardView: View {
                 HStack(spacing: 4) {
                     Text(item.typeLabel)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(item.isGeneralFile ? .purple : .secondary)
+                        .foregroundStyle(item.isFolder ? .blue : (item.isGeneralFile ? .purple : .secondary))
 
                     if let size = item.byteSize, size > 0 {
                         Text("· \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))")
@@ -344,6 +436,10 @@ private struct AlohaTrashCardView: View {
                 .frame(height: expiryHeight, alignment: .leading)
             }
             .padding(.horizontal, 4)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onTap?()
         }
     }
 }
@@ -370,9 +466,10 @@ private struct TrashClippedThumbnailTileView: View {
                         .frame(width: w, height: h)
                         .clipped()
                 } else {
-                    // サムネイル未取得または一般ファイルのプレースホルダー
+                    // サムネイル未取得またはフォルダ・一般ファイルのプレースホルダー
                     VStack(spacing: 6) {
                         let iconName: String = {
+                            if item.isFolder { return "folder.fill" }
                             if item.isGeneralFile {
                                 let ext = item.fileExtension?.lowercased() ?? ""
                                 if ext == "zip" { return "doc.zipper" }
@@ -384,7 +481,7 @@ private struct TrashClippedThumbnailTileView: View {
                         }()
                         Image(systemName: iconName)
                             .font(.system(size: 32))
-                            .foregroundStyle(item.isGeneralFile ? .purple : .secondary)
+                            .foregroundStyle(item.isFolder ? Color.blue : (item.isGeneralFile ? Color.purple : Color.secondary))
                         Text(item.typeLabel)
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(.secondary)
@@ -394,7 +491,7 @@ private struct TrashClippedThumbnailTileView: View {
             .task(id: item.id) {
                 guard !hasAttemptedLoad else { return }
                 hasAttemptedLoad = true
-                guard item.isVideo else { return }
+                guard item.isVideo || item.isFolder else { return }
                 let loaded = await TrashManager.shared.loadThumbnail(for: item)
                 await MainActor.run {
                     self.thumbnail = loaded

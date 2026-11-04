@@ -14,6 +14,7 @@
 		B9FDEF5D204B5AE10E44CEF1 /* build VideoThumbnailManager.swift */ = {isa = PBXBuildFile; fileRef = FE4B3F8B7491069EA3651038 /* file VideoThumbnailManager.swift */; };
 		FC919ADA61A14A1D9445920D /* build TrashManager.swift */ = {isa = PBXBuildFile; fileRef = 6515129828C1EAA8DB31C79E /* file TrashManager.swift */; };
 		812A4F25844217D5F197869B /* build TrashView.swift */ = {isa = PBXBuildFile; fileRef = 0E161F7556CBA3A15130BF5D /* file TrashView.swift */; };
+		6F0E11CE5021E9F017A761A0 /* build TrashFolderDetailView.swift */ = {isa = PBXBuildFile; fileRef = 409D41603A8F7543C8C8FFF0 /* file TrashFolderDetailView.swift */; };
 		9DB859A6C3D6E6244D05C500 /* build FileManagerSettingsView.swift */ = {isa = PBXBuildFile; fileRef = DB25AA11B2586FC4A84413D6 /* file FileManagerSettingsView.swift */; };
 		6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */ = {isa = PBXBuildFile; fileRef = 30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */; };
 		1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */ = {isa = PBXBuildFile; fileRef = 45A6F3A3765DE8660C109604 /* file BrowserModel.swift */; };
@@ -59,6 +60,7 @@
 		1588711800276E56594BA391 /* build blocker_metadata.json */ = {isa = PBXBuildFile; fileRef = E185D6B8460F723A59E17928 /* file blocker_metadata.json */; };
 		B35B61FF3B1070FBD7E774C6 /* build PrivacyInfo.xcprivacy */ = {isa = PBXBuildFile; fileRef = FCAEE84FE186317A52C1C3FF /* file PrivacyInfo.xcprivacy */; };
 		CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */ = {isa = PBXBuildFile; fileRef = A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */; };
+		4300EDD92D518739B0B032BD /* test build FolderTrashTests.swift */ = {isa = PBXBuildFile; fileRef = 25E71DA26D5DA4C9F70976B5 /* test file FolderTrashTests.swift */; };
 		4A25828E4BECAFF074EDA7FB /* build pkg ZIPFoundation */ = {isa = PBXBuildFile; productRef = B167CC9F31FF3831EBC6E05E /* pkg product ZIPFoundation */; };
 /* End PBXBuildFile section */
 
@@ -82,6 +84,7 @@
 		FE4B3F8B7491069EA3651038 /* file VideoThumbnailManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoThumbnailManager.swift; sourceTree = "<group>"; };
 		6515129828C1EAA8DB31C79E /* file TrashManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashManager.swift; sourceTree = "<group>"; };
 		0E161F7556CBA3A15130BF5D /* file TrashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashView.swift; sourceTree = "<group>"; };
+		409D41603A8F7543C8C8FFF0 /* file TrashFolderDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashFolderDetailView.swift; sourceTree = "<group>"; };
 		DB25AA11B2586FC4A84413D6 /* file FileManagerSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileManagerSettingsView.swift; sourceTree = "<group>"; };
 		30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoExportManager.swift; sourceTree = "<group>"; };
 		45A6F3A3765DE8660C109604 /* file BrowserModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModel.swift; sourceTree = "<group>"; };
@@ -127,6 +130,7 @@
 		E185D6B8460F723A59E17928 /* file blocker_metadata.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = blocker_metadata.json; sourceTree = "<group>"; };
 		FCAEE84FE186317A52C1C3FF /* file PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultFaultInjectionTests.swift; sourceTree = "<group>"; };
+		25E71DA26D5DA4C9F70976B5 /* test file FolderTrashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderTrashTests.swift; sourceTree = "<group>"; };
 		83A5DD8EBAFB93BC34E3AB4F /* product app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipHarbor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		9820010F6EAE5B56A3C0CF68 /* product test */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClipHarborTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -149,6 +153,7 @@
 				FE4B3F8B7491069EA3651038 /* file VideoThumbnailManager.swift */,
 				6515129828C1EAA8DB31C79E /* file TrashManager.swift */,
 				0E161F7556CBA3A15130BF5D /* file TrashView.swift */,
+				409D41603A8F7543C8C8FFF0 /* file TrashFolderDetailView.swift */,
 				DB25AA11B2586FC4A84413D6 /* file FileManagerSettingsView.swift */,
 				30D98DE6DFCB8198DC4CC3C3 /* file VideoExportManager.swift */,
 				45A6F3A3765DE8660C109604 /* file BrowserModel.swift */,
@@ -201,6 +206,7 @@
 			isa = PBXGroup;
 			children = (
 				A0F7613C8093C35E84633842 /* test file VaultFaultInjectionTests.swift */,
+				25E71DA26D5DA4C9F70976B5 /* test file FolderTrashTests.swift */,
 			);
 			path = ClipHarborTests;
 			sourceTree = "<group>";
@@ -285,6 +291,7 @@
 				B9FDEF5D204B5AE10E44CEF1 /* build VideoThumbnailManager.swift */,
 				FC919ADA61A14A1D9445920D /* build TrashManager.swift */,
 				812A4F25844217D5F197869B /* build TrashView.swift */,
+				6F0E11CE5021E9F017A761A0 /* build TrashFolderDetailView.swift */,
 				9DB859A6C3D6E6244D05C500 /* build FileManagerSettingsView.swift */,
 				6FB54C5766FC54BDBB8F92A2 /* build VideoExportManager.swift */,
 				1A22A2BC3AAA3029B2D4A3F0 /* build BrowserModel.swift */,
@@ -331,6 +338,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				CDC1FC10012FFC203B4285BC /* test build VaultFaultInjectionTests.swift */,
+				4300EDD92D518739B0B032BD /* test build FolderTrashTests.swift */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
