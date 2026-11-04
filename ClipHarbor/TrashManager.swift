@@ -955,13 +955,37 @@ final class TrashManager: ObservableObject {
                     let sourcePrefix = sourceFolderURL.standardizedFileURL.resolvingSymlinksInPath().path
                     let prefixWithSlash = sourcePrefix.hasSuffix("/") ? sourcePrefix : sourcePrefix + "/"
 
+                    func resolveVideoSourceURL(_ video: SavedVideo) -> URL {
+                        if let customRoot = customRootURL {
+                            let norm = FileClassification.normalizedRelativePath(video.relativePath)
+                            let prefix = "Documents/Downloads/"
+                            if norm.hasPrefix(prefix) {
+                                let subRel = String(norm.dropFirst(prefix.count))
+                                return customRoot.appendingPathComponent(subRel)
+                            }
+                        }
+                        return video.fileURL
+                    }
+
+                    func resolveManagedFileSourceURL(_ file: ManagedFileItem) -> URL {
+                        if let customRoot = customRootURL {
+                            let norm = file.normalizedRelativePath
+                            let prefix = "Documents/Downloads/"
+                            if norm.hasPrefix(prefix) {
+                                let subRel = String(norm.dropFirst(prefix.count))
+                                return customRoot.appendingPathComponent(subRel)
+                            }
+                        }
+                        return zipManager.resolveFileURL(for: file)
+                    }
+
                     for v in affectedVideos {
-                        let vURL = v.fileURL.standardizedFileURL.resolvingSymlinksInPath()
+                        let vURL = resolveVideoSourceURL(v).standardizedFileURL.resolvingSymlinksInPath()
                         let vPath = vURL.path
+                        registeredSourcePaths.insert(vPath)
                         if vPath.hasPrefix(prefixWithSlash) {
                             let sub = String(vPath.dropFirst(prefixWithSlash.count))
                             videoRecords.append(TrashFolderVideoRecord(video: v, relativeSubpath: sub))
-                            registeredSourcePaths.insert(vPath)
                         } else {
                             // HLS等の外部パッケージ
                             if v.isHLS && self.fileManager.fileExists(atPath: vURL.path) {
@@ -978,10 +1002,11 @@ final class TrashManager: ObservableObject {
 
                     var generalFileRecords: [TrashFolderGeneralFileRecord] = []
                     for f in affectedGeneralFiles {
-                        let fURL = (customRootURL ?? downloadsRoot).appendingPathComponent(clean).appendingPathComponent(f.relativeSubpath ?? f.title)
-                        let fCanon = fURL.standardizedFileURL.resolvingSymlinksInPath().path
+                        let fURL = resolveManagedFileSourceURL(f).standardizedFileURL.resolvingSymlinksInPath()
+                        let fCanon = fURL.path
                         registeredSourcePaths.insert(fCanon)
-                        generalFileRecords.append(TrashFolderGeneralFileRecord(file: f, relativeSubpath: f.relativeSubpath ?? f.title))
+                        let sub = fCanon.hasPrefix(prefixWithSlash) ? String(fCanon.dropFirst(prefixWithSlash.count)) : (f.relativeSubpath ?? f.title)
+                        generalFileRecords.append(TrashFolderGeneralFileRecord(file: f, relativeSubpath: sub))
                     }
 
                     var unregisteredRecords: [TrashFolderUnregisteredFileRecord] = []
@@ -999,6 +1024,18 @@ final class TrashManager: ObservableObject {
                             let sub = canon.hasPrefix(prefixWithSlash) ? String(canon.dropFirst(prefixWithSlash.count)) : fileURL.lastPathComponent
 
                             if rVals?.isDirectory == true {
+                                // .movpkg (HLSパッケージ) の内部ファイルは単一パッケージとして扱い再帰下降しない
+                                let lowerExt = fileURL.pathExtension.lowercased()
+                                if lowerExt == "movpkg" || fileURL.lastPathComponent.hasSuffix(".movpkg") {
+                                    enumerator.skipDescendants()
+                                    if !registeredSourcePaths.contains(canon) {
+                                        let size = Int64(rVals?.fileSize ?? 0)
+                                        totalByteSize += size
+                                        unregisteredRecords.append(TrashFolderUnregisteredFileRecord(relativeSubpath: sub, byteSize: size))
+                                    }
+                                    continue
+                                }
+
                                 if let contents = try? self.fileManager.contentsOfDirectory(atPath: fileURL.path), contents.isEmpty {
                                     emptySubdirectories.append(sub)
                                 }
