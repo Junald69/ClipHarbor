@@ -7,7 +7,7 @@ on:
         description: 'Dry run (validate archive and metadata with Apple, but do not upload)'
         type: boolean
         required: false
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -74,11 +74,20 @@ jobs:
           P12_PASS_FILE="$RUNNER_TEMP/.p12_pass"
           KC_PASS_FILE="$RUNNER_TEMP/.kc_pass"
 
+          # Export KEYCHAIN_PATH immediately so cleanup step knows it even if setup fails midway
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          # Guarantee password file removal immediately on step exit or mid-step failure
+          cleanup_passwords() {
+            rm -f "$P12_PASS_FILE" "$KC_PASS_FILE" 2>/dev/null || true
+          }
+          trap cleanup_passwords EXIT
+
           # Decode certificate and provisioning profile safely into RUNNER_TEMP
           echo "$BUILD_CERTIFICATE_BASE64" | tr -d '\r\n ' | base64 --decode > "$CERT_PATH"
           echo "$BUILD_PROVISION_PROFILE_BASE64" | tr -d '\r\n ' | base64 --decode > "$PP_PATH"
 
-          # Write passwords to restricted temporary files (avoids command-line argument expansion)
+          # Write passwords to restricted temporary files with 0600 permissions
           printf "%s" "$P12_PASSWORD" > "$P12_PASS_FILE"
           chmod 600 "$P12_PASS_FILE"
           printf "%s" "$KEYCHAIN_PASSWORD" > "$KC_PASS_FILE"
@@ -90,6 +99,7 @@ jobs:
           security unlock-keychain -p "$(cat "$KC_PASS_FILE")" "$KEYCHAIN_PATH"
 
           # Import p12 certificate (OpenSSL 1.1 / OpenSSL 3.x dual compatibility handling)
+          # Note: macOS `security import` requires password via -P argument; OpenSSL uses env:P12_PASSWORD directly
           if security import "$CERT_PATH" -P "$(cat "$P12_PASS_FILE")" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" 2>/dev/null; then
             echo "Apple Distribution certificate imported successfully (standard format)."
           else
@@ -107,8 +117,8 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$(cat "$KC_PASS_FILE")" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
-          # Remove password files immediately after keychain setup
-          rm -f "$P12_PASS_FILE" "$KC_PASS_FILE"
+          # Explicitly delete password files right after keychain setup
+          cleanup_passwords
 
           # Decode provisioning profile to temporary plist file and parse via PlistBuddy
           security cms -D -i "$PP_PATH" > "$PROV_PLIST"
@@ -159,7 +169,6 @@ jobs:
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
           echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "DETECTED_TEAM_ID=$PROFILE_TEAM" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
           echo "INSTALLED_PROFILE_PATH=$INSTALLED_PROFILE_PATH" >> "$GITHUB_ENV"
 
       - name: Build Release Archive
@@ -195,15 +204,16 @@ jobs:
           TEAM_ID="${INPUT_TEAM_ID:-$DETECTED_TEAM_ID}"
           EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
           EXPORT_DIR="$RUNNER_TEMP/Export"
+          mkdir -p "$EXPORT_DIR"
 
-          # method 'app-store' is canonical and fully supported across Xcode versions for App Store / TestFlight distribution
+          # Prefer modern 'app-store-connect' method, fall back to legacy 'app-store' if needed
           cat <<EOF > "$EXPORT_OPTIONS"
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>method</key>
-            <string>app-store</string>
+            <string>app-store-connect</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>stripSwiftSymbols</key>
@@ -219,10 +229,18 @@ jobs:
           </plist>
           EOF
 
-          xcodebuild -exportArchive \
+          echo "Attempting IPA export using preferred method 'app-store-connect'..."
+          if ! xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/ClipHarbor.xcarchive" \
             -exportOptionsPlist "$EXPORT_OPTIONS" \
-            -exportPath "$EXPORT_DIR"
+            -exportPath "$EXPORT_DIR"; then
+            echo "Export with 'app-store-connect' failed. Falling back to legacy method 'app-store'..."
+            sed -i '' 's|<string>app-store-connect</string>|<string>app-store</string>|g' "$EXPORT_OPTIONS"
+            xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/ClipHarbor.xcarchive" \
+              -exportOptionsPlist "$EXPORT_OPTIONS" \
+              -exportPath "$EXPORT_DIR"
+          fi
 
           IPA_PATH="$EXPORT_DIR/ClipHarbor.ipa"
           test -f "$IPA_PATH"
@@ -418,10 +436,13 @@ jobs:
         run: |
           echo "=== Removing temporary signing credentials, keychain, and working files ==="
           
-          # Delete temporary keychain if it exists
-          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
-            echo "Deleting temporary keychain: $KEYCHAIN_PATH"
-            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          # Delete temporary keychain if it exists (using environment variable or deterministic path)
+          DEFAULT_KEYCHAIN="$RUNNER_TEMP/build_signing.keychain-db"
+          TARGET_KEYCHAIN="${KEYCHAIN_PATH:-$DEFAULT_KEYCHAIN}"
+          if [ -f "$TARGET_KEYCHAIN" ]; then
+            echo "Deleting temporary keychain: $TARGET_KEYCHAIN"
+            security delete-keychain "$TARGET_KEYCHAIN" 2>/dev/null || true
+            rm -f "$TARGET_KEYCHAIN" 2>/dev/null || true
           fi
 
           # Delete installed provisioning profile by exact path
@@ -436,8 +457,8 @@ jobs:
             fi
           fi
 
-          # Delete temporary files strictly from RUNNER_TEMP
-          rm -f "$RUNNER_TEMP"/*.p12 "$RUNNER_TEMP"/*.p8 "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/*.plist "$RUNNER_TEMP"/*.pem "$RUNNER_TEMP"/.*_pass 2>/dev/null || true
+          # Delete all temporary files strictly from RUNNER_TEMP
+          rm -f "$RUNNER_TEMP"/*.p12 "$RUNNER_TEMP"/*.p8 "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/*.plist "$RUNNER_TEMP"/*.pem "$RUNNER_TEMP"/.*_pass "$RUNNER_TEMP"/*.keychain* 2>/dev/null || true
           rm -rf "$RUNNER_TEMP/private_keys" 2>/dev/null || true
 
           # Delete App Store Connect API keys created in user home
