@@ -272,7 +272,7 @@ for kind in ['Debug', 'Release']:
 for kind in ['Debug', 'Release']:
     o = 'target ' + kind
     settings = {
-        'CODE_SIGN_STYLE': 'Automatic',
+        'CODE_SIGN_STYLE': 'Automatic' if kind == 'Debug' else 'Manual',
         'CURRENT_PROJECT_VERSION': '1',
         'MARKETING_VERSION': '1.0.0',
         'GENERATE_INFOPLIST_FILE': 'YES',
@@ -293,6 +293,10 @@ for kind in ['Debug', 'Release']:
         'SUPPORTED_PLATFORMS': '"iphoneos iphonesimulator"',
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS': 'DEBUG' if kind == 'Debug' else '""'
     }
+    if kind == 'Release':
+        settings['CODE_SIGN_IDENTITY'] = '"Apple Distribution"'
+        settings['DEVELOPMENT_TEAM'] = '"$(DEVELOPMENT_TEAM)"'
+        settings['PROVISIONING_PROFILE_SPECIFIER'] = '"$(APP_PROVISIONING_PROFILE_SPECIFIER)"'
     out.extend([f'\t\t{e(o)} = {{', '\t\t\tisa = XCBuildConfiguration;', '\t\t\tbuildSettings = {'])
     for key, val in settings.items(): out.append(f'\t\t\t\t{key} = {val};')
     out.extend(['\t\t\t};', f'\t\t\tname = {kind};', '\t\t};'])
