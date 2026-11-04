@@ -933,6 +933,13 @@ final class TrashManager: ObservableObject {
         let affectedGeneralFiles = await MainActor.run {
             zipManager.managedFiles.filter { $0.folderName == clean || $0.normalizedRelativePath.hasPrefix("Documents/Downloads/\(clean)/") }
         }
+        let managedFileURLs: [UUID: URL] = await MainActor.run {
+            var dict: [UUID: URL] = [:]
+            for f in affectedGeneralFiles {
+                dict[f.id] = zipManager.resolveFileURL(for: f)
+            }
+            return dict
+        }
 
         return await withCheckedContinuation { continuation in
             ioQueue.async { [weak self] in
@@ -976,7 +983,7 @@ final class TrashManager: ObservableObject {
                                 return customRoot.appendingPathComponent(subRel)
                             }
                         }
-                        return zipManager.resolveFileURL(for: file)
+                        return managedFileURLs[file.id] ?? downloadsRoot.appendingPathComponent(clean).appendingPathComponent(file.relativeSubpath ?? file.title)
                     }
 
                     for v in affectedVideos {
