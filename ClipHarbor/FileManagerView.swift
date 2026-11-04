@@ -2151,8 +2151,6 @@ let targetFolder = currentActiveFolderName
     }
 
     private func handleMoveFolderToTrash(folderName: String) {
-        guard !isOperating else { return }
-        isOperating = true
         Task {
             let res = await trashManager.moveToTrash(
                 folderName: folderName,
@@ -2161,7 +2159,6 @@ let targetFolder = currentActiveFolderName
                 zipManager: zipManager
             )
             await MainActor.run {
-                isOperating = false
                 switch res {
                 case .success:
                     navigationPath.removeAll { $0 == .folder(folderName) }
