@@ -1,10 +1,11 @@
 import Foundation
 import UIKit
 
-/// ゴミ箱内アイテムのペイロード種別（動画 vs 一般ファイル） (Phase F2-B)
+/// ゴミ箱内アイテムのペイロード種別（動画 vs 一般ファイル vs フォルダ） (Phase F2-B & S3)
 enum TrashPayloadKind: String, Codable {
     case video          // 既存の動画・HLS
     case generalFile    // ZIP・PDF・TXT・MD等の一般ファイル
+    case folder         // フォルダ一括（配下の全ファイル・サブフォルダ構造を保持）
 }
 
 /// ゴミ箱内のファイル管理アイテムモデル
@@ -24,15 +25,21 @@ struct TrashItem: Identifiable, Codable, Equatable {
     let isFavorite: Bool?            // 元のお気に入り状態
 
     // --- Phase F2-B 拡張フィールド ---
-    let payloadKind: TrashPayloadKind // ペイロード種別（動画 / 一般ファイル）
+    let payloadKind: TrashPayloadKind // ペイロード種別（動画 / 一般ファイル / フォルダ）
     let fileExtension: String?        // 一般ファイルの拡張子（例: "txt", "zip", "pdf"）
     let relativeSubpath: String?      // ネスト階層情報
 
+    // --- Phase S3 フォルダ一括拡張フィールド ---
+    let folderItemCount: Int?        // フォルダ内のアイテム総数
+
     var isGeneralFile: Bool { payloadKind == .generalFile }
     var isVideo: Bool { payloadKind == .video }
+    var isFolder: Bool { payloadKind == .folder }
 
     var typeLabel: String {
-        if isGeneralFile {
+        if isFolder {
+            return NSLocalizedString("FOLDER", comment: "")
+        } else if isGeneralFile {
             return (fileExtension?.isEmpty == false ? fileExtension! : "FILE").uppercased()
         } else {
             return format.label
@@ -71,7 +78,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
     enum CodingKeys: String, CodingKey {
         case id, originalVideoID, originalTitle, originalRelativePath, originalFolderName
         case format, byteSize, sourceHost, sourcePageURL, deletedAt, expiresAt, fileName, isFavorite
-        case payloadKind, fileExtension, relativeSubpath
+        case payloadKind, fileExtension, relativeSubpath, folderItemCount
     }
 
     init(
@@ -90,7 +97,8 @@ struct TrashItem: Identifiable, Codable, Equatable {
         isFavorite: Bool? = false,
         payloadKind: TrashPayloadKind = .video,
         fileExtension: String? = nil,
-        relativeSubpath: String? = nil
+        relativeSubpath: String? = nil,
+        folderItemCount: Int? = nil
     ) {
         self.id = id
         self.originalVideoID = originalVideoID
@@ -108,6 +116,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
         self.payloadKind = payloadKind
         self.fileExtension = fileExtension
         self.relativeSubpath = relativeSubpath
+        self.folderItemCount = folderItemCount
     }
 
     init(from decoder: Decoder) throws {
@@ -127,6 +136,7 @@ struct TrashItem: Identifiable, Codable, Equatable {
         payloadKind = try container.decodeIfPresent(TrashPayloadKind.self, forKey: .payloadKind) ?? .video
         fileExtension = try container.decodeIfPresent(String.self, forKey: .fileExtension)
         relativeSubpath = try container.decodeIfPresent(String.self, forKey: .relativeSubpath)
+        folderItemCount = try container.decodeIfPresent(Int.self, forKey: .folderItemCount)
 
         if container.contains(.expiresAt) {
             expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
@@ -135,6 +145,100 @@ struct TrashItem: Identifiable, Codable, Equatable {
             expiresAt = deletedAt.addingTimeInterval(72 * 3600)
         }
     }
+}
+
+/// フォルダ復元時の競合解決オプション（初期実装: 別名復元またはキャンセル）
+enum FolderRestoreConflictResolution: String, Codable {
+    case rename  // 別名で安全に共存（<フォルダ名> (1) など）
+    case cancel  // 復元中断
+}
+
+/// フォルダ一括ゴミ箱移動時の詳細マニフェスト（スキーマバージョン管理対応）
+struct FolderTrashManifest: Codable {
+    static let currentVersion = 1
+
+    let version: Int
+    let folderID: UUID
+    let originalFolderName: String
+    let deletedAt: Date
+    let totalByteSize: Int64
+    let videos: [TrashFolderVideoRecord]
+    let generalFiles: [TrashFolderGeneralFileRecord]
+    let unregisteredFiles: [TrashFolderUnregisteredFileRecord]
+    let emptySubdirectories: [String]
+    let externalHLSAssets: [TrashFolderExternalHLSAssetRecord]?
+
+    enum CodingKeys: String, CodingKey {
+        case version, folderID, originalFolderName, deletedAt, totalByteSize
+        case videos, generalFiles, unregisteredFiles, emptySubdirectories, externalHLSAssets
+    }
+
+    init(
+        version: Int = FolderTrashManifest.currentVersion,
+        folderID: UUID,
+        originalFolderName: String,
+        deletedAt: Date,
+        totalByteSize: Int64,
+        videos: [TrashFolderVideoRecord],
+        generalFiles: [TrashFolderGeneralFileRecord],
+        unregisteredFiles: [TrashFolderUnregisteredFileRecord],
+        emptySubdirectories: [String],
+        externalHLSAssets: [TrashFolderExternalHLSAssetRecord]? = nil
+    ) {
+        self.version = version
+        self.folderID = folderID
+        self.originalFolderName = originalFolderName
+        self.deletedAt = deletedAt
+        self.totalByteSize = totalByteSize
+        self.videos = videos
+        self.generalFiles = generalFiles
+        self.unregisteredFiles = unregisteredFiles
+        self.emptySubdirectories = emptySubdirectories
+        self.externalHLSAssets = externalHLSAssets
+    }
+}
+
+struct TrashFolderVideoRecord: Codable {
+    let video: SavedVideo
+    let relativeSubpath: String
+}
+
+struct TrashFolderGeneralFileRecord: Codable {
+    let file: ManagedFileItem
+    let relativeSubpath: String
+}
+
+struct TrashFolderUnregisteredFileRecord: Codable {
+    let relativeSubpath: String
+    let byteSize: Int64
+}
+
+struct TrashFolderExternalHLSAssetRecord: Codable {
+    let videoID: UUID
+    let originalRelativePath: String
+    let trashPackageSubpath: String
+}
+
+/// フォルダゴミ箱移動・復元のトランザクション管理レコード（強制終了・クラッシュからの自動復旧用）
+struct TrashTransaction: Codable {
+    enum Operation: String, Codable {
+        case moveToTrash
+        case restore
+    }
+    enum Phase: String, Codable {
+        case manifestVerified    // マニフェスト書き込み・検証完了
+        case physicalMoved       // 物理ディレクトリ移動完了
+        case metadataCommitted   // メタデータ永続化完了
+    }
+
+    let transactionID: UUID
+    let trashID: UUID
+    let folderName: String
+    let operation: Operation
+    var phase: Phase
+    let sourcePath: String
+    let destinationPath: String
+    let timestamp: Date
 }
 
 /// アプリ内ゴミ箱管理マネージャー
@@ -188,6 +292,18 @@ final class TrashManager: ObservableObject {
         trashDirectoryURL.appendingPathComponent("trash_metadata.json")
     }
 
+    var transactionsDirectoryURL: URL {
+        let dir = trashDirectoryURL.appendingPathComponent("transactions", isDirectory: true)
+        if !fileManager.fileExists(atPath: dir.path) {
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private func transactionFileURL(for trashID: UUID) -> URL {
+        transactionsDirectoryURL.appendingPathComponent("\(trashID.uuidString).json")
+    }
+
     private func itemDirectoryURL(for itemID: UUID) -> URL {
         trashDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
     }
@@ -200,6 +316,12 @@ final class TrashManager: ObservableObject {
         itemDirectoryURL(for: item.id).appendingPathComponent("thumbnail.jpg")
     }
 
+    // MARK: - テスト用フォールトインジェクションフック
+
+    var faultInjectionBeforePhysicalMove: (() throws -> Void)? = nil
+    var faultInjectionBeforeMetadataCommit: (() throws -> Void)? = nil
+    var faultInjectionBeforeRestorePhysicalMove: (() throws -> Void)? = nil
+
     // MARK: - 初期化とライフサイクル
 
     init(customTrashDirectoryURL: URL? = nil) {
@@ -208,6 +330,7 @@ final class TrashManager: ObservableObject {
         trashThumbnailCache.totalCostLimit = 40 * 1024 * 1024
 
         loadMetadataSafely()
+        reconcileIncompleteTransactions()
         purgeExpiredItems()
 
         // アプリフォアグラウンド復帰時に期限切れを自動パージ
@@ -228,7 +351,7 @@ final class TrashManager: ObservableObject {
     /// ゴミ箱内アイテムのサムネイル取得（非公開領域に永続化、再起動後も安定表示）
     /// - Note: 一般ファイル（isGeneralFile == true）に対しては動画サムネイル生成は一切行わない
     func loadThumbnail(for item: TrashItem) async -> UIImage? {
-        guard item.isVideo else { return nil }
+        guard item.isVideo || item.isFolder else { return nil }
 
         let cacheKey = item.id.uuidString as NSString
         if let cached = trashThumbnailCache.object(forKey: cacheKey) {
@@ -327,7 +450,155 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - 動画のゴミ箱へ移動（非同期・サムネイル永続化・ロールバック完備）
+    // MARK: - トランザクション管理と障害復旧 (Phase S3)
+
+    private func recordTransaction(_ tx: TrashTransaction) {
+        let fileURL = transactionFileURL(for: tx.trashID)
+        if let data = try? JSONEncoder().encode(tx) {
+            try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    private func removeTransaction(trashID: UUID) {
+        let fileURL = transactionFileURL(for: trashID)
+        try? fileManager.removeItem(at: fileURL)
+    }
+
+    /// ゴミ箱内フォルダのマニフェストを安全に取得（破損・欠損・旧形式不一致時は nil を返す）
+    func loadFolderManifest(for itemID: UUID) -> FolderTrashManifest? {
+        let manifestURL = itemDirectoryURL(for: itemID).appendingPathComponent("folder_manifest.json")
+        guard fileManager.fileExists(atPath: manifestURL.path),
+              let data = try? Data(contentsOf: manifestURL) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(FolderTrashManifest.self, from: data)
+    }
+
+    /// 途中クラッシュ・強制終了による未完了トランザクションを検出し、安全に整合性を回復する
+    func reconcileIncompleteTransactions(
+        downloads: DownloadCenter? = nil,
+        folderManager: VideoFolderManager? = nil,
+        zipManager: ZipArchiveManager? = nil
+    ) {
+        let txDir = transactionsDirectoryURL
+        guard fileManager.fileExists(atPath: txDir.path),
+              let files = try? fileManager.contentsOfDirectory(atPath: txDir.path) else {
+            return
+        }
+
+        let resolvedDownloads = downloads ?? (Thread.isMainThread ? MainActor.assumeIsolated { DownloadCenter.shared } : nil)
+        let resolvedFolderMgr = folderManager ?? (Thread.isMainThread ? MainActor.assumeIsolated { VideoFolderManager.shared } : nil)
+        let resolvedZipMgr = zipManager ?? (Thread.isMainThread ? MainActor.assumeIsolated { ZipArchiveManager.shared } : nil)
+
+        for file in files where file.hasSuffix(".json") {
+            let fileURL = txDir.appendingPathComponent(file)
+            guard let data = try? Data(contentsOf: fileURL),
+                  let tx = try? JSONDecoder().decode(TrashTransaction.self, from: data) else {
+                continue
+            }
+
+            let itemDir = itemDirectoryURL(for: tx.trashID)
+
+            switch tx.operation {
+            case .moveToTrash:
+                switch tx.phase {
+                case .manifestVerified:
+                    // 物理移動前（または移動失敗）：移動元にフォルダが残っていればゴミ箱側の一時ディレクトリを破棄
+                    let sourceURL = URL(fileURLWithPath: tx.sourcePath)
+                    if fileManager.fileExists(atPath: sourceURL.path) {
+                        try? fileManager.removeItem(at: itemDir)
+                        try? fileManager.removeItem(at: fileURL)
+                    }
+                case .physicalMoved:
+                    // 物理移動は成功したがメタデータ保存前：マニフェストが存在すればTrashItemを再構成してゴミ箱に登録
+                    let manifestURL = itemDir.appendingPathComponent("folder_manifest.json")
+                    if fileManager.fileExists(atPath: manifestURL.path),
+                       let mData = try? Data(contentsOf: manifestURL),
+                       let manifest = try? JSONDecoder().decode(FolderTrashManifest.self, from: mData) {
+                        if !items.contains(where: { $0.id == tx.trashID }) {
+                            let retention = Thread.isMainThread ? MainActor.assumeIsolated { AppSettingsManager.shared.trashRetentionPeriod } : .threeDays
+                            let expiresAt = retention.timeInterval.map { tx.timestamp.addingTimeInterval($0) }
+                            let count = manifest.videos.count + manifest.generalFiles.count + manifest.unregisteredFiles.count
+                            let restoredItem = TrashItem(
+                                id: tx.trashID,
+                                originalVideoID: tx.trashID,
+                                originalTitle: tx.folderName,
+                                originalRelativePath: "Documents/Downloads/\(tx.folderName)",
+                                originalFolderName: "",
+                                format: .mp4,
+                                byteSize: manifest.totalByteSize,
+                                sourceHost: nil,
+                                sourcePageURL: nil,
+                                deletedAt: tx.timestamp,
+                                expiresAt: expiresAt,
+                                fileName: tx.folderName,
+                                isFavorite: false,
+                                payloadKind: .folder,
+                                fileExtension: nil,
+                                relativeSubpath: nil,
+                                folderItemCount: count
+                            )
+                            items.insert(restoredItem, at: 0)
+                            try? writeMetadataToDisk(items)
+
+                            DispatchQueue.main.async {
+                                for vRec in manifest.videos {
+                                    resolvedDownloads?.removeSavedVideoWithoutDeletingFile(id: vRec.video.id)
+                                    resolvedFolderMgr?.removeVideoFromFolder(videoID: vRec.video.id)
+                                }
+                                for gRec in manifest.generalFiles {
+                                    resolvedZipMgr?.removeManagedFileFromIndex(id: gRec.file.id)
+                                }
+                                resolvedFolderMgr?.unregisterLogicalFolderIfNeeded(tx.folderName)
+                            }
+                        }
+                        try? fileManager.removeItem(at: fileURL)
+                    }
+                case .metadataCommitted:
+                    try? fileManager.removeItem(at: fileURL)
+                }
+
+            case .restore:
+                switch tx.phase {
+                case .manifestVerified:
+                    try? fileManager.removeItem(at: fileURL)
+                case .physicalMoved:
+                    let destURL = URL(fileURLWithPath: tx.destinationPath)
+                    let manifestURL = itemDir.appendingPathComponent("folder_manifest.json")
+                    if fileManager.fileExists(atPath: destURL.path),
+                       let mData = try? Data(contentsOf: manifestURL),
+                       let manifest = try? JSONDecoder().decode(FolderTrashManifest.self, from: mData) {
+                        items.removeAll { $0.id == tx.trashID }
+                        try? writeMetadataToDisk(items)
+                        try? fileManager.removeItem(at: itemDir)
+                        try? fileManager.removeItem(at: fileURL)
+
+                        let restoredFolderName = destURL.lastPathComponent
+                        DispatchQueue.main.async {
+                            resolvedFolderMgr?.registerLogicalFolderIfNeeded(restoredFolderName)
+                            for vRec in manifest.videos {
+                                var v = vRec.video
+                                if !v.isHLS {
+                                    v.relativePath = "Documents/Downloads/\(restoredFolderName)/\(vRec.relativeSubpath)"
+                                }
+                                resolvedDownloads?.restoreSavedVideo(v)
+                                resolvedFolderMgr?.restoreVideoToFolder(v, targetFolder: restoredFolderName)
+                            }
+                            for gRec in manifest.generalFiles {
+                                var f = gRec.file
+                                f.relativePath = "Documents/Downloads/\(restoredFolderName)/\(gRec.relativeSubpath)"
+                                f.folderName = restoredFolderName
+                                resolvedZipMgr?.restoreManagedFileToIndex(f)
+                            }
+                        }
+                    }
+                case .metadataCommitted:
+                    try? fileManager.removeItem(at: itemDir)
+                    try? fileManager.removeItem(at: fileURL)
+                }
+            }
+        }
+    }
 
     @discardableResult
     func moveToTrash(
@@ -582,6 +853,307 @@ final class TrashManager: ObservableObject {
                         destURL: destURL,
                         itemDir: itemDir
                     )
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+    }
+
+    // MARK: - フォルダ一括ゴミ箱移動 (Phase S3)
+
+    @discardableResult
+    func moveToTrash(
+        folderName rawName: String,
+        downloads: DownloadCenter,
+        folderManager: VideoFolderManager,
+        zipManager: ZipArchiveManager,
+        customRootURL: URL? = nil
+    ) async -> Result<TrashItem, Error> {
+        let clean = VideoFolderManager.sanitizedFolderName(rawName)
+        guard !clean.isEmpty else {
+            return .failure(NSError(domain: "TrashManager", code: 400, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Invalid folder name.", comment: "")
+            ]))
+        }
+
+        let downloadsRoot: URL
+        do {
+            if let customRoot = customRootURL {
+                try fileManager.createDirectory(at: customRoot, withIntermediateDirectories: true)
+                downloadsRoot = customRoot
+            } else {
+                downloadsRoot = try VideoFolderManager.ensureDownloadsDirectory()
+            }
+        } catch {
+            return .failure(error)
+        }
+
+        let sourceFolderURL = downloadsRoot.appendingPathComponent(clean, isDirectory: true)
+        guard fileManager.fileExists(atPath: sourceFolderURL.path) else {
+            return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Target folder was not found on device.", comment: "")
+            ]))
+        }
+
+        // Vault領域の保護
+        if FileClassification.isInsideVaultOrTempArea(sourceFolderURL) {
+            return .failure(NSError(domain: "TrashManager", code: 403, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Cannot operate on files inside the Private Vault.", comment: "")
+            ]))
+        }
+
+        let trashID = UUID()
+
+        // 二重タップ・排他ロック
+        let alreadyProcessing = await MainActor.run { () -> Bool in
+            if isProcessing(trashID) { return true }
+            setProcessing(trashID, active: true)
+            return false
+        }
+        if alreadyProcessing {
+            return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("This item is currently being processed.", comment: "")
+            ]))
+        }
+
+        defer {
+            Task { @MainActor in
+                self.setProcessing(trashID, active: false)
+            }
+        }
+
+        let itemDir = itemDirectoryURL(for: trashID)
+        let destFolderURL = itemDir.appendingPathComponent(clean, isDirectory: true)
+        let retentionPeriod = await MainActor.run { AppSettingsManager.shared.trashRetentionPeriod }
+
+        // フォルダ配下の全アイテム収集
+        let affectedVideos = await MainActor.run {
+            downloads.saved.filter { folderManager.folderName(for: $0) == clean }
+        }
+        let affectedGeneralFiles = await MainActor.run {
+            zipManager.managedFiles.filter { $0.folderName == clean || $0.normalizedRelativePath.hasPrefix("Documents/Downloads/\(clean)/") }
+        }
+
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
+                    ])))
+                    return
+                }
+
+                do {
+                    // 1. ゴミ箱内一意ディレクトリ作成
+                    try self.fileManager.createDirectory(at: itemDir, withIntermediateDirectories: true)
+
+                    // 2. 物理走査：未登録物理ファイル・空サブフォルダ構造・総容量の算出
+                    var registeredSourcePaths = Set<String>()
+                    var videoRecords: [TrashFolderVideoRecord] = []
+                    var externalHLSRecords: [TrashFolderExternalHLSAssetRecord] = []
+
+                    let sourcePrefix = sourceFolderURL.standardizedFileURL.resolvingSymlinksInPath().path
+                    let prefixWithSlash = sourcePrefix.hasSuffix("/") ? sourcePrefix : sourcePrefix + "/"
+
+                    for v in affectedVideos {
+                        let vURL = v.fileURL.standardizedFileURL.resolvingSymlinksInPath()
+                        let vPath = vURL.path
+                        if vPath.hasPrefix(prefixWithSlash) {
+                            let sub = String(vPath.dropFirst(prefixWithSlash.count))
+                            videoRecords.append(TrashFolderVideoRecord(video: v, relativeSubpath: sub))
+                            registeredSourcePaths.insert(vPath)
+                        } else {
+                            // HLS等の外部パッケージ
+                            if v.isHLS && self.fileManager.fileExists(atPath: vURL.path) {
+                                let extPkgName = "\(v.id.uuidString).movpkg"
+                                externalHLSRecords.append(TrashFolderExternalHLSAssetRecord(
+                                    videoID: v.id,
+                                    originalRelativePath: v.relativePath,
+                                    trashPackageSubpath: extPkgName
+                                ))
+                            }
+                            videoRecords.append(TrashFolderVideoRecord(video: v, relativeSubpath: v.fileURL.lastPathComponent))
+                        }
+                    }
+
+                    var generalFileRecords: [TrashFolderGeneralFileRecord] = []
+                    for f in affectedGeneralFiles {
+                        let fURL = (customRootURL ?? downloadsRoot).appendingPathComponent(clean).appendingPathComponent(f.relativeSubpath ?? f.title)
+                        let fCanon = fURL.standardizedFileURL.resolvingSymlinksInPath().path
+                        registeredSourcePaths.insert(fCanon)
+                        generalFileRecords.append(TrashFolderGeneralFileRecord(file: f, relativeSubpath: f.relativeSubpath ?? f.title))
+                    }
+
+                    var unregisteredRecords: [TrashFolderUnregisteredFileRecord] = []
+                    var emptySubdirectories: [String] = []
+                    var totalByteSize: Int64 = 0
+
+                    if let enumerator = self.fileManager.enumerator(
+                        at: sourceFolderURL,
+                        includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey],
+                        options: [.skipsHiddenFiles]
+                    ) {
+                        for case let fileURL as URL in enumerator {
+                            let rVals = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey])
+                            let canon = fileURL.standardizedFileURL.resolvingSymlinksInPath().path
+                            let sub = canon.hasPrefix(prefixWithSlash) ? String(canon.dropFirst(prefixWithSlash.count)) : fileURL.lastPathComponent
+
+                            if rVals?.isDirectory == true {
+                                if let contents = try? self.fileManager.contentsOfDirectory(atPath: fileURL.path), contents.isEmpty {
+                                    emptySubdirectories.append(sub)
+                                }
+                            } else if rVals?.isRegularFile == true {
+                                let size = Int64(rVals?.fileSize ?? 0)
+                                totalByteSize += size
+                                if !registeredSourcePaths.contains(canon) {
+                                    unregisteredRecords.append(TrashFolderUnregisteredFileRecord(relativeSubpath: sub, byteSize: size))
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. マニフェスト作成とアトミック保存・検証
+                    let manifest = FolderTrashManifest(
+                        version: FolderTrashManifest.currentVersion,
+                        folderID: trashID,
+                        originalFolderName: clean,
+                        deletedAt: Date(),
+                        totalByteSize: totalByteSize,
+                        videos: videoRecords,
+                        generalFiles: generalFileRecords,
+                        unregisteredFiles: unregisteredRecords,
+                        emptySubdirectories: emptySubdirectories,
+                        externalHLSAssets: externalHLSRecords.isEmpty ? nil : externalHLSRecords
+                    )
+                    let manifestURL = itemDir.appendingPathComponent("folder_manifest.json")
+                    let mData = try JSONEncoder().encode(manifest)
+                    try mData.write(to: manifestURL, options: .atomic)
+
+                    // 書き込み検証
+                    guard let verifyData = try? Data(contentsOf: manifestURL),
+                          (try? JSONDecoder().decode(FolderTrashManifest.self, from: verifyData)) != nil else {
+                        throw NSError(domain: "TrashManager", code: 500, userInfo: [
+                            NSLocalizedDescriptionKey: NSLocalizedString("Failed to verify folder manifest integrity.", comment: "")
+                        ])
+                    }
+
+                    // 4. トランザクション記録: manifestVerified
+                    var tx = TrashTransaction(
+                        transactionID: UUID(),
+                        trashID: trashID,
+                        folderName: clean,
+                        operation: .moveToTrash,
+                        phase: .manifestVerified,
+                        sourcePath: sourceFolderURL.path,
+                        destinationPath: destFolderURL.path,
+                        timestamp: Date()
+                    )
+                    self.recordTransaction(tx)
+
+                    if let hook = self.faultInjectionBeforePhysicalMove {
+                        try hook()
+                    }
+
+                    // 5. 物理ディレクトリ移動
+                    try self.fileManager.moveItem(at: sourceFolderURL, to: destFolderURL)
+
+                    // 外部HLSパッケージ移動（存在する場合）
+                    if !externalHLSRecords.isEmpty {
+                        let hlsDir = itemDir.appendingPathComponent("external_hls", isDirectory: true)
+                        try? self.fileManager.createDirectory(at: hlsDir, withIntermediateDirectories: true)
+                        for extRecord in externalHLSRecords {
+                            let origURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(extRecord.originalRelativePath)
+                            let hlsDest = hlsDir.appendingPathComponent(extRecord.trashPackageSubpath)
+                            if self.fileManager.fileExists(atPath: origURL.path) {
+                                try? self.fileManager.moveItem(at: origURL, to: hlsDest)
+                            }
+                        }
+                    }
+
+                    // 代表サムネイル保存
+                    if let firstVid = affectedVideos.first {
+                        let thumbDest = itemDir.appendingPathComponent("thumbnail.jpg")
+                        if let cached = VideoThumbnailManager.shared.cachedThumbnail(for: firstVid),
+                           let jData = cached.jpegData(compressionQuality: 0.75) {
+                            try? jData.write(to: thumbDest, options: .atomic)
+                            self.trashThumbnailCache.setObject(cached, forKey: trashID.uuidString as NSString)
+                        }
+                    }
+
+                    // トランザクション更新: physicalMoved
+                    tx.phase = .physicalMoved
+                    self.recordTransaction(tx)
+
+                    if let hook = self.faultInjectionBeforeMetadataCommit {
+                        try hook()
+                    }
+
+                    // 6. メタデータ永続化
+                    let now = Date()
+                    let expiresAt = retentionPeriod.timeInterval.map { now.addingTimeInterval($0) }
+                    let totalCount = videoRecords.count + generalFileRecords.count + unregisteredRecords.count
+
+                    let trashItem = TrashItem(
+                        id: trashID,
+                        originalVideoID: trashID,
+                        originalTitle: clean,
+                        originalRelativePath: "Documents/Downloads/\(clean)",
+                        originalFolderName: "",
+                        format: .mp4,
+                        byteSize: totalByteSize,
+                        sourceHost: nil,
+                        sourcePageURL: nil,
+                        deletedAt: now,
+                        expiresAt: expiresAt,
+                        fileName: clean,
+                        isFavorite: false,
+                        payloadKind: .folder,
+                        fileExtension: nil,
+                        relativeSubpath: nil,
+                        folderItemCount: totalCount
+                    )
+
+                    var updatedItems = self.items
+                    updatedItems.insert(trashItem, at: 0)
+
+                    do {
+                        try self.writeMetadataToDisk(updatedItems)
+                    } catch {
+                        // メタデータ保存失敗時は物理ロールバック
+                        try? self.fileManager.moveItem(at: destFolderURL, to: sourceFolderURL)
+                        try? self.fileManager.removeItem(at: itemDir)
+                        self.removeTransaction(trashID: trashID)
+                        continuation.resume(returning: .failure(error))
+                        return
+                    }
+
+                    // トランザクション更新: metadataCommitted
+                    tx.phase = .metadataCommitted
+                    self.recordTransaction(tx)
+
+                    // 7. インデックス除外と後処理
+                    DispatchQueue.main.async {
+                        self.items = updatedItems
+                        for v in affectedVideos {
+                            downloads.removeSavedVideoWithoutDeletingFile(id: v.id)
+                            folderManager.removeVideoFromFolder(videoID: v.id)
+                            VideoThumbnailManager.shared.invalidateCache(for: v)
+                        }
+                        for f in affectedGeneralFiles {
+                            zipManager.removeManagedFileFromIndex(id: f.id)
+                        }
+                        folderManager.unregisterLogicalFolderIfNeeded(clean)
+
+                        self.removeTransaction(trashID: trashID)
+                        continuation.resume(returning: .success(trashItem))
+                    }
+                } catch {
+                    // ロールバック
+                    if self.fileManager.fileExists(atPath: destFolderURL.path) && !self.fileManager.fileExists(atPath: sourceFolderURL.path) {
+                        try? self.fileManager.moveItem(at: destFolderURL, to: sourceFolderURL)
+                    }
+                    try? self.fileManager.removeItem(at: itemDir)
+                    self.removeTransaction(trashID: trashID)
                     continuation.resume(returning: .failure(error))
                 }
             }
@@ -873,11 +1445,209 @@ final class TrashManager: ObservableObject {
         }
     }
 
-    // MARK: - 動画・一般ファイルの統合復元 (Phase F2-B)
+    // MARK: - フォルダの復元（非同期・安全な競合解決・ロールバック完備） (Phase S3)
+
+    @discardableResult
+    func restoreFolder(
+        item: TrashItem,
+        downloads: DownloadCenter,
+        folderManager: VideoFolderManager,
+        zipManager: ZipArchiveManager,
+        resolution: FolderRestoreConflictResolution = .rename,
+        customRootURL: URL? = nil
+    ) async -> Result<String, Error> {
+        guard item.isFolder else {
+            return .failure(NSError(domain: "TrashManager", code: 400, userInfo: [
+                NSLocalizedDescriptionKey: "Item is not a folder."
+            ]))
+        }
+
+        let itemID = item.id
+        let alreadyProcessing = await MainActor.run { () -> Bool in
+            if isProcessing(itemID) { return true }
+            setProcessing(itemID, active: true)
+            return false
+        }
+        if alreadyProcessing {
+            return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("This item is currently being processed.", comment: "")
+            ]))
+        }
+
+        defer {
+            Task { @MainActor in
+                self.setProcessing(itemID, active: false)
+            }
+        }
+
+        let itemDir = itemDirectoryURL(for: itemID)
+        let sourceFolderInTrash = itemDir.appendingPathComponent(item.fileName, isDirectory: true)
+
+        guard fileManager.fileExists(atPath: sourceFolderInTrash.path) else {
+            return .failure(NSError(domain: "TrashManager", code: 404, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Actual folder in Trash was not found.", comment: "")
+            ]))
+        }
+
+        guard let manifest = loadFolderManifest(for: itemID) else {
+            return .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
+                NSLocalizedDescriptionKey: NSLocalizedString("Folder manifest is corrupted or missing.", comment: "")
+            ]))
+        }
+
+        let downloadsRoot: URL
+        do {
+            if let customRoot = customRootURL {
+                try fileManager.createDirectory(at: customRoot, withIntermediateDirectories: true)
+                downloadsRoot = customRoot
+            } else {
+                downloadsRoot = try VideoFolderManager.ensureDownloadsDirectory()
+            }
+        } catch {
+            return .failure(error)
+        }
+
+        let cleanOriginal = VideoFolderManager.sanitizedFolderName(manifest.originalFolderName.isEmpty ? item.fileName : manifest.originalFolderName)
+        var targetFolderName = cleanOriginal
+        let initialTargetURL = downloadsRoot.appendingPathComponent(cleanOriginal, isDirectory: true)
+
+        // 競合チェック
+        if fileManager.fileExists(atPath: initialTargetURL.path) {
+            switch resolution {
+            case .cancel:
+                return .failure(NSError(domain: "TrashManager", code: 409, userInfo: [
+                    NSLocalizedDescriptionKey: NSLocalizedString("Restore cancelled due to name conflict.", comment: "")
+                ]))
+            case .rename:
+                var counter = 1
+                while true {
+                    let candidate = "\(cleanOriginal) (\(counter))"
+                    let candURL = downloadsRoot.appendingPathComponent(candidate, isDirectory: true)
+                    if !fileManager.fileExists(atPath: candURL.path) {
+                        targetFolderName = candidate
+                        break
+                    }
+                    counter += 1
+                }
+            }
+        }
+
+        let targetFolderURL = downloadsRoot.appendingPathComponent(targetFolderName, isDirectory: true)
+
+        return await withCheckedContinuation { continuation in
+            ioQueue.async { [weak self] in
+                guard let self = self else {
+                    continuation.resume(returning: .failure(NSError(domain: "TrashManager", code: 500, userInfo: [
+                        NSLocalizedDescriptionKey: NSLocalizedString("Manager was deallocated.", comment: "")
+                    ])))
+                    return
+                }
+
+                // 1. トランザクション記録
+                var tx = TrashTransaction(
+                    transactionID: UUID(),
+                    trashID: itemID,
+                    folderName: targetFolderName,
+                    operation: .restore,
+                    phase: .manifestVerified,
+                    sourcePath: sourceFolderInTrash.path,
+                    destinationPath: targetFolderURL.path,
+                    timestamp: Date()
+                )
+                self.recordTransaction(tx)
+
+                if let hook = self.faultInjectionBeforeRestorePhysicalMove {
+                    do { try hook() } catch {
+                        self.removeTransaction(trashID: itemID)
+                        continuation.resume(returning: .failure(error))
+                        return
+                    }
+                }
+
+                do {
+                    // 2. 物理ディレクトリを復元先へ移動
+                    try self.fileManager.moveItem(at: sourceFolderInTrash, to: targetFolderURL)
+
+                    // 外部HLSパッケージの復元
+                    if let externalHLS = manifest.externalHLSAssets {
+                        let hlsDir = itemDir.appendingPathComponent("external_hls", isDirectory: true)
+                        for extRec in externalHLS {
+                            let extSource = hlsDir.appendingPathComponent(extRec.trashPackageSubpath)
+                            let origURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent(extRec.originalRelativePath)
+                            if self.fileManager.fileExists(atPath: extSource.path) {
+                                try? self.fileManager.createDirectory(at: origURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                                try? self.fileManager.moveItem(at: extSource, to: origURL)
+                            }
+                        }
+                    }
+
+                    tx.phase = .physicalMoved
+                    self.recordTransaction(tx)
+
+                    // 3. メタデータから削除
+                    var updatedItems = self.items
+                    updatedItems.removeAll { $0.id == itemID }
+                    do {
+                        try self.writeMetadataToDisk(updatedItems)
+                    } catch {
+                        // メタデータ保存失敗時はゴミ箱へロールバック
+                        try? self.fileManager.moveItem(at: targetFolderURL, to: sourceFolderInTrash)
+                        self.removeTransaction(trashID: itemID)
+                        continuation.resume(returning: .failure(error))
+                        return
+                    }
+
+                    tx.phase = .metadataCommitted
+                    self.recordTransaction(tx)
+
+                    // 4. ゴミ箱一時領域を消去
+                    try? self.fileManager.removeItem(at: itemDir)
+                    self.trashThumbnailCache.removeObject(forKey: itemID.uuidString as NSString)
+
+                    // 5. 各インデックスへ再登録（UUIDおよびメタデータを100%保持）
+                    DispatchQueue.main.async {
+                        self.items = updatedItems
+                        folderManager.registerLogicalFolderIfNeeded(targetFolderName)
+
+                        for vRec in manifest.videos {
+                            var v = vRec.video
+                            if v.isHLS {
+                                v.relativePath = vRec.video.relativePath
+                            } else {
+                                v.relativePath = "Documents/Downloads/\(targetFolderName)/\(vRec.relativeSubpath)"
+                            }
+                            downloads.restoreSavedVideo(v)
+                            folderManager.restoreVideoToFolder(v, targetFolder: targetFolderName)
+                        }
+
+                        for fRec in manifest.generalFiles {
+                            var f = fRec.file
+                            f.relativePath = "Documents/Downloads/\(targetFolderName)/\(fRec.relativeSubpath)"
+                            f.folderName = targetFolderName
+                            zipManager.restoreManagedFileToIndex(f)
+                        }
+
+                        self.removeTransaction(trashID: itemID)
+                        continuation.resume(returning: .success(targetFolderName))
+                    }
+                } catch {
+                    // ロールバック
+                    if self.fileManager.fileExists(atPath: targetFolderURL.path) && !self.fileManager.fileExists(atPath: sourceFolderInTrash.path) {
+                        try? self.fileManager.moveItem(at: targetFolderURL, to: sourceFolderInTrash)
+                    }
+                    self.removeTransaction(trashID: itemID)
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+    }
+
+    // MARK: - 動画・一般ファイルの統合復元 (Phase F2-B & S3)
 
     enum RestoreResult {
         case video(SavedVideo)
         case generalFile(ManagedFileItem)
+        case folder(String)
     }
 
     @discardableResult
@@ -887,7 +1657,13 @@ final class TrashManager: ObservableObject {
         folderManager: VideoFolderManager,
         zipManager: ZipArchiveManager
     ) async -> Result<RestoreResult, Error> {
-        if item.isGeneralFile {
+        if item.isFolder {
+            let res = await restoreFolder(item: item, downloads: downloads, folderManager: folderManager, zipManager: zipManager)
+            switch res {
+            case .success(let folderName): return .success(.folder(folderName))
+            case .failure(let err): return .failure(err)
+            }
+        } else if item.isGeneralFile {
             let res = await restoreGeneralFile(item: item, zipManager: zipManager, folderManager: folderManager)
             switch res {
             case .success(let file): return .success(.generalFile(file))
@@ -941,6 +1717,7 @@ final class TrashManager: ObservableObject {
                         try self.fileManager.removeItem(at: itemDir)
                     }
                     self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
+                    self.removeTransaction(trashID: item.id)
 
                     // 2. メタデータを更新
                     var updatedItems = self.items
@@ -984,6 +1761,7 @@ final class TrashManager: ObservableObject {
                             try self.fileManager.removeItem(at: itemDir)
                         }
                         self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
+                        self.removeTransaction(trashID: item.id)
                     } catch {
                         firstError = error
                         remainingItems.append(item)
@@ -1023,12 +1801,21 @@ final class TrashManager: ObservableObject {
                 // UIで復元・削除操作中のアイテムはスキップして競合防止
                 if self.isProcessing(item.id) { continue }
 
+                // ユーザーファイル保護: マニフェスト破損・欠損のフォルダは自動削除から厳格に除外
+                if item.isFolder {
+                    guard let _ = self.loadFolderManifest(for: item.id) else {
+                        print("[TrashManager] WARNING: Skipping auto-purge for folder item \(item.id) because manifest is corrupted or missing. Preserving files to prevent data loss.")
+                        continue
+                    }
+                }
+
                 let itemDir = self.itemDirectoryURL(for: item.id)
                 do {
                     if self.fileManager.fileExists(atPath: itemDir.path) {
                         try self.fileManager.removeItem(at: itemDir)
                     }
                     self.trashThumbnailCache.removeObject(forKey: item.id.uuidString as NSString)
+                    self.removeTransaction(trashID: item.id)
                     successfullyDeletedIDs.insert(item.id)
                 } catch {
                     print("[TrashManager] Failed to auto-purge item \(item.id): \(error)")
@@ -1086,9 +1873,40 @@ final class TrashManager: ObservableObject {
 
         var recovered: [TrashItem] = []
         for dir in subdirs where dir.hasDirectoryPath {
+            if dir.lastPathComponent == "transactions" { continue }
             guard let id = UUID(uuidString: dir.lastPathComponent) else { continue }
+
+            // フォルダマニフェストが存在する場合はフォルダアイテムとして救済
+            let manifestURL = dir.appendingPathComponent("folder_manifest.json")
+            if fileManager.fileExists(atPath: manifestURL.path),
+               let mData = try? Data(contentsOf: manifestURL),
+               let manifest = try? JSONDecoder().decode(FolderTrashManifest.self, from: mData) {
+                let count = manifest.videos.count + manifest.generalFiles.count + manifest.unregisteredFiles.count
+                let item = TrashItem(
+                    id: id,
+                    originalVideoID: manifest.folderID,
+                    originalTitle: manifest.originalFolderName,
+                    originalRelativePath: "Documents/Downloads/\(manifest.originalFolderName)",
+                    originalFolderName: "",
+                    format: .mp4,
+                    byteSize: manifest.totalByteSize,
+                    sourceHost: nil,
+                    sourcePageURL: nil,
+                    deletedAt: manifest.deletedAt,
+                    expiresAt: nil, // 救済ファイルは保護のため自動削除なし
+                    fileName: manifest.originalFolderName,
+                    isFavorite: false,
+                    payloadKind: .folder,
+                    fileExtension: nil,
+                    relativeSubpath: nil,
+                    folderItemCount: count
+                )
+                recovered.append(item)
+                continue
+            }
+
             guard let files = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]),
-                  let firstFile = files.first(where: { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "thumbnail.jpg" }) else {
+                  let firstFile = files.first(where: { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "thumbnail.jpg" && $0.lastPathComponent != "folder_manifest.json" && $0.lastPathComponent != "transaction.json" }) else {
                 continue
             }
 
